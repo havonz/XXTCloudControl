@@ -1,6 +1,6 @@
-# XXTCloud Control Server
+# XXTCloudControl
 
-这是一个用于远程控制设备的 WebSocket 服务器和前端界面。
+这是一个用于 XXTouch 云控制设备的 WebSocket 服务器和前端界面。
 
 ## 项目结构
 
@@ -9,6 +9,7 @@
   - `index.html` - 前端界面
   - `styles.css` - 样式表
   - `app.js` - JavaScript 功能实现
+- `XXT 云控设置.lua` - XXT 云控设置脚本
 
 ## 功能特点
 
@@ -37,11 +38,37 @@
 
 4. 输入控制密码（默认为 "12345678"）并连接服务器（WebSocket 端口为 46980）
 
-5. 查看设备列表，选择设备，发送控制命令
+5. 对设备端的 XXT 服务的 /api/config 端口 POST 如下配置以加入到被控列表
+    ```json
+    {
+        "cloud": {
+            "enable": true,
+            "address": "ws://服务器地址:46980"
+        }
+    }
+    ```
+
+6. 查看设备列表，选择设备，发送控制命令
 
 ## API文档
 
-### 通用消息格式
+### 设备端加入设备列表
+
+设备端发送如下消息可加入设备列表：
+```json
+{
+    "type": "app/state",
+    "body": {
+        "system": {
+            "udid": "设备唯一标识",
+            // 其他系统信息
+        }
+    }
+}
+```
+非控制端消息都会认为是设备消息，全部转发到控制端
+
+### 控制端通用消息格式
 
 所有发送到服务器的命令使用以下JSON格式：
 ```json
@@ -337,4 +364,4 @@
 
 - 前端使用 CryptoJS 库实现 HMAC-SHA256 签名
 - 实际应用中，建议使用 HTTPS 和 WSS 协议以确保通信安全
-- 上传大文件时（>1MB）可能会导致WebSocket连接断开，建议实现分块上传
+- 上传大文件时（>1MB）可能会导致WebSocket连接断开
