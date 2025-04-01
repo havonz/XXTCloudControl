@@ -1,0 +1,412 @@
+/* 远程控制界面样式 */
+
+/* 远程控制界面布局 */
+.remote-control-container {
+    display: flex;
+    gap: 20px;
+    height: 100%;
+    width: 100%;
+}
+
+.remote-control-left {
+    flex: 3;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.remote-control-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    height: 100%;
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+/* 屏幕容器样式 */
+.screen-container {
+    position: relative;
+    margin-bottom: 15px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: #000;
+    width: 100%;
+    height: calc(100% - 50px); /* 减去控制按钮的高度 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#device-screen {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain; /* 保持原始比例，不变形 */
+    pointer-events: none; /* 确保图片不会捕获鼠标事件 */
+    background-color: #000; /* 设置背景色与容器一致 */
+}
+
+.screen-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    cursor: crosshair;
+}
+
+/* 触摸点动画样式 */
+.touch-point {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: rgba(255, 0, 0, 0.5);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    animation: touch-animation 0.5s ease-out forwards;
+}
+
+@keyframes touch-animation {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(0.5);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(1.5);
+    }
+}
+
+/* 控制按钮区域 */
+.control-buttons {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    align-items: center;
+}
+
+#fps-counter {
+    margin-left: auto;
+    font-family: monospace;
+    background-color: rgba(0, 0, 0, 0.1);
+    padding: 3px 8px;
+    border-radius: 4px;
+}
+
+/* 文件浏览器样式 */
+.file-browser, .file-viewer {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%;
+    height: 80%;
+    max-width: 1200px;
+    max-height: 800px;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    display: none;
+    flex-direction: column;
+    z-index: 1000;
+}
+
+.file-browser.active, .file-viewer.active {
+    display: flex;
+}
+
+/* 文件浏览器内部结构 */
+.file-browser-header, .file-viewer-header {
+    padding: 15px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.file-browser-content, .file-viewer-content {
+    flex: 1;
+    padding: 15px 15px 5px 15px; /* 减少底部内边距 */
+    overflow: auto;
+    position: relative;
+}
+
+.file-browser-footer, .file-viewer-footer {
+    padding: 8px 15px; /* 减少上下内边距 */
+    border-top: 1px solid #eee;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* 文件列表样式 */
+#file-list {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0; /* 确保表格底部没有额外边距 */
+}
+
+#file-list th, #file-list td {
+    padding: 5px 8px; /* 减少单元格内边距 */
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+#file-list th {
+    background-color: #f5f5f5;
+    font-weight: bold;
+}
+
+#file-list tr:hover {
+    background-color: #f9f9f9;
+}
+
+.file-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.folder-icon, .file-icon {
+    font-style: normal;
+}
+
+.file-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.file-actions button {
+    padding: 3px 8px;
+    font-size: 12px;
+}
+
+/* 路径导航 */
+.path-navigation {
+    display: flex;
+    gap: 8px;
+    margin-left: 20px;
+    flex: 1;
+}
+
+.path-navigation input {
+    flex: 1;
+    min-width: 200px;
+}
+
+/* 上传叠加层 */
+.upload-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(52, 152, 219, 0.9);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+    border: 3px dashed #fff;
+    border-radius: 8px;
+}
+
+.upload-overlay.active {
+    display: flex;
+}
+
+.upload-message {
+    text-align: center;
+    color: white;
+    padding: 30px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+}
+
+/* 永久上传区域 */
+.upload-area {
+    margin: 10px 0;
+    padding: 20px;
+    border: 3px dashed #3498db;
+    border-radius: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(52, 152, 219, 0.1);
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.upload-area:hover {
+    background-color: rgba(52, 152, 219, 0.2);
+    transform: scale(1.01);
+}
+
+.upload-area .upload-message {
+    background-color: transparent;
+    color: #3498db;
+}
+
+/* 空状态提示 */
+.empty-file-state {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    z-index: 5;
+}
+
+.empty-file-state .upload-message {
+    background-color: rgba(52, 152, 219, 0.9);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.empty-file-state .upload-message:hover {
+    background-color: rgba(52, 152, 219, 1);
+    transform: scale(1.05);
+}
+
+.clickable {
+    cursor: pointer;
+}
+
+.upload-icon {
+    font-size: 64px;
+    font-style: normal;
+    margin-bottom: 15px;
+    display: block;
+}
+
+/* 文件查看器内容 */
+#file-content {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: #f5f5f5;
+    padding: 15px;
+    border-radius: 4px;
+    font-family: monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* 创建目录对话框 */
+.create-dir-dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    z-index: 1100;
+    display: none;
+    width: 300px;
+}
+
+.create-dir-dialog.active {
+    display: block;
+}
+
+.create-dir-dialog h4 {
+    margin-bottom: 15px;
+}
+
+.create-dir-dialog input {
+    width: 100%;
+    margin-bottom: 15px;
+}
+
+.dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* 拖放上传提示 */
+.drag-upload-tooltip {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background-color: rgba(52, 152, 219, 0.8);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    z-index: 5;
+    animation: fade-in 0.5s ease-in-out;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.drag-upload-tooltip.fade-out {
+    animation: fade-out 1s ease-in-out forwards;
+}
+
+@keyframes fade-in {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-out {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-10px); }
+}
+
+/* 上传进度遮罩 */
+.upload-progress-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.upload-progress-overlay.active {
+    display: flex;
+}
+
+.upload-progress-content {
+    background-color: white;
+    padding: 20px 30px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+#upload-status-message {
+    font-size: 16px;
+    font-weight: bold;
+    margin: 0;
+}
