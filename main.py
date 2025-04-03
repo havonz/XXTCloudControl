@@ -93,8 +93,8 @@ controllers = set()
 def is_data_valid(data):
     return type(data['ts']) == int and type(data['sign']) == str and int(time.time()) - 10 <= data['ts'] <= int(time.time()) + 10 and hmac.new(passhash, str(data['ts']).encode('utf-8'), hashlib.sha256).hexdigest().lower() == data['sign'].lower()
 
-async def handle_connection(websocket, path):
-    print(websocket.remote_address, path)
+async def handle_connection(websocket):
+    print(websocket.remote_address)
 
     try:
         async for message in websocket:
@@ -203,6 +203,7 @@ async def handle_connection(websocket, path):
             if websocket in device_links_map:
                 udid = device_links_map[websocket]
                 del device_table[udid]
+                del device_links[udid]
                 del device_links_map[websocket]
                 if len(controllers) > 0:
                     send_tasks = [c.send(json.dumps({
@@ -212,7 +213,9 @@ async def handle_connection(websocket, path):
                     await asyncio.gather(*send_tasks)
                 print("device", udid, "disconnected")
 
+async def main():
+    server = await websockets.serve(handle_connection, '0.0.0.0', serv_port, ping_interval=15, ping_timeout=10)
+    await server.wait_closed()
+
 if __name__ == '__main__':
-    start_server = websockets.serve(handle_connection, '0.0.0.0', serv_port, ping_interval=15, timeout=10, ping_timeout=10)
-    asyncio.get_event_loop().run_until_complete(start_server)
-    asyncio.get_event_loop().run_forever()
+    asyncio.run(main())

@@ -667,6 +667,9 @@ function handleMessage(event) {
         } else if (message.type === 'system/respring') {
             // 处理系统重启响应
             handleSystemRespring(message);
+        } else if (message.type === 'device/disconnect') {
+            // 处理设备断开响应
+            handleDeviceDisconnect(message);
         } else if (
             message.type === 'touch/down' ||
             message.type === 'touch/up' ||
@@ -3272,6 +3275,30 @@ function handleSystemRespring(message) {
         logError(`重启系统失败: ${message.error}`);
     } else {
         logSuccess('系统已重启');
+    }
+}
+
+function handleDeviceDisconnect(message) {
+    console.log('收到设备断开响应:', message);
+    
+    if (message.error && message.error !== '') {
+        logError(`设备断开失败: ${message.error}`);
+    } else {
+        const disconnectedDeviceId = message.body;
+        logSuccess(`设备 ${disconnectedDeviceId} 已断开`);
+        
+        // 从设备列表中删除断开的设备
+        if (disconnectedDeviceId && devices[disconnectedDeviceId]) {
+            delete devices[disconnectedDeviceId];
+            
+            // 如果设备在选中列表中，也移除它
+            if (selectedDevices.has(disconnectedDeviceId)) {
+                selectedDevices.delete(disconnectedDeviceId);
+            }
+            
+            // 更新UI
+            updateDevicesList();
+        }
     }
 }
 
