@@ -1784,7 +1784,7 @@ function restartDevice(udid) {
         type: "control/command",
         body: {
             devices: [udid],
-            type: "device/restart"
+            type: "system/reboot"
         }
     };
     
@@ -1859,7 +1859,7 @@ function restartDevices(udids) {
         type: "control/command",
         body: {
             devices: udids,
-            type: "system/restart"
+            type: "system/reboot"
         }
     };
     
