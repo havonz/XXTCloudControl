@@ -1,14 +1,14 @@
 # XXTCloudControl
 
-这是一个用于 XXTouch 云控制设备的 WebSocket 服务器和前端界面。
+这是一个用于 XXTouch 1.3.8 以上版本简易的云控制设备的 WebSocket 服务器和前端界面。
 
 ## 项目结构
 
-- `main.py` - WebSocket 服务器，处理设备连接和控制命令
+- `main.py` - 后端 WebSocket 服务器，处理设备连接转发控制命令
 - `frontend/` - 前端文件目录
   - `index.html` - 前端界面
   - `styles.css` - 样式表
-  - `app.js` - JavaScript 功能实现
+  - `app.js` - 前端功能实现
 - `XXT 云控设置.lua` - XXT 云控设置脚本
 
 ## 功能特点
@@ -21,24 +21,29 @@
 
 ## 使用方法
 
-1. 启动后端 WebSocket 服务器：
+1. 提前准备一个 Python 3.10 环境，安装依赖  
+   ```
+   pip install -r requirements.txt
+   ```
+
+2. 启动后端 WebSocket 服务器：  
    ```
    python main.py
    ```
 
-2. 启动前端 HTTP 服务器：
+3. 启动前端 HTTP 服务器：  
    ```
    python -m http.server --directory frontend 8080
    ```
 
-3. 在浏览器中访问前端界面：
+4. 在浏览器中访问前端界面：  
    ```
    http://localhost:8080
    ```
 
-4. 输入控制密码（默认为 "12345678"）并连接服务器（WebSocket 端口为 46980）
+5. 输入控制密码（默认为 "12345678"）并连接服务器（WebSocket 端口为 46980）  
 
-5. 对设备端的 XXT 服务的 /api/config 端口 PUT 如下配置以加入到被控列表
+6. 对设备端的 XXT 服务的 /api/config 端口 PUT 如下配置以加入到被控列表  
     ```json
     {
         "cloud": {
@@ -48,7 +53,7 @@
     }
     ```
 
-6. 查看设备列表，选择设备，发送控制命令
+7. 查看设备列表，选择设备，发送控制命令  
 
 ## API文档
 
