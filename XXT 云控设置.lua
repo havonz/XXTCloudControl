@@ -18,7 +18,7 @@ dlg:add_input('服务器地址', conf.open_cloud_control.address or "ws://192.16
 local submit, choice = dlg:show()
 
 if submit then
-	http.put('http://127.0.0.1:46952/api/config', 5, {}, {
+	http.put('http://127.0.0.1:46952/api/config', 5, {}, json.encode{
 		cloud = {
 			enable = choice['云控开关'],
 			address = choice['服务器地址'],
