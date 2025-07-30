@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
 
 import asyncio
@@ -10,6 +9,7 @@ import time
 
 serv_port = 46980       # 服务端口
 serv_pass = b"12345678" # 控制密码
+status_request_interval = 25  # 状态请求间隔（秒）
 
 passhash = hmac.new(b"XXTouch", serv_pass, hashlib.sha256).hexdigest().lower().encode('utf-8')
 
@@ -90,14 +90,84 @@ device_links = {}
 device_links_map = {}
 controllers = set()
 
+# 定时器任务控制
+status_timer_task = None
+stop_timer = False
+
 def is_data_valid(data):
     return type(data['ts']) == int and type(data['sign']) == str and int(time.time()) - 10 <= data['ts'] <= int(time.time()) + 10 and hmac.new(passhash, str(data['ts']).encode('utf-8'), hashlib.sha256).hexdigest().lower() == data['sign'].lower()
+
+async def send_status_request_to_all_devices():
+    """向所有设备发送状态请求"""
+    if len(device_links) == 0:
+        return
+    
+    print(f"Sending status request to {len(device_links)} devices")
+    
+    # 创建状态请求消息
+    status_message = json.dumps({
+        'type': 'app/state',
+        'body': ''
+    })
+    
+    # 向所有设备发送状态请求
+    send_tasks = []
+    for device_conn in device_links.values():
+        try:
+            send_tasks.append(device_conn.send(status_message))
+        except Exception as e:
+            print(f"Failed to prepare status request for device: {e}")
+    
+    if send_tasks:
+        try:
+            await asyncio.gather(*send_tasks, return_exceptions=True)
+        except Exception as e:
+            print(f"Error sending status requests: {e}")
+
+async def status_request_timer():
+    """定时发送状态请求的任务"""
+    global stop_timer
+    print(f"Status request timer started (interval: {status_request_interval}s)")
+    
+    while not stop_timer:
+        try:
+            await asyncio.sleep(status_request_interval)
+            if not stop_timer:
+                await send_status_request_to_all_devices()
+        except asyncio.CancelledError:
+            print("Status request timer cancelled")
+            break
+        except Exception as e:
+            print(f"Error in status request timer: {e}")
+    
+    print("Status request timer stopped")
+
+async def start_status_timer():
+    """启动状态请求定时器"""
+    global status_timer_task, stop_timer
+    stop_timer = False
+    status_timer_task = asyncio.create_task(status_request_timer())
+
+async def stop_status_timer():
+    """停止状态请求定时器"""
+    global status_timer_task, stop_timer
+    stop_timer = True
+    if status_timer_task and not status_timer_task.done():
+        status_timer_task.cancel()
+        try:
+            await status_timer_task
+        except asyncio.CancelledError:
+            pass
 
 async def handle_connection(websocket):
     print(websocket.remote_address)
 
     try:
         async for message in websocket:
+            # 如果收到二进制帧直接忽略或记录
+            if isinstance(message, bytes):
+                print("binary frame len", len(message), "ignored")
+                continue
 
             # 过滤掉非 json 格式的消息
             try:
@@ -214,8 +284,16 @@ async def handle_connection(websocket):
                 print("device", udid, "disconnected")
 
 async def main():
-    server = await websockets.serve(handle_connection, '0.0.0.0', serv_port, ping_interval=15, ping_timeout=10)
-    await server.wait_closed()
+    # 启动状态请求定时器
+    await start_status_timer()
+    
+    try:
+        server = await websockets.serve(handle_connection, '0.0.0.0', serv_port, ping_interval=15, ping_timeout=10)
+        print(f"WebSocket server starting on 0.0.0.0:{serv_port}")
+        await server.wait_closed()
+    finally:
+        # 停止状态请求定时器
+        await stop_status_timer()
 
 if __name__ == '__main__':
     asyncio.run(main())
