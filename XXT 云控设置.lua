@@ -13,7 +13,7 @@ conf.open_cloud_control = conf.open_cloud_control or {}
 local dlg = dialog()
 
 dlg:add_switch('云控开关', conf.open_cloud_control.enable or false)
-dlg:add_input('服务器地址', conf.open_cloud_control.address or "ws://192.168.11.192:46980")
+dlg:add_input('服务器地址', conf.open_cloud_control.address or "ws://192.168.11.192:46980/api/ws")
 
 local submit, choice = dlg:show()
 

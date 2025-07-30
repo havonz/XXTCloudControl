@@ -12,9 +12,20 @@
         <header>
             <h1>XXTCloud 设备控制面板</h1>
             <div class="auth-panel">
-                <input type="password" id="password" placeholder="请输入控制密码" value="12345678">
-                <button id="connect-btn">连接服务器</button>
-                <span id="connection-status" class="status-disconnected">未连接</span>
+                <div class="server-config">
+                    <div class="config-row">
+                        <label for="server-host">服务器地址:</label>
+                        <input type="text" id="server-host" placeholder="localhost" value="localhost">
+                        <label for="server-port">端口:</label>
+                        <input type="number" id="server-port" placeholder="46980" value="46980" min="1" max="65535">
+                        <!-- <button type="button" id="clear-config-btn" class="clear-config-btn" title="清除保存的配置">清除配置</button> -->
+                    </div>
+                </div>
+                <div class="auth-row">
+                    <input type="password" id="password" placeholder="请输入控制密码" value="">
+                    <button id="connect-btn">连接服务器</button>
+                    <span id="connection-status" class="status-disconnected">未连接</span>
+                </div>
             </div>
         </header>
         
@@ -211,6 +222,8 @@
     </div>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="/api/config"></script>
+    <script src="config.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

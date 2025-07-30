@@ -4,12 +4,12 @@
 
 ## 项目结构
 
-- `main.py` - 后端 WebSocket 服务器，处理设备连接转发控制命令
+- `main.py` - 后端 WebSocket 服务器，处理设备连接转发控制命令，所有的设备端都会连接到它
 - `frontend/` - 前端文件目录
   - `index.html` - 前端界面
   - `styles.css` - 样式表
   - `app.js` - 前端功能实现
-- `XXT 云控设置.lua` - XXT 云控设置脚本
+- `XXT 云控设置.lua` - XXT 云控设置脚本，用于配置设备端连接到后端 WebSocket 服务器
 
 ## 功能特点
 

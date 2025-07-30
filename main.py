@@ -97,68 +97,6 @@ stop_timer = False
 def is_data_valid(data):
     return type(data['ts']) == int and type(data['sign']) == str and int(time.time()) - 10 <= data['ts'] <= int(time.time()) + 10 and hmac.new(passhash, str(data['ts']).encode('utf-8'), hashlib.sha256).hexdigest().lower() == data['sign'].lower()
 
-async def send_status_request_to_all_devices():
-    """向所有设备发送状态请求"""
-    if len(device_links) == 0:
-        return
-    
-    print(f"Sending status request to {len(device_links)} devices")
-    
-    # 创建状态请求消息
-    status_message = json.dumps({
-        'type': 'app/state',
-        'body': ''
-    })
-    
-    # 向所有设备发送状态请求
-    send_tasks = []
-    for device_conn in device_links.values():
-        try:
-            send_tasks.append(device_conn.send(status_message))
-        except Exception as e:
-            print(f"Failed to prepare status request for device: {e}")
-    
-    if send_tasks:
-        try:
-            await asyncio.gather(*send_tasks, return_exceptions=True)
-        except Exception as e:
-            print(f"Error sending status requests: {e}")
-
-async def status_request_timer():
-    """定时发送状态请求的任务"""
-    global stop_timer
-    print(f"Status request timer started (interval: {status_request_interval}s)")
-    
-    while not stop_timer:
-        try:
-            await asyncio.sleep(status_request_interval)
-            if not stop_timer:
-                await send_status_request_to_all_devices()
-        except asyncio.CancelledError:
-            print("Status request timer cancelled")
-            break
-        except Exception as e:
-            print(f"Error in status request timer: {e}")
-    
-    print("Status request timer stopped")
-
-async def start_status_timer():
-    """启动状态请求定时器"""
-    global status_timer_task, stop_timer
-    stop_timer = False
-    status_timer_task = asyncio.create_task(status_request_timer())
-
-async def stop_status_timer():
-    """停止状态请求定时器"""
-    global status_timer_task, stop_timer
-    stop_timer = True
-    if status_timer_task and not status_timer_task.done():
-        status_timer_task.cancel()
-        try:
-            await status_timer_task
-        except asyncio.CancelledError:
-            pass
-
 async def handle_connection(websocket):
     print(websocket.remote_address)
 
@@ -186,6 +124,7 @@ async def handle_connection(websocket):
                 if data['type'] == 'control/devices':
                     print(int(time.time()), data['ts'])
                     if not is_data_valid(data):
+                        await websocket.close()
                         continue
                     # print(websocket.remote_address[0], "controller connected")
                     controllers.add(websocket)
@@ -198,6 +137,7 @@ async def handle_connection(websocket):
                 # 如果收到 type 为 control/refresh 的消息，对设备列表中的每个设备都发送一个 app/state 消息
                 elif data['type'] == 'control/refresh':
                     if not is_data_valid(data):
+                        await websocket.close()
                         continue
                     # print(websocket.remote_address[0], "controller connected")
                     controllers.add(websocket)
@@ -211,6 +151,7 @@ async def handle_connection(websocket):
                 # 如果收到 type 为 control/command 的消息，则将其 body 转发到 body.devices 列表中的每个设备
                 elif data['type'] == 'control/command':
                     if not is_data_valid(data):
+                        await websocket.close()
                         continue
                     # print(websocket.remote_address[0], "controller connected")
                     controllers.add(websocket)
@@ -226,6 +167,7 @@ async def handle_connection(websocket):
                 # 如果收到 type 为 control/commands 的消息，则将其 body.commands 中的每条消息逐一转发到 body.devices 列表中的每个设备
                 elif data['type'] == 'control/commands':
                     if not is_data_valid(data):
+                        await websocket.close()
                         continue
                     # print(websocket.remote_address[0], "controller connected")
                     controllers.add(websocket)
@@ -283,17 +225,27 @@ async def handle_connection(websocket):
                     await asyncio.gather(*send_tasks)
                 print("device", udid, "disconnected")
 
+async def websocket_handler(websocket, path):
+    """WebSocket路径处理器"""
+    if path == '/api/ws':
+        await handle_connection(websocket)
+    else:
+        # 对于非WebSocket路径，关闭连接
+        await websocket.close(code=1000, reason="Invalid path")
+
 async def main():
-    # 启动状态请求定时器
-    await start_status_timer()
-    
-    try:
-        server = await websockets.serve(handle_connection, '0.0.0.0', serv_port, ping_interval=15, ping_timeout=10)
-        print(f"WebSocket server starting on 0.0.0.0:{serv_port}")
-        await server.wait_closed()
-    finally:
-        # 停止状态请求定时器
-        await stop_status_timer()
+    # 使用路径处理器来支持特定路径的WebSocket服务
+    server = await websockets.serve(
+        websocket_handler,
+        '0.0.0.0',
+        serv_port,
+        ping_interval=25,
+        ping_timeout=10
+    )
+    print(f"XXTCloudControl Python WebSocket服务器启动在: 0.0.0.0:{serv_port}")
+    print(f"WebSocket端点: ws://0.0.0.0:{serv_port}/api/ws")
+    print("Press Ctrl+C to stop the server")
+    await server.wait_closed()
 
 if __name__ == '__main__':
     asyncio.run(main())

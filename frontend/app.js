@@ -19,8 +19,8 @@ let lastFpsUpdateTime = 0; // 最后FPS更新时间
 let screenCaptureActive = false; // 屏幕捕获是否活跃
 let fpsUpdateInterval = null; // FPS更新间隔
 let isWaitingForScreenshot = false; // 是否正在等待截图响应
-let maxScreenshotWaitTime = 500; // 最大等待时间，毫秒
-let screenCaptureScale = 30; // 截屏图像缩放比例，100 为原始大小
+let maxScreenshotWaitTime = (window.XXTConfig && window.XXTConfig.ui) ? window.XXTConfig.ui.maxScreenshotWaitTime : 500; // 最大等待时间，毫秒
+let screenCaptureScale = (window.XXTConfig && window.XXTConfig.ui) ? window.XXTConfig.ui.screenCaptureScale : 30; // 截屏图像缩放比例，100 为原始大小
 let screenCaptureTimeout = null; // 截图超时定时器
 let canvasContext = null; // Canvas上下文
 let canvasWidth = 0; // Canvas宽度
@@ -29,18 +29,179 @@ let drawingRect = { x: 0, y: 0, width: 0, height: 0 }; // 绘制区域
 let currentViewingFile = null; // 当前查看的文件路径
 let currentDownloadFileName = null; // 当前下载的文件名
 
-// 确保WebSocket连接到正确的服务器地址
-// 如果通过HTTP服务器访问前端，需要使用相同的主机名但不同的端口
-let serverUrl = `ws://${window.location.hostname}:46980`;
+// WebSocket连接相关变量
+let serverUrl;
+let serverHostInput, serverPortInput, passwordInput;
+let savedConfig;
 
-// 添加调试信息
-console.log("WebSocket服务器URL:", serverUrl);
+// localStorage 配置键名
+const CONFIG_KEYS = {
+    SERVER_HOST: 'xxt_server_host',
+    SERVER_PORT: 'xxt_server_port',
+    PASSWORD_HASH: 'xxt_password_hash'
+};
+
+// 从 localStorage 读取配置
+function loadUserConfig() {
+    const savedHost = localStorage.getItem(CONFIG_KEYS.SERVER_HOST);
+    const savedPort = localStorage.getItem(CONFIG_KEYS.SERVER_PORT);
+    const savedPasswordHash = localStorage.getItem(CONFIG_KEYS.PASSWORD_HASH);
+    
+    return {
+        host: savedHost,
+        port: savedPort,
+        passwordHash: savedPasswordHash
+    };
+}
+
+// 保存配置到 localStorage
+function saveConfig() {
+    const host = serverHostInput.value.trim();
+    const port = serverPortInput.value.trim();
+    const password = passwordInput.value.trim();
+    
+    // 保存主机和端口
+    if (host) {
+        localStorage.setItem(CONFIG_KEYS.SERVER_HOST, host);
+    }
+    if (port) {
+        localStorage.setItem(CONFIG_KEYS.SERVER_PORT, port);
+    }
+    
+    // 保存密码的 passhash
+    let passhash = localStorage.getItem(CONFIG_KEYS.PASSWORD_HASH);
+    if (password) {
+        passhash = CryptoJS.HmacSHA256(password, "XXTouch").toString().toLowerCase();
+        localStorage.setItem(CONFIG_KEYS.PASSWORD_HASH, passhash);
+        console.log('配置已保存到 localStorage');
+    }
+    
+    savedConfig = {
+        host: host,
+        port: port,
+        passwordHash: passhash
+    };
+}
+
+// 验证密码是否与保存的 passhash 匹配
+function validatePassword(inputPassword) {
+    const savedPasswordHash = localStorage.getItem(CONFIG_KEYS.PASSWORD_HASH);
+    if (!savedPasswordHash) {
+        return true; // 没有保存的密码，允许任何密码
+    }
+    
+    const inputPasswordHash = CryptoJS.HmacSHA256(inputPassword, "XXTouch").toString().toLowerCase();
+    return inputPasswordHash === savedPasswordHash;
+}
+
+// 清除保存的配置
+function clearConfig() {
+    if (confirm('确定要清除所有保存的配置吗？这将删除保存的服务器地址、端口和密码。')) {
+        localStorage.removeItem(CONFIG_KEYS.SERVER_HOST);
+        localStorage.removeItem(CONFIG_KEYS.SERVER_PORT);
+        localStorage.removeItem(CONFIG_KEYS.PASSWORD_HASH);
+        
+        // 重置输入框为默认值
+        let defaultHost = window.location.hostname || 'localhost';
+        let defaultPort = '46980';
+        
+        // 从配置文件获取默认值
+        if (window.XXTConfig && window.XXTConfig.websocket) {
+            if (window.XXTConfig.websocket.host) {
+                defaultHost = window.XXTConfig.websocket.host;
+            }
+            if (window.XXTConfig.websocket.port) {
+                defaultPort = window.XXTConfig.websocket.port.toString();
+            }
+        }
+        
+        serverHostInput.value = defaultHost;
+        serverPortInput.value = defaultPort;
+        passwordInput.value = '';
+        passwordInput.placeholder = '请输入控制密码';
+        
+        // 更新WebSocket URL
+        updateServerUrl();
+        
+        console.log('配置已清除，已重置为默认值');
+        logInfo('已清除保存的配置');
+    }
+}
+
+// 初始化服务器配置
+function initServerConfig() {
+    serverHostInput = document.getElementById('server-host');
+    serverPortInput = document.getElementById('server-port');
+    passwordInput = document.getElementById('password');
+    
+    // 加载保存的配置
+    savedConfig = loadUserConfig();
+    
+    // 优先级：localStorage > 配置文件 > 默认值
+    let defaultHost = window.location.hostname || 'localhost';
+    let defaultPort = '46980';
+    
+    // 从配置文件获取默认值
+    if (window.XXTConfig && window.XXTConfig.websocket) {
+        if (window.XXTConfig.websocket.host) {
+            defaultHost = window.XXTConfig.websocket.host;
+        }
+        if (window.XXTConfig.websocket.port) {
+            defaultPort = window.XXTConfig.websocket.port.toString();
+        }
+    }
+    
+    // 设置输入框值（localStorage 优先）
+    serverHostInput.value = savedConfig.host || defaultHost;
+    serverPortInput.value = savedConfig.port || defaultPort;
+    
+    // 如果有保存的密码hash，显示提示
+    if (savedConfig.passwordHash) {
+        passwordInput.placeholder = '留空使用保存的密码';
+        console.log('检测到已保存的密码配置');
+    }
+    
+    console.log('配置已加载:', {
+        host: serverHostInput.value,
+        port: serverPortInput.value,
+        hasPasswordHash: !!savedConfig.passwordHash
+    });
+    
+    // 清除配置按钮事件
+    // const clearConfigBtn = document.getElementById('clear-config-btn');
+    // clearConfigBtn.addEventListener('click', clearConfig);
+    
+    // 初始化URL
+    updateServerUrl();
+}
+
+// 更新服务器URL
+function updateServerUrl() {
+    const host = serverHostInput.value.trim() || 'localhost';
+    const port = serverPortInput.value.trim() || '46980';
+    
+    // 验证端口号
+    const portNum = parseInt(port);
+    if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        console.warn('无效的端口号:', port);
+        return;
+    }
+    
+    serverUrl = `ws://${host}:${port}/api/ws`;
+    console.log('服务器URL已更新:', serverUrl);
+    
+    // 如果已连接，提示用户重新连接
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        console.log('服务器地址已变更，请重新连接');
+        addLog('服务器地址已变更，请重新连接', 'warning');
+    }
+}
 
 // DOM 元素
 let connectBtn, refreshBtn, devicesList, devicesTable, selectAllCheckbox;
 let runScriptBtn, stopScriptBtn, scriptPathInput;
 let restartDeviceBtn, respringDeviceBtn;
-let passwordInput = null;
+// passwordInput 已在上面声明
 let connectionStatus = null;
 let uploadPathInput = null;
 let uploadFilesBtn = null;
@@ -106,6 +267,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化UI元素引用
     initUIElements();
     
+    // 初始化服务器配置
+    initServerConfig();
+    
     // 添加事件监听器
     connectBtn.addEventListener('click', toggleConnection);
     refreshBtn.addEventListener('click', refreshDevices);
@@ -129,21 +293,33 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 尝试自动连接
-    if (password) {
+    if (savedConfig.passwordHash) {
         toggleConnection();
     }
 });
 
 // 生成签名
 function generateSign(timestamp) {
-    // 首先计算 passhash = hmacSHA256("XXTouch", password)
-    const passhash = CryptoJS.HmacSHA256(password, "XXTouch").toString().toLowerCase();
+    let passhash;
+    
+    // 如果使用保存的密码，直接使用保存的passhash
+    if (password === 'SAVED_PASSWORD_PLACEHOLDER') {
+        if (savedConfig.passwordHash) {
+            passhash = savedConfig.passwordHash;
+        } else {
+            console.error('无法获取保存的密码hash');
+            return null;
+        }
+    } else {
+        // 首先计算 passhash = hmacSHA256("XXTouch", password)
+        passhash = CryptoJS.HmacSHA256(password, "XXTouch").toString().toLowerCase();
+    }
     
     // 然后计算 sign = hmacSHA256(passhash, 秒级时间戳转换成字符串)
     const sign = CryptoJS.HmacSHA256(timestamp.toString(), passhash).toString().toLowerCase();
     
     // console.log("生成签名:", {
-    //     password,
+    //     usingStoredPassword: password === 'SAVED_PASSWORD_PLACEHOLDER',
     //     timestamp,
     //     passhash,
     //     sign
@@ -388,6 +564,9 @@ function uploadNextFileToSelectedDevices() {
         finishUpload();
         return;
     }
+
+    console.log('上传队列:', uploadQueue);
+    console.log('上传文件:', uploadQueue[currentUploadIndex]);
     
     const file = uploadQueue[currentUploadIndex];
     const targetPath = uploadPath + file.relativePath;
@@ -474,7 +653,7 @@ function readAndUploadFileToSelectedDevices(file, path) {
         // 上传文件
         uploadFileToSelectedDevices(path, base64Data).then(() => {
             console.log('文件上传成功');
-            logSuccess('文件上传成功');
+            // logSuccess('文件上传成功');
             
             // 更新进度条
             updateUploadProgress();
@@ -484,7 +663,7 @@ function readAndUploadFileToSelectedDevices(file, path) {
             setTimeout(uploadNextFileToSelectedDevices, 100);
         }).catch(error => {
             console.error('上传文件失败:', error);
-            logError(`上传文件失败: ${error}`);
+            // logError(`上传文件失败: ${error}`);
             
             // 跳过这个文件，继续上传下一个
             currentUploadIndex++;
@@ -524,6 +703,7 @@ function finishUpload() {
 
 // 连接/断开 WebSocket
 function toggleConnection() {
+    saveConfig();
     if (isConnected) {
         disconnectWebSocket();
     } else {
@@ -533,15 +713,24 @@ function toggleConnection() {
 
 // 连接 WebSocket
 function connectWebSocket() {
-    password = passwordInput.value.trim();
+    const inputPassword = passwordInput.value.trim();
+    const savedConfig = loadUserConfig();
     
-    if (!password) {
+    // 如果输入框为空且有保存的密码hash，使用保存的密码
+    if (!inputPassword && savedConfig.passwordHash) {
+        // 使用保存的密码hash作为password变量（这里需要特殊处理）
+        password = 'SAVED_PASSWORD_PLACEHOLDER'; // 占位符，实际使用savedConfig.passwordHash
+        console.log('使用保存的密码配置');
+    } else if (inputPassword) {
+        // 使用输入的密码
+        password = inputPassword;
+        // 保存新密码
+        saveConfig();
+        console.log('使用输入的密码并保存');
+    } else {
         logError('请输入控制密码');
         return;
     }
-    
-    // 保存密码到本地存储
-    localStorage.setItem('xxtPassword', password);
     
     logInfo(`正在连接到服务器 ${serverUrl}...`);
     
@@ -627,7 +816,7 @@ function handleMessage(event) {
             console.log('收到设备状态更新:', message.udid, message.body);
             devices[message.udid] = message.body;
             updateDevicesList();
-            logInfo(`设备 ${message.udid.substring(0, 8)}... 状态已更新`);
+            // logInfo(`设备 ${message.udid.substring(0, 8)}... 状态已更新`);
         } else if (message.type === 'file/list') {
             // 处理文件列表响应
             handleFileList(message);
@@ -681,7 +870,7 @@ function handleMessage(event) {
         ) {
             // 忽略掉这些消息的返回 除非 error 不为空
             if (message.error) {
-                logError(message.error);
+                logError(JSON.stringify(message.error));
             }
         } else {
             // 处理其他消息
@@ -1000,7 +1189,7 @@ function handleScreenSnapshot(message) {
     }
     
     if (message.error && message.error !== "") {
-        console.error('屏幕截图响应错误:', message.error);
+        console.error('屏幕截图响应错误:', JSON.stringify(message.error));
         captureScreenshot(); // 立即请求下一帧
         return;
     }
@@ -1219,11 +1408,11 @@ function handleFileList(message) {
     }
     
     if (message.error && message.error !== '') {
-        console.error('获取文件列表错误:', message.error);
+        console.error('获取文件列表错误:', JSON.stringify(message.error));
         const fileList = document.getElementById('file-list');
         if (fileList) {
             const tbody = fileList.querySelector('tbody') || fileList;
-            tbody.innerHTML = `<tr><td colspan="3" class="error">加载失败: ${message.error}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="3" class="error">加载失败: ${JSON.stringify(message.error)}</td></tr>`;
         }
         return;
     }
@@ -1432,7 +1621,7 @@ function handleFilePut(message) {
     console.log('收到文件上传响应:', message);
     
     if (message.error && message.error !== "") {
-        logError(`上传失败: ${message.error}`);
+        logError(`上传失败: ${JSON.stringify(message.error)}`);
     } else {
         if (message.body && message.body.directory) {
             logSuccess('目录创建成功');
@@ -1497,7 +1686,7 @@ function uploadFileToSelectedDevices(filePath, fileData) {
                     ws.removeEventListener('message', messageHandler);
                     
                     if (message.error && message.error !== '') {
-                        reject(message.error);
+                        reject(JSON.stringify(message.error));
                     } else {
                         resolve();
                     }
@@ -1969,8 +2158,8 @@ function handleFileContent(message) {
     console.log('收到文件内容响应:', message);
     
     if (message.error && message.error !== '') {
-        console.error('获取文件内容错误:', message.error);
-        document.getElementById('file-content').textContent = `加载失败: ${message.error}`;
+        console.error('获取文件内容错误:', JSON.stringify(message.error));
+        document.getElementById('file-content').textContent = `加载失败: ${JSON.stringify(message.error)}`;
         return;
     }
     
@@ -2038,8 +2227,8 @@ function handleFileDownload(message) {
     }
     
     if (message.error && message.error !== '') {
-        console.error('下载文件错误:', message.error);
-        alert(`下载失败: ${message.error}`);
+        console.error('下载文件错误:', JSON.stringify(message.error));
+        alert(`下载失败: ${JSON.stringify(message.error)}`);
         return;
     }
     
@@ -2096,8 +2285,8 @@ function handleFileDelete(message) {
     console.log('收到文件删除响应:', message);
     
     if (message.error && message.error !== '') {
-        console.error('删除文件错误:', message.error);
-        alert(`删除失败: ${message.error}`);
+        console.error('删除文件错误:', JSON.stringify(message.error));
+        alert(`删除失败: ${JSON.stringify(message.error)}`);
         return;
     }
     
@@ -2411,8 +2600,8 @@ function createDirectoryOnSelectedDevices(path) {
                         ws.removeEventListener('message', messageHandler);
                         
                         if (message.error && message.error !== '') {
-                            console.log('创建目录失败:', message.error);
-                            reject(message.error);
+                            console.log('创建目录失败:', JSON.stringify(message.error));
+                            reject(JSON.stringify(message.error));
                         } else {
                             console.log('创建目录成功');
                             resolve();
@@ -2671,10 +2860,10 @@ function handleFilePutForCurrentRemoteDevice(message) {
     const fileBrowserUploadStatus = document.getElementById('file-browser-upload-status');
     
     if (message.error && message.error !== '') {
-        console.error('文件上传错误:', message.error);
-        logError(`文件上传失败: ${message.error}`);
+        console.error('文件上传错误:', JSON.stringify(message.error));
+        logError(`文件上传失败: ${JSON.stringify(message.error)}`);
         if (fileBrowserUploadStatus) {
-            fileBrowserUploadStatus.textContent = `上传失败: ${message.error}`;
+            fileBrowserUploadStatus.textContent = `上传失败: ${JSON.stringify(message.error)}`;
             fileBrowserUploadStatus.classList.add('error');
             
             // 3秒后清除状态
@@ -2785,20 +2974,12 @@ function handleFilePutToSelectedDevices(message) {
     console.log('收到文件上传响应:', message);
     
     if (message.error && message.error !== '') {
-        logError(`上传失败: ${message.error}`);
+        logError(`上传失败: ${JSON.stringify(message.error)}`);
     } else {
         if (message.body && message.body.directory) {
             logSuccess('目录创建成功');
         } else {
             logSuccess('文件上传成功');
-        }
-        
-        // 如果当前正在批量上传，则继续处理上传队列
-        if (isUploading && currentUploadIndex < uploadQueue.length) {
-            currentUploadIndex++;
-            setTimeout(uploadNextFileToSelectedDevices, 100);
-        } else if (isUploading) {
-            finishUpload();
         }
     }
 }
@@ -3238,7 +3419,7 @@ function handleScriptRun(message) {
     console.log('收到脚本启动响应:', message);
     
     if (message.error && message.error !== '') {
-        logError(`启动脚本失败: ${message.error}`);
+        logError(`启动脚本失败: ${JSON.stringify(message.error)}`);
     } else {
         const scriptName = message.body && message.body.name ? message.body.name : '未知脚本';
         logSuccess(`脚本 ${scriptName} 启动成功`);
@@ -3250,7 +3431,7 @@ function handleScriptStop(message) {
     console.log('收到脚本停止响应:', message);
     
     if (message.error && message.error !== '') {
-        logError(`停止脚本失败: ${message.error}`);
+        logError(`停止脚本失败: ${JSON.stringify(message.error)}`);
     } else {
         logSuccess('脚本已停止');
     }
@@ -3261,7 +3442,7 @@ function handleSystemRestart(message) {
     console.log('收到系统重启响应:', message);
     
     if (message.error && message.error !== '') {
-        logError(`重启系统失败: ${message.error}`);
+        logError(`重启系统失败: ${JSON.stringify(message.error)}`);
     } else {
         logSuccess('系统已重启');
     }
@@ -3272,7 +3453,7 @@ function handleSystemRespring(message) {
     console.log('收到系统重启响应:', message);
     
     if (message.error && message.error !== '') {
-        logError(`重启系统失败: ${message.error}`);
+        logError(`重启系统失败: ${JSON.stringify(message.error)}`);
     } else {
         logSuccess('系统已重启');
     }
@@ -3282,7 +3463,7 @@ function handleDeviceDisconnect(message) {
     console.log('收到设备断开响应:', message);
     
     if (message.error && message.error !== '') {
-        logError(`设备断开失败: ${message.error}`);
+        logError(`设备断开失败: ${JSON.stringify(message.error)}`);
     } else {
         const disconnectedDeviceId = message.body;
         logSuccess(`设备 ${disconnectedDeviceId} 已断开`);
@@ -3573,8 +3754,8 @@ function handleDirectoryCreate(message) {
     console.log('收到创建目录响应:', message);
     
     if (message.error && message.error !== '') {
-        console.error('创建目录错误:', message.error);
-        alert(`创建目录失败: ${message.error}`);
+        console.error('创建目录错误:', JSON.stringify(message.error));
+        alert(`创建目录失败: ${JSON.stringify(message.error)}`);
         return;
     }
     
