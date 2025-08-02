@@ -73,6 +73,16 @@
 ```
 非控制端消息都会认为是设备消息，全部转发到控制端
 
+### 设备断开连接
+
+```json
+{
+    "type": "devices/disconnect",
+    "body": udid
+}
+```
+当有设备与服务器断开连接时，服务器发送如下消息到控制端  
+
 ### 控制端通用消息格式
 
 所有发送到服务器的命令使用以下JSON格式：
@@ -159,7 +169,7 @@
     "sign": sign,
     "type": "control/command",
     "body": {
-        "devices": [udid],
+        "devices": [udid1, udid2, ...],
         "type": "file/list",
         "body": {
             "path": "/scripts"
@@ -192,7 +202,7 @@
     "sign": sign,
     "type": "control/command",
     "body": {
-        "devices": [udid],
+        "devices": [udid1, udid2, ...],
         "type": "file/delete",
         "body": {
             "path": "/scripts/xxx.lua"
@@ -220,7 +230,7 @@
     "sign": sign,
     "type": "control/command",
     "body": {
-        "devices": [udid],
+        "devices": [udid1, udid2, ...],
         "type": "system/respring"
     }
 }
@@ -235,7 +245,7 @@
     "sign": sign,
     "type": "control/command",
     "body": {
-        "devices": [udid],
+        "devices": [udid1, udid2, ...],
         "type": "system/reboot"
     }
 }
@@ -250,7 +260,7 @@
     "sign": sign,
     "type": "control/command",
     "body": {
-        "devices": [udid],
+        "devices": [udid1, udid2, ...],
         "type": "touch/tap|touch/down|touch/move|touch/up",
         "body": {
             "x": x坐标,
@@ -269,7 +279,7 @@
     "sign": sign,
     "type": "control/command",
     "body": {
-        "devices": [udid],
+        "devices": [udid1, udid2, ...],
         "type": "key/down|key/up",
         "body": {
             "code": "按键代码"
@@ -317,7 +327,7 @@
     "sign": sign,
     "type": "control/command",
     "body": {
-        "devices": [udid],
+        "devices": [udid1, udid2, ...],
         "type": "script/run",
         "body": {
             "name": "脚本名称.lua"
@@ -343,7 +353,7 @@
     "sign": sign,
     "type": "control/command",
     "body": {
-        "devices": [udid],
+        "devices": [udid1, udid2, ...],
         "type": "script/stop"
     }
 }
