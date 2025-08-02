@@ -186,7 +186,7 @@
     "body": [
         {
             "name": "文件名",
-            "type": "file|directory"
+            "type": "file|dir"
         },
         // 更多文件...
     ]
