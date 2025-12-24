@@ -172,3 +172,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+/xxtcloudserver.json
+/device-client
+/build

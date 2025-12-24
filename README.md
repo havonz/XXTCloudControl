@@ -1,382 +1,468 @@
 # XXTCloudControl
 
-这是一个用于 XXTouch 1.3.8 以上版本简易的云控制设备的 WebSocket 服务器和前端界面。
+用于 XXTouch 1.3.8+ 的云控服务端（WebSocket + 静态前端）与管理面板。
 
 ## 项目结构
 
-- `main.py` - 后端 WebSocket 服务器，处理设备连接转发控制命令，所有的设备端都会连接到它
-- `frontend/` - 前端文件目录
-  - `index.html` - 前端界面
-  - `styles.css` - 样式表
-  - `app.js` - 前端功能实现
-- `XXT 云控设置.lua` - XXT 云控设置脚本，用于配置设备端连接到后端 WebSocket 服务器
+- `server/main.go` - 后端 WebSocket/HTTP 服务
+- `frontend/` - 管理面板（SolidJS）
+- `device-client/` - Lua WebSocket 客户端库
+- `XXT 云控设置.lua` - 设备端配置脚本（写入云控地址）
+- `build.sh` - 构建并打包多平台服务端 + 前端
+- `build/` - 构建产物目录
 
 ## 功能特点
 
-- 基于 WebSocket 的实时通信
-- 设备状态监控
-- 远程触控命令发送
-- 命令序列执行
-- 安全的 HMAC-SHA256 签名验证
+- WebSocket 实时通信、设备状态同步
+- 前端面板 + 后端一体化部署（服务端可直接托管静态前端）
+- 设备批量控制：脚本、触控、按键、重启/注销
+- 文件管理：上传/下载/列出/删除/创建目录
+- 剪贴板读写、截图
+- HMAC-SHA256 签名校验
 
-## 使用方法
+## 快速开始
 
-1. 提前准备一个 Python 3.10 环境，安装依赖  
+### 开发模式
+
+1. 启动后端：
+   ```bash
+   cd server
+   go run .
    ```
-   pip install -r requirements.txt
+   首次启动会在当前目录生成 `xxtcloudserver.json` 并输出随机密码（只显示一次）。
+
+2. 启动前端开发服务器：
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
    ```
+   访问 `http://localhost:3000`，在登录页输入服务器地址与端口（默认 `46980`）以及密码。
 
-2. 启动后端 WebSocket 服务器：  
-   ```
-   python main.py
-   ```
+> 注意：`go run .` 在 `server` 目录启动时，默认 `frontend_dir` 为 `./frontend`，不会自动指向 `../frontend/dist`。若希望后端托管前端，请在配置里设置 `frontend_dir`，或使用打包后的目录结构。
 
-3. 启动前端 HTTP 服务器：  
-   ```
-   python -m http.server --directory frontend 8080
-   ```
+### 生产/打包
 
-4. 在浏览器中访问前端界面：  
-   ```
-   http://localhost:8080
-   ```
-
-5. 输入控制密码（默认为 "12345678"）并连接服务器（WebSocket 端口为 46980）  
-
-6. 对设备端的 XXT 服务的 /api/config 端口 PUT 如下配置以加入到被控列表  
-    ```json
-    {
-        "cloud": {
-            "enable": true,
-            "address": "ws://服务器地址:46980"
-        }
-    }
-    ```
-
-7. 查看设备列表，选择设备，发送控制命令  
-
-## API文档
-
-### 设备端加入设备列表
-
-设备端发送如下消息可加入设备列表：
-```json
-{
-    "type": "app/state",
-    "body": {
-        "system": {
-            "udid": "设备唯一标识",
-            // 其他系统信息
-        }
-    }
-}
+```bash
+bash build.sh
 ```
-非控制端消息都会认为是设备消息，全部转发到控制端
 
-### 设备断开连接
+产物输出在 `build/`，解压后目录结构如下：
+```
+xxtcloudcontrol/
+├── xxtcloudserver-<os>-<arch>[.exe]
+└── frontend/
+```
+在该目录内运行服务端即可自动托管前端（默认 `frontend_dir=./frontend`）。
+
+### 修改密码
+
+```bash
+./xxtcloudserver-<os>-<arch> -set-password 12345678
+```
+
+或在源码模式：
+```bash
+cd server
+go run . -set-password 12345678
+```
+
+## 配置说明
+
+默认配置文件：`xxtcloudserver.json`（在启动目录生成）
 
 ```json
 {
-    "type": "devices/disconnect",
-    "body": udid
+  "port": 46980,
+  "passhash": "hex-string",
+  "ping_interval": 15,
+  "ping_timeout": 10,
+  "frontend_dir": "./frontend"
 }
 ```
-当有设备与服务器断开连接时，服务器发送如下消息到控制端  
+
+- `passhash` 为 `hmacSHA256("XXTouch", password)` 的结果，不是明文密码。
+- `ping_interval` 会触发服务端发送 `app/state` 请求，设备需回应以保持在线。
+
+## 设备绑定方式
+
+1. 运行脚本 `XXT 云控设置.lua`，填写 `ws://<host>:46980/api/ws`。
+2. 或下载自动生成的绑定脚本：
+   `http://<host>:46980/api/download-bind-script?host=<host>&port=46980`
+3. 或手动调用设备本地接口：
+   ```http
+   PUT http://127.0.0.1:46952/api/config
+
+   {
+     "cloud": {
+       "enable": true,
+       "address": "ws://<host>:46980/api/ws"
+     }
+   }
+   ```
+
+关闭云控：将 `enable` 置为 `false`。
+
+## WebSocket 约定
+
+- WebSocket 地址：`ws://<host>:<port>/api/ws`
+- 控制端消息需包含 `ts`/`sign`，时间戳允许 ±10 秒漂移。
 
 ### 控制端通用消息格式
 
-所有发送到服务器的命令使用以下JSON格式：
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
-    "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "命令类型",
-        "body": {
-            // 命令参数
-        }
-    }
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command|control/commands|control/devices|control/refresh",
+  "body": {}
 }
 ```
 
-### 文件操作API
+### 设备端上线
+
+设备端发送 `app/state`，并在 `body.system.udid` 中提供唯一标识。
+
+### 设备断开
+
+服务端通知控制端：
+```json
+{
+  "type": "device/disconnect",
+  "body": "udid"
+}
+```
+
+### 设备列表
+
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/devices"
+}
+```
+
+响应：
+```json
+{
+  "type": "control/devices",
+  "body": {
+    "udid1": {},
+    "udid2": {}
+  }
+}
+```
+
+### 刷新设备状态
+
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/refresh"
+}
+```
+服务端会向所有设备广播 `app/state` 请求。
+
+### 批量命令
+
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/commands",
+  "body": {
+    "devices": ["udid1", "udid2"],
+    "commands": [
+      { "type": "script/run", "body": { "name": "demo.lua" } },
+      { "type": "screen/snapshot", "body": { "format": "png", "scale": 30 } }
+    ]
+  }
+}
+```
+
+## 常用命令类型
+
+### 文件操作
 
 #### 上传文件
-
-**请求：**
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
-    "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "file/put",
-        "body": {
-            "path": "/scripts/xxx.lua",
-            "data": "Base64格式数据"
-        }
-    }
-}
-```
-
-**响应：**
-```json
-{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
     "type": "file/put",
-    "error": ""  // 为空表示没有错误
+    "body": {
+      "path": "/scripts/xxx.lua",
+      "data": "Base64数据"
+    }
+  }
 }
 ```
 
 #### 创建目录
-
-**请求：**
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
-    "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "file/put",
-        "body": {
-            "path": "/scripts/dir",
-            "directory": true
-        }
-    }
-}
-```
-
-**响应：**
-```json
-{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
     "type": "file/put",
-    "error": "",  // 为空表示没有错误
     "body": {
-        "directory": true
+      "path": "/scripts/dir",
+      "directory": true
     }
+  }
 }
 ```
 
-#### 列出文件目录
-
-**请求：**
+#### 列出目录
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
-    "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "file/list",
-        "body": {
-            "path": "/scripts"
-        }
-    }
-}
-```
-
-**响应：**
-```json
-{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
     "type": "file/list",
-    "error": "",
-    "body": [
-        {
-            "name": "文件名",
-            "type": "file|dir"
-        },
-        // 更多文件...
-    ]
+    "body": {
+      "path": "/scripts"
+    }
+  }
+}
+```
+
+#### 下载文件
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
+    "type": "file/get",
+    "body": {
+      "path": "/scripts/xxx.lua"
+    }
+  }
 }
 ```
 
 #### 删除文件
-
-**请求：**
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
-    "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "file/delete",
-        "body": {
-            "path": "/scripts/xxx.lua"
-        }
-    }
-}
-```
-
-**响应：**
-```json
-{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
     "type": "file/delete",
-    "error": ""  // 为空表示没有错误
+    "body": {
+      "path": "/scripts/xxx.lua"
+    }
+  }
 }
 ```
 
-### 设备控制API
+### 设备控制
 
 #### 注销设备
-
-**请求：**
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
-    "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "system/respring"
-    }
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1", "udid2"],
+    "type": "system/respring"
+  }
 }
 ```
 
 #### 重启设备
-
-**请求：**
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
-    "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "system/reboot"
-    }
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1", "udid2"],
+    "type": "system/reboot"
+  }
 }
 ```
 
 #### 触控命令
-
-**请求：**
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1", "udid2"],
+    "type": "touch/down|touch/move|touch/up",
     "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "touch/tap|touch/down|touch/move|touch/up",
-        "body": {
-            "x": x坐标,
-            "y": y坐标
-        }
+      "x": 100,
+      "y": 200
     }
+  }
 }
 ```
 
 #### 按键命令
-
-**请求：**
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1", "udid2"],
+    "type": "key/down|key/up",
     "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "key/down|key/up",
-        "body": {
-            "code": "按键代码"
-        }
+      "code": "HOMEBUTTON"
     }
+  }
 }
 ```
 
 #### 屏幕截图
-
-**请求：**
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
+    "type": "screen/snapshot",
     "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "screen/snapshot",
-        "body": {
-            "format": "png",
-            "scale": 30 // 100 是原始大小
-        }
+      "format": "png",
+      "scale": 30
     }
+  }
 }
 ```
 
-**响应：**
+### 剪贴板
+
+#### 读取剪贴板
 ```json
 {
-  "type": "screen/snapshot",
-  "error": "",
-  "body": "Base64格式数据"
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
+    "type": "pasteboard/read"
+  }
 }
 ```
 
-### 脚本控制API
+#### 写入剪贴板
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
+    "type": "pasteboard/write",
+    "body": {
+      "uti": "public.plain-text",
+      "data": "UTF8 文本或 Base64 图片"
+    }
+  }
+}
+```
+
+### 词典/队列/脚本选择
+
+#### 设置词典值
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
+    "type": "proc-value/put",
+    "body": {
+      "key": "foo",
+      "value": "bar"
+    }
+  }
+}
+```
+
+#### 推送队列
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
+    "type": "proc-queue/push",
+    "body": {
+      "key": "queue",
+      "value": "item"
+    }
+  }
+}
+```
+
+#### 选择脚本
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
+    "type": "script/selected/put",
+    "body": {
+      "name": "demo.lua"
+    }
+  }
+}
+```
+
+### 脚本控制
 
 #### 启动脚本
-
-**请求：**
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
-    "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "script/run",
-        "body": {
-            "name": "脚本名称.lua"
-        }
-    }
-}
-```
-
-**响应：**
-```json
-{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1", "udid2"],
     "type": "script/run",
-    "error": ""  // 为空表示没有错误
+    "body": {
+      "name": "脚本名称.lua"
+    }
+  }
 }
 ```
 
 #### 停止脚本
-
-**请求：**
 ```json
 {
-    "ts": 秒级时间戳,
-    "sign": sign,
-    "type": "control/command",
-    "body": {
-        "devices": [udid1, udid2, ...],
-        "type": "script/stop"
-    }
-}
-```
-
-**响应：**
-```json
-{
-    "type": "script/stop",
-    "error": ""  // 为空表示没有错误
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1", "udid2"],
+    "type": "script/stop"
+  }
 }
 ```
 
 ## 安全说明
 
 - 所有控制命令都需要使用 HMAC-SHA256 签名验证
-- 默认控制密码为 "12345678"，建议在生产环境中修改为更强的密码
-- 签名算法：
-  - passhash = hmacSHA256("XXTouch", password)
-  - sign = hmacSHA256(passhash, 秒级时间戳转换成字符串)
-
-## 注意事项
-
-- 前端使用 CryptoJS 库实现 HMAC-SHA256 签名
-- 实际应用中，建议使用 HTTPS 和 WSS 协议以确保通信安全
-- 上传大文件时（>1MB）可能会导致WebSocket连接断开
+- 首次启动会生成随机密码（只显示一次），建议及时修改
+- 上传大文件（>1MB）可能导致 WebSocket 断开

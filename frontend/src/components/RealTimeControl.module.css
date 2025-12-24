@@ -1,0 +1,368 @@
+/* Modal overlay and base styles */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.realTimeModal {
+  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  border-radius: 12px;
+  width: 95%;
+  max-width: 1200px;
+  height: 85vh;
+  max-height: 800px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  color: white;
+}
+
+.modalHeader {
+  padding: 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: white;
+}
+
+.realTimeContent {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Device panel styles */
+.devicePanel {
+  width: 320px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1.5rem 0.5rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.devicePanel h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  color: white;
+}
+
+.deviceList {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-bottom: 1.5rem;
+  margin-right: 0.3rem;
+}
+
+.deviceItem {
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.3rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+  font-size: 0.85rem;
+}
+
+.deviceItem:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(33, 150, 243, 0.3);
+  box-shadow: 0 2px 8px rgba(33, 150, 243, 0.2);
+}
+
+.deviceItem.active {
+  background: rgba(33, 150, 243, 0.2);
+  border-color: rgba(33, 150, 243, 0.5);
+}
+
+.deviceName {
+  font-weight: 500;
+  margin-bottom: 0.15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  font-size: 0.85rem;
+}
+
+.deviceUdid {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.scaleControl {
+  margin-top: auto;
+}
+
+.syncControlSection {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.inputLabel {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.selectInput {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 0.9rem;
+}
+
+.selectInput:focus {
+  outline: none;
+  border-color: rgba(33, 150, 243, 0.5);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.selectInput option {
+  background: #2a5298;
+  color: white;
+}
+
+/* Checkbox styles */
+.checkboxLabel {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  gap: 0.5rem;
+}
+
+.checkbox {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  margin-top: 1px;
+  transition: all 0.2s ease;
+}
+
+.checkbox:hover {
+  border-color: rgba(33, 150, 243, 0.5);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.checkbox:checked {
+  background: rgba(33, 150, 243, 0.8);
+  border-color: rgba(33, 150, 243, 0.8);
+}
+
+.checkbox:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.checkboxContent {
+  flex: 1;
+}
+
+.checkboxHint {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 0.25rem;
+  line-height: 1.3;
+}
+
+/* Screen panel styles */
+.screenPanel {
+  flex: 1;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.screenContainer {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  position: relative;
+  min-height: 400px;
+}
+
+.screenImage {
+  /* 使用 object-fit: contain 保持宽高比，同时尽可能填满容器 */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+  /* 确保图像能够显示 */
+  display: block;
+}
+
+.screenPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+}
+
+.loadingText {
+  font-size: 1.1rem;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+}
+
+.screenInfo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.screenInfo span {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Modal actions */
+.modalActions {
+  padding: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.cancelButton {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.cancelButton:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+/* Clipboard button container spacing */
+.clipboardSection {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Clipboard button styles */
+.clipboardButton {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(33, 150, 243, 0.5);
+  border-radius: 8px;
+  background: rgba(33, 150, 243, 0.1);
+  color: rgba(33, 150, 243, 0.9);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.clipboardButton:hover:not(:disabled) {
+  background: rgba(33, 150, 243, 0.2);
+  border-color: rgba(33, 150, 243, 0.7);
+  color: rgba(33, 150, 243, 1);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.2);
+}
+
+.clipboardButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .realTimeModal {
+    width: 98%;
+    height: 90vh;
+  }
+  
+  .devicePanel {
+    width: 270px;
+    padding: 1.5rem 0.4rem 1.5rem 1.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .realTimeContent {
+    flex-direction: column;
+  }
+  
+  .devicePanel {
+    width: 100%;
+    height: 200px;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .deviceList {
+    flex-direction: row;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+  }
+  
+  .deviceItem {
+    min-width: 150px;
+    margin-right: 0.5rem;
+    margin-bottom: 0;
+  }
+}
