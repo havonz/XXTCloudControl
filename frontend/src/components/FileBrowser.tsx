@@ -11,6 +11,7 @@ import {
   IconCode,
   IconBoxesStacked,
   IconChartColumn,
+  IconUpload,
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
 import styles from './FileBrowser.module.css';
@@ -39,9 +40,14 @@ export default function FileBrowser(props: FileBrowserProps) {
   const [currentPath, setCurrentPath] = createSignal('/lua/scripts');
   const [newFolderName, setNewFolderName] = createSignal('');
   const [showNewFolderInput, setShowNewFolderInput] = createSignal(false);
+  const [newFileNameForFile, setNewFileNameForFile] = createSignal('');
+  const [showNewFileInput, setShowNewFileInput] = createSignal(false);
   const [showHidden, setShowHidden] = createSignal(false);
   const [isSelectMode, setIsSelectMode] = createSignal(false);
   const [selectedItems, setSelectedItems] = createSignal<Set<string>>(new Set<string>());
+  const [isDragOver, setIsDragOver] = createSignal(false);
+  const [isUploading, setIsUploading] = createSignal(false);
+  let dragCounter = 0;
 
   // 当组件打开时，加载默认目录
   createEffect(() => {
@@ -131,13 +137,32 @@ export default function FileBrowser(props: FileBrowserProps) {
     }, 500);
   };
 
-  const handleFileSelect = (event: Event) => {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (file) {
-      // 自动上传
-      handleUploadFile(file);
+  const handleCreateFile = () => {
+    const fileName = newFileNameForFile().trim();
+    if (!fileName) return;
+
+    // 检查文件是否已存在
+    const exists = props.files.some(f => f.name === fileName);
+    if (exists) {
+      alert(`文件 "${fileName}" 已存在！`);
+      return;
     }
+
+    const filePath = currentPath() === '/' 
+      ? `/${fileName}` 
+      : `${currentPath()}/${fileName}`;
+    
+    // 创建空文件（模拟上传一个空 Blob）
+    const emptyFile = new File([], fileName, { type: 'text/plain' });
+    props.onUploadFile(props.deviceUdid, filePath, emptyFile);
+    
+    setNewFileNameForFile('');
+    setShowNewFileInput(false);
+    
+    // 刷新当前目录
+    setTimeout(() => {
+      props.onListFiles(props.deviceUdid, currentPath());
+    }, 1000);
   };
 
   const handleUploadFile = (file: File) => {
@@ -153,6 +178,38 @@ export default function FileBrowser(props: FileBrowserProps) {
     setTimeout(() => {
       props.onListFiles(props.deviceUdid, currentPath());
     }, 1000);
+  };
+
+  // 拖拽上传处理
+  const handleDragEnter = (e: DragEvent) => {
+    e.preventDefault();
+    dragCounter++;
+    if (dragCounter === 1) setIsDragOver(true);
+  };
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDragLeave = (e: DragEvent) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter === 0) setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: DragEvent) => {
+    e.preventDefault();
+    dragCounter = 0;
+    setIsDragOver(false);
+    
+    const droppedFiles = Array.from(e.dataTransfer?.files || []);
+    if (droppedFiles.length > 0) {
+      setIsUploading(true);
+      for (const file of droppedFiles) {
+        handleUploadFile(file);
+      }
+      setTimeout(() => setIsUploading(false), 1500);
+    }
   };
 
   const breadcrumbs = () => {
@@ -223,15 +280,13 @@ export default function FileBrowser(props: FileBrowserProps) {
                 <span>新建文件夹</span>
               </button>
               
-              <label class={styles.uploadButton}>
+              <button 
+                class={styles.actionButton}
+                onClick={() => setShowNewFileInput(!showNewFileInput())}
+              >
                 <IconFileCirclePlus size={16} />
-                <span>上传文件</span>
-                <input 
-                  type="file" 
-                  style="display: none;" 
-                  onChange={handleFileSelect}
-                />
-              </label>
+                <span>新建文件</span>
+              </button>
 
               <button class={styles.actionButton} onClick={() => props.onListFiles(props.deviceUdid, currentPath())}>
                 <IconRotate size={16} />
@@ -329,8 +384,56 @@ export default function FileBrowser(props: FileBrowserProps) {
               </button>
             </div>
           </Show>
+
+          <Show when={showNewFileInput()}>
+            <div class={styles.newFolderInput}>
+              <input
+                type="text"
+                placeholder="输入文件名称"
+                value={newFileNameForFile()}
+                onInput={(e) => setNewFileNameForFile(e.currentTarget.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') handleCreateFile();
+                }}
+                class={styles.folderNameInput}
+                autofocus
+              />
+              <button class={styles.confirmButton} onClick={handleCreateFile}>创建</button>
+              <button 
+                class={styles.cancelButton} 
+                onClick={() => {
+                  setShowNewFileInput(false);
+                  setNewFileNameForFile('');
+                }}
+              >
+                取消
+              </button>
+            </div>
+          </Show>
           
-          <div class={styles.fileList}>
+          <div 
+            class={`${styles.fileList} ${isDragOver() ? styles.dragOver : ''}`}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            style={{ position: 'relative' }}
+          >
+            <Show when={isDragOver()}>
+              <div class={styles.dropOverlay}>
+                <div class={styles.dropHint}>
+                  <IconUpload size={20} />
+                  <span>释放上传到设备</span>
+                </div>
+              </div>
+            </Show>
+
+            <Show when={isUploading()}>
+              <div class={styles.uploadingOverlay}>
+                <div class={styles.uploadingHint}>上传中...</div>
+              </div>
+            </Show>
+
             <Show when={props.isLoading}>
               <div class={styles.loading}>加载中...</div>
             </Show>

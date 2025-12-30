@@ -176,3 +176,5 @@ cython_debug/
 /xxtcloudserver.json
 /device-client
 /build
+/server/data/
+/server/xxtcloudserver.json
