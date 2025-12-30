@@ -60,6 +60,40 @@
   background: var(--hover-bg);
 }
 
+/* 目录切换标签 */
+.tabs {
+  display: flex;
+  gap: 8px;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--panel-2);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.tab:hover {
+  background: var(--hover-bg);
+}
+
+.tab.active {
+  background: var(--btn-primary-bg);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 .toolbar {
   padding: 0.75rem 1.5rem;
   background: var(--panel-2);

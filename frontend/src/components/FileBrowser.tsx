@@ -8,6 +8,9 @@ import {
   IconDownload,
   IconTrash,
   IconHouse,
+  IconCode,
+  IconBoxesStacked,
+  IconChartColumn,
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
 import styles from './FileBrowser.module.css';
@@ -175,6 +178,38 @@ export default function FileBrowser(props: FileBrowserProps) {
             <h2>设备文件浏览器 - {props.deviceName}</h2>
             <button class={styles.closeButton} onClick={props.onClose}>
               <IconXmark size={18} />
+            </button>
+          </div>
+
+          {/* 目录切换按钮 */}
+          <div class={styles.tabs}>
+            <button 
+              class={`${styles.tab} ${currentPath() === '/lua/scripts' ? styles.active : ''}`} 
+              onClick={() => handleNavigate('/lua/scripts')}
+            >
+              <IconCode size={16} />
+              <span>脚本目录</span>
+            </button>
+            <button 
+              class={`${styles.tab} ${currentPath() === '/res' ? styles.active : ''}`} 
+              onClick={() => handleNavigate('/res')}
+            >
+              <IconBoxesStacked size={16} />
+              <span>资源目录</span>
+            </button>
+            <button 
+              class={`${styles.tab} ${currentPath() === '/log' ? styles.active : ''}`} 
+              onClick={() => handleNavigate('/log')}
+            >
+              <IconChartColumn size={16} />
+              <span>日志目录</span>
+            </button>
+            <button 
+              class={`${styles.tab} ${currentPath() === '/' || currentPath() === '' ? styles.active : ''}`} 
+              onClick={() => handleNavigate('/')}
+            >
+              <IconHouse size={16} />
+              <span>主目录</span>
             </button>
           </div>
           
