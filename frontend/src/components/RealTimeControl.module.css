@@ -34,6 +34,7 @@
   justify-content: space-between;
   align-items: center;
   background: var(--panel-2);
+  border-radius: 12px 12px 0 0;
 }
 
 .modalHeader h3 {
@@ -281,6 +282,7 @@
   justify-content: flex-end;
   gap: 1rem;
   background: var(--panel-2);
+  border-radius: 0 0 12px 12px;
 }
 
 .cancelButton {

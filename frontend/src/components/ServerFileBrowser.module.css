@@ -83,16 +83,17 @@
 .tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  gap: 4px;
+  padding: 0.35rem 0.75rem;
   background: var(--panel-2);
   border: 2px solid var(--border);
   border-radius: 8px;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 700;
   transition: all 0.2s ease;
+  min-height: 28px;
 }
 
 .tab:hover {
@@ -127,16 +128,18 @@
 .uploadButton {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  justify-content: center;
+  gap: 4px;
+  padding: 0.35rem 0.5rem;
   background: var(--panel-2);
   border: 2px solid var(--border);
   border-radius: 8px;
   color: var(--text);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 700;
   transition: all 0.2s ease;
+  min-height: 28px;
 }
 
 .actionButton:hover,
@@ -289,19 +292,22 @@
 .tableHeader {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 4px 12px;
   background: var(--panel-2);
   border-radius: 8px 8px 0 0;
   border-bottom: 1px solid var(--border);
   font-weight: 700;
   font-size: 0.85rem;
   color: var(--text-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .tableRow {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 4px 12px;
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
   transition: all 0.2s ease;
@@ -526,12 +532,16 @@
 
 .cancelBtn,
 .confirmBtn {
-  padding: 8px 20px;
+  padding: 0.35rem 0.5rem;
   border-radius: 8px;
-  font-size: 0.9rem;
+  font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .cancelBtn {
