@@ -5,23 +5,22 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(5px);
 }
 
 .modal {
-  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  background: var(--panel);
   border-radius: 12px;
   width: 90%;
   max-width: 500px;
   max-height: 90vh;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  color: var(--text);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -29,15 +28,15 @@
 
 .header {
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
 }
 
-.header h3 {
+.title {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
-  color: white;
+  color: var(--text);
 }
 
 .body {
@@ -46,22 +45,22 @@
   overflow-y: auto;
 }
 
-.body p {
+.description {
   margin: 0 0 1.5rem 0;
   font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-secondary);
 }
 
 .inputGroup {
   margin-bottom: 1rem;
 }
 
-.inputGroup label {
+.label {
   display: block;
   margin-bottom: 0.5rem;
   font-size: 0.9rem;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-secondary);
 }
 
 .inputRow {
@@ -73,24 +72,22 @@
 .input {
   flex: 1;
   padding: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
   font-size: 0.9rem;
-  backdrop-filter: blur(10px);
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
 }
 
 .input:focus {
   outline: none;
-  border-color: rgba(74, 144, 226, 0.8);
-  background: rgba(255, 255, 255, 0.15);
-  box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
 }
 
 .input::placeholder {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-muted);
 }
 
 .input:disabled {
@@ -99,28 +96,29 @@
 }
 
 .selectButton {
-  background: rgba(40, 167, 69, 0.8);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--btn-primary-bg);
+  color: var(--primary);
+  border: 2px solid var(--primary);
   padding: 0.75rem 1.25rem;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.9rem;
-  font-weight: 500;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
+  font-weight: 700;
+  transition: all 0.2s ease;
   white-space: nowrap;
 }
 
 .selectButton:hover:not(:disabled) {
-  background: rgba(40, 167, 69, 1);
+  background: var(--primary);
+  color: #fff;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+  box-shadow: var(--shadow);
 }
 
 .selectButton:disabled {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.5);
+  background: var(--panel-2);
+  color: var(--text-muted);
+  border-color: var(--border);
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
@@ -130,24 +128,25 @@
   display: flex;
   justify-content: flex-end;
   padding: 1rem 1.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
 }
 
 .cancelButton {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--panel-2);
+  color: var(--text);
+  border: 2px solid var(--border);
   padding: 0.5rem 1rem;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
+  font-weight: 700;
+  transition: all 0.2s ease;
 }
 
 .cancelButton:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--hover-bg);
+  border-color: var(--primary);
   transform: translateY(-1px);
 }
 

@@ -4,7 +4,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -12,16 +12,17 @@
 }
 
 .modalContent {
-  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  background: var(--panel);
   border-radius: 12px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
   max-width: 500px;
   width: 90%;
   max-height: 80vh;
   overflow-y: auto;
-  color: white;
+  color: var(--text);
   display: flex;
   flex-direction: column;
+  border: 1px solid var(--border);
 }
 
 @keyframes modalSlideIn {
@@ -40,15 +41,15 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
   border-radius: 12px 12px 0 0;
 }
 
 .modalHeader h2 {
   margin: 0;
   font-size: 1.2rem;
-  color: white;
+  color: var(--text);
 }
 
 .modalBody {
@@ -65,7 +66,7 @@
   margin: 0 0 1rem 0;
   font-size: 1rem;
   font-weight: 500;
-  color: white;
+  color: var(--text);
 }
 
 .qrCodeContainer {
@@ -73,9 +74,9 @@
   justify-content: center;
   margin: 1rem 0;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--panel-2);
   border-radius: 12px;
-  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border: 2px dashed var(--border);
 }
 
 .qrCodeImage {
@@ -84,86 +85,91 @@
   border-radius: 8px;
   background: white;
   padding: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .qrCodeLoading {
   width: 200px;
   height: 200px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--panel-2);
   padding: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-muted);
   font-size: 0.875rem;
-  border: 2px dashed rgba(255, 255, 255, 0.3);
+  border: 2px dashed var(--border);
 }
 
 .qrDescription {
   margin: 1rem 0 0 0;
   font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
 .downloadSection {
   text-align: center;
   padding-top: 1.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid var(--border);
 }
 
 .downloadSection h3 {
   margin: 0 0 1rem 0;
   font-size: 1rem;
   font-weight: 500;
-  color: white;
+  color: var(--text);
 }
 
 .downloadButton {
-  background: rgba(76, 175, 80, 0.8);
-  color: white;
-  border: none;
-  border-radius: 6px;
+  background: var(--btn-primary-bg);
+  color: var(--primary);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
   margin-bottom: 0.5rem;
 }
 
 .downloadButton:hover {
-  background: rgba(76, 175, 80, 1);
+  background: var(--primary);
+  color: #fff;
   transform: translateY(-1px);
 }
 
 .downloadDescription {
   margin: 0.5rem 0 0 0;
   font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
 .modalFooter {
   padding: 1rem 1.5rem 1.5rem 1.5rem;
   text-align: center;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
 }
 
 .cancelButton {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: none;
-  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: 8px;
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .cancelButton:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--hover-bg);
+  border-color: var(--primary);
   transform: translateY(-1px);
 }
 

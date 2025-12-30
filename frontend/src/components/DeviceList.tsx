@@ -1,11 +1,15 @@
 import { Component, createSignal, For, Accessor, Show, createEffect } from 'solid-js';
 import { Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
+import { useTheme } from './ThemeContext';
 import RealTimeControl from './RealTimeControl';
 import styles from './DeviceList.module.css';
 import DeviceBindingModal from './DeviceBindingModal';
 import DictionaryModal from './DictionaryModal';
 import { ScriptSelectionModal } from './ScriptSelectionModal';
+import ServerFileBrowser from './ServerFileBrowser';
+import { IconMoon, IconSun } from '../icons';
+
 
 interface DeviceListProps {
   devices: Device[];
@@ -27,8 +31,10 @@ interface DeviceListProps {
 }
 
 const DeviceList: Component<DeviceListProps> = (props) => {
+  const { theme, toggleTheme } = useTheme();
   const [searchTerm, setSearchTerm] = createSignal('');
   const [forceUpdate, setForceUpdate] = createSignal(0);
+
   
   // Upload modal state
   const [showUploadModal, setShowUploadModal] = createSignal(false);
@@ -37,6 +43,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [showDictionaryModal, setShowDictionaryModal] = createSignal(false);
   const [showRespringConfirm, setShowRespringConfirm] = createSignal(false);
   const [showScriptSelectionModal, setShowScriptSelectionModal] = createSignal(false);
+  const [showServerFileBrowser, setShowServerFileBrowser] = createSignal(false);
   const [modalUploadFiles, setModalUploadFiles] = createSignal<File[]>([]);
   const [modalUploadPath, setModalUploadPath] = createSignal('/lua/scripts');
   const [modalIsDragOver, setModalIsDragOver] = createSignal(false);
@@ -61,9 +68,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   // Force reactivity tracking
   createEffect(() => {
-    const count = props.selectedDevices().length;
-    const udids = props.selectedDevices().map(d => d.udid);
-    // console.log('EFFECT: selectedDevices changed - count:', count, 'udids:', udids);
+    props.selectedDevices().length;
+    props.selectedDevices().map(d => d.udid);
     setForceUpdate(prev => prev + 1); // Force component update
   });
 
@@ -368,11 +374,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     setShowRealTimeModal(false);
     setCurrentScreenshot('');
   };
-
-  const handleClipboardAccess = () => {
-    // Clipboard access is handled through RealTimeControl component
-    setShowRealTimeModal(true);
-  };
   
   const handleDeviceBinding = () => {
     setShowDeviceBindingModal(true);
@@ -529,6 +530,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               >
                 复制UDID
               </button>
+              <button
+                onClick={toggleTheme}
+                class={styles.themeToggle}
+                title={theme() === 'light' ? '切换到暗色模式' : '切换到亮色模式'}
+              >
+                <span class={styles.themeIcon}>
+                  {theme() === 'light' ? <IconMoon size={14} /> : <IconSun size={14} />}
+                </span>
+                {theme() === 'light' ? '暗色' : '亮色'}
+              </button>
             </div>
           </div>
         </div>
@@ -543,6 +554,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 class={styles.compactButton}
               >
                 设备绑定到云控
+              </button>
+              <button 
+                onClick={() => setShowServerFileBrowser(true)}
+                class={styles.compactButton}
+              >
+                浏览服务器文件
               </button>
             </div>
           </div>
@@ -1006,6 +1023,13 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           onClose={() => setShowDeviceBindingModal(false)}
           serverHost={props.serverHost}
           serverPort={props.serverPort}
+        />
+        
+        {/* 服务器文件浏览弹窗 */}
+        <ServerFileBrowser
+          isOpen={showServerFileBrowser()}
+          onClose={() => setShowServerFileBrowser(false)}
+          serverBaseUrl={`http://${props.serverHost}:${props.serverPort}`}
         />
         
         {/* Toast Notification */}

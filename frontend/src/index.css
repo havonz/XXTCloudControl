@@ -2,6 +2,157 @@
   box-sizing: border-box;
 }
 
+/* Light Theme (default) */
+:root,
+:root[data-theme="light"] {
+  /* Background colors */
+  --bg: #ffffff;
+  --bg-gradient: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f7f7f8;
+  --panel-transparent: rgba(255, 255, 255, 0.95);
+  --panel-glass: rgba(247, 247, 248, 0.9);
+  
+  /* Text colors */
+  --text: #222222;
+  --text-secondary: #6b7280;
+  --text-muted: #a1a1a1;
+  --muted-2: #94a3b8;
+  --text-on-gradient: #222222;
+  
+  /* Border colors */
+  --border: #e6e6e6;
+  --border-light: rgba(0, 0, 0, 0.08);
+  --border-on-gradient: #e6e6e6;
+  
+  /* Primary accent */
+  --primary: #52a7e0;
+  --primary-hover: #4a96c9;
+  --primary-gradient: #52a7e0;
+  --accent: #52a7e0;
+  --secondary: #e9ebf0;
+  
+  /* Status colors */
+  --success: #16a34a;
+  --success-bg: rgba(22, 163, 74, 0.1);
+  --danger: #dc2626;
+  --danger-bg: rgba(220, 38, 38, 0.1);
+  --warning: #d97706;
+  --warning-bg: rgba(217, 119, 6, 0.1);
+  --info: #3b82f6;
+  --info-bg: rgba(59, 130, 246, 0.1);
+  
+  /* Interactive states */
+  --hover-bg: rgba(0, 0, 0, 0.04);
+  --selected-bg: rgba(82, 167, 224, 0.15);
+  --row-hover: rgba(0, 0, 0, 0.08);
+  --row-selected: #dbeafe;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.1);
+  
+  /* Scrollbar */
+  --scrollbar-track: rgba(0, 0, 0, 0.05);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+  
+  /* Modal overlay */
+  --overlay: rgba(0, 0, 0, 0.5);
+  
+  /* Input styles */
+  --input-bg: #ffffff;
+  --input-border: #e6e6e6;
+  --input-focus-border: #52a7e0;
+  --input-placeholder: #a1a1a1;
+  
+  /* Button colors */
+  --btn-glass-bg: var(--panel-2);
+  --btn-glass-hover: #eeeeef;
+  --btn-glass-border: #e6e6e6;
+  
+  /* Button primary styles */
+  --btn-primary-bg: rgba(82, 167, 224, 0.28);
+  --btn-primary-border: #52a7e0;
+  --btn-primary-text: #52a7e0;
+}
+
+/* Dark Theme */
+:root[data-theme="dark"] {
+  /* Background colors */
+  --bg: #0b1020;
+  --bg-gradient: #0b1020;
+  --panel: #0f1530;
+  --panel-2: #11172e;
+  --panel-transparent: rgba(15, 21, 48, 0.95);
+  --panel-glass: rgba(255, 255, 255, 0.05);
+  
+  /* Text colors */
+  --text: #e6e9ef;
+  --text-secondary: #9aa3b2;
+  --text-muted: #64748b;
+  --muted-2: #94a3b8;
+  --text-on-gradient: #e6e9ef;
+  
+  /* Border colors */
+  --border: #1f2a4a;
+  --border-light: rgba(255, 255, 255, 0.1);
+  --border-on-gradient: #1f2a4a;
+  
+  /* Primary accent */
+  --primary: #4f8cff;
+  --primary-hover: #6a9fff;
+  --primary-gradient: #4f8cff;
+  --accent: #22d3ee;
+  --secondary: #3a4256;
+  
+  /* Status colors */
+  --success: #22c55e;
+  --success-bg: rgba(34, 197, 94, 0.15);
+  --danger: #ef4444;
+  --danger-bg: rgba(239, 68, 68, 0.15);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.15);
+  --info: #3b82f6;
+  --info-bg: rgba(59, 130, 246, 0.15);
+  
+  /* Interactive states */
+  --hover-bg: rgba(255, 255, 255, 0.05);
+  --selected-bg: rgba(79, 140, 255, 0.2);
+  --row-hover: rgba(255, 255, 255, 0.03);
+  --row-selected: #1b2444;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.4);
+  
+  /* Scrollbar */
+  --scrollbar-track: rgba(255, 255, 255, 0.05);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+  
+  /* Modal overlay */
+  --overlay: rgba(0, 0, 0, 0.7);
+  
+  /* Input styles */
+  --input-bg: rgba(255, 255, 255, 0.05);
+  --input-border: #1f2a4a;
+  --input-focus-border: #4f8cff;
+  --input-placeholder: #64748b;
+  
+  /* Button colors */
+  --btn-glass-bg: var(--secondary);
+  --btn-glass-hover: #454d62;
+  --btn-glass-border: #1f2a4a;
+  
+  /* Button primary styles */
+  --btn-primary-bg: rgba(79, 140, 255, 0.28);
+  --btn-primary-border: #4f8cff;
+  --btn-primary-text: #4f8cff;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -9,6 +160,9 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--bg);
+  color: var(--text);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 #root {
@@ -18,4 +172,11 @@ body {
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
+}
+
+/* Theme transition for smooth switching */
+*,
+*::before,
+*::after {
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }

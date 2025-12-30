@@ -1,0 +1,277 @@
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  max-width: 500px;
+  width: 90%;
+  color: var(--text);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.closeButton {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.closeButton:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
+.body {
+  padding: 1.5rem;
+}
+
+.formGroup {
+  margin-bottom: 1.5rem;
+}
+
+.label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.categorySelector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.categoryBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  background: var(--panel-2);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.categoryBtn:hover:not(.active) {
+  background: var(--hover-bg);
+  border-color: var(--border-hover);
+}
+
+.categoryBtn.active {
+  background: var(--btn-primary-bg);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.categoryDescription {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--input-bg);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.input:focus {
+  border-color: var(--primary);
+}
+
+.dropZone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: var(--panel-2);
+}
+
+.dropZone:hover {
+  border-color: var(--primary);
+  background: var(--hover-bg);
+}
+
+.dropZone.dragOver {
+  border-color: var(--primary);
+  background: rgba(88, 101, 242, 0.1);
+}
+
+.dropIcon {
+  color: var(--primary);
+  margin-bottom: 0.5rem;
+}
+
+.dropText {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.fileList {
+  margin-top: 1.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.fileListHeader {
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  gap: 10px;
+}
+
+.fileItem:last-child {
+  border-bottom: none;
+}
+
+.fileName {
+  flex: 1;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileSize {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.removeBtn {
+  background: transparent;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.removeBtn:hover {
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: var(--panel-2);
+}
+
+.cancelBtn, .uploadBtn {
+  padding: 8px 24px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cancelBtn {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  color: var(--text);
+}
+
+.cancelBtn:hover {
+  background: var(--hover-bg);
+}
+
+.uploadBtn {
+  background: var(--btn-primary-bg);
+  border: 2px solid var(--primary);
+  color: var(--primary);
+}
+
+.uploadBtn:hover:not(:disabled) {
+  background: var(--primary);
+  color: #fff;
+}
+
+.uploadBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Scrollbar */
+.fileList::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fileList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fileList::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}

@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -39,6 +41,7 @@ type ServerConfig struct {
 	PingInterval int    `json:"ping_interval"` // ping间隔（秒）
 	PingTimeout  int    `json:"ping_timeout"`  // ping超时（秒）
 	FrontendDir  string `json:"frontend_dir"`  // 前端文件目录
+	DataDir      string `json:"data_dir"`      // 数据存储路径
 }
 
 // 默认配置
@@ -48,6 +51,7 @@ var defaultConfig = ServerConfig{
 	PingInterval: 15,
 	PingTimeout:  10,
 	FrontendDir:  "./frontend",
+	DataDir:      "./data",
 }
 
 // 全局配置变量
@@ -712,6 +716,11 @@ func main() {
 		fmt.Printf("Warning: Frontend directory '%s' does not exist, static files will not be served\n", serverConfig.FrontendDir)
 	}
 
+	// 初始化数据存储目录
+	if err := initDataDirectories(); err != nil {
+		log.Fatalf("Failed to initialize data directories: %v", err)
+	}
+
 	// 设置Gin模式
 	gin.SetMode(gin.ReleaseMode)
 
@@ -729,6 +738,16 @@ func main() {
 	// API路由
 	r.GET("/api/config", configHandler)
 	r.GET("/api/download-bind-script", downloadBindScriptHandler)
+
+	// 服务器文件管理API
+	r.GET("/api/server-files/list", serverFilesListHandler)
+	r.POST("/api/server-files/upload", serverFilesUploadHandler)
+	r.POST("/api/server-files/create", serverFilesCreateHandler)
+	r.POST("/api/server-files/rename", serverFilesRenameHandler)
+	r.GET("/api/server-files/read", serverFilesReadHandler)
+	r.POST("/api/server-files/save", serverFilesSaveHandler)
+	r.GET("/api/server-files/download/*path", serverFilesDownloadHandler)
+	r.DELETE("/api/server-files/delete", serverFilesDeleteHandler)
 
 	// 静态文件服务 - 使用NoRoute避免路由冲突
 	r.NoRoute(staticFileHandler)
@@ -992,4 +1011,582 @@ func setContentTypeAndCache(c *gin.Context, filePath string) {
 		// 其他文件缓存1小时
 		c.Header("Cache-Control", "public, max-age=3600")
 	}
+}
+
+// ==================== 服务器文件管理 ====================
+
+// 允许的目录分类
+var allowedCategories = []string{"scripts", "files", "reports"}
+
+// 初始化数据存储目录
+func initDataDirectories() error {
+	// 创建主数据目录
+	if err := os.MkdirAll(serverConfig.DataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// 创建子目录
+	for _, category := range allowedCategories {
+		subDir := filepath.Join(serverConfig.DataDir, category)
+		if err := os.MkdirAll(subDir, 0755); err != nil {
+			return fmt.Errorf("failed to create %s directory: %v", category, err)
+		}
+	}
+
+	fmt.Printf("✅ 数据存储目录已初始化: %s\n", serverConfig.DataDir)
+	fmt.Printf("   - 脚本目录: %s/scripts/\n", serverConfig.DataDir)
+	fmt.Printf("   - 文件目录: %s/files/\n", serverConfig.DataDir)
+	fmt.Printf("   - 报告目录: %s/reports/\n", serverConfig.DataDir)
+
+	return nil
+}
+
+// 验证目录分类是否有效
+func isValidCategory(category string) bool {
+	for _, c := range allowedCategories {
+		if c == category {
+			return true
+		}
+	}
+	return false
+}
+
+// 安全路径验证：确保路径在数据目录内
+func validatePath(category, subPath string) (string, error) {
+	if !isValidCategory(category) {
+		return "", fmt.Errorf("invalid category: %s", category)
+	}
+
+	// 构建基础目录
+	baseDir := filepath.Join(serverConfig.DataDir, category)
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", err
+	}
+
+	// 清理并构建目标路径
+	cleanSubPath := filepath.Clean("/" + subPath)
+	if cleanSubPath == "/" {
+		cleanSubPath = ""
+	}
+
+	targetPath := filepath.Join(absBaseDir, cleanSubPath)
+	absTargetPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		return "", err
+	}
+
+	// 确保目标路径在基础目录内
+	if !strings.HasPrefix(absTargetPath, absBaseDir) {
+		return "", fmt.Errorf("path traversal detected")
+	}
+
+	return absTargetPath, nil
+}
+
+// 文件列表响应结构
+type ServerFileItem struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"` // "file" or "dir"
+	Size    int64  `json:"size"`
+	ModTime string `json:"modTime"`
+}
+
+// 列出服务器文件
+func serverFilesListHandler(c *gin.Context) {
+	category := c.DefaultQuery("category", "scripts")
+	subPath := c.DefaultQuery("path", "")
+
+	targetPath, err := validatePath(category, subPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 检查目录是否存在
+	info, err := os.Stat(targetPath)
+	if os.IsNotExist(err) {
+		c.JSON(http.StatusOK, gin.H{"files": []ServerFileItem{}})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !info.IsDir() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is not a directory"})
+		return
+	}
+
+	// 读取目录内容
+	entries, err := os.ReadDir(targetPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	files := make([]ServerFileItem, 0, len(entries))
+	for _, entry := range entries {
+		fileType := "file"
+		if entry.IsDir() {
+			fileType = "dir"
+		}
+
+		info, _ := entry.Info()
+		var size int64
+		var modTime string
+		if info != nil {
+			size = info.Size()
+			modTime = info.ModTime().Format("2006-01-02 15:04:05")
+		}
+
+		files = append(files, ServerFileItem{
+			Name:    entry.Name(),
+			Type:    fileType,
+			Size:    size,
+			ModTime: modTime,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"files": files, "path": subPath, "category": category})
+}
+
+// 上传文件到服务器
+func serverFilesUploadHandler(c *gin.Context) {
+	category := c.DefaultPostForm("category", "scripts")
+	subPath := c.DefaultPostForm("path", "")
+
+	// 验证目录路径
+	targetDir, err := validatePath(category, subPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 确保目标目录存在
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory"})
+		return
+	}
+
+	// 获取上传的文件
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no file uploaded"})
+		return
+	}
+	defer file.Close()
+
+	// 构建目标文件路径
+	targetFilePath := filepath.Join(targetDir, header.Filename)
+
+	// 再次验证最终文件路径
+	baseDir := filepath.Join(serverConfig.DataDir, category)
+	absBaseDir, _ := filepath.Abs(baseDir)
+	absTargetFile, _ := filepath.Abs(targetFilePath)
+	if !strings.HasPrefix(absTargetFile, absBaseDir) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file path"})
+		return
+	}
+
+	// 创建目标文件
+	dst, err := os.Create(targetFilePath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create file"})
+		return
+	}
+	defer dst.Close()
+
+	// 复制文件内容
+	if _, err := io.Copy(dst, file); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
+		return
+	}
+
+	fmt.Printf("📤 文件已上传: %s/%s/%s\n", category, subPath, header.Filename)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"filename": header.Filename,
+		"path":     filepath.Join(subPath, header.Filename),
+		"category": category,
+	})
+}
+
+// 下载服务器文件
+func serverFilesDownloadHandler(c *gin.Context) {
+	// 获取路径参数（格式：/:category/rest/of/path）
+	fullPath := c.Param("path")
+	if fullPath == "" || fullPath == "/" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		return
+	}
+
+	// 去除开头的斜杠并分割路径
+	fullPath = strings.TrimPrefix(fullPath, "/")
+	parts := strings.SplitN(fullPath, "/", 2)
+	if len(parts) < 2 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path format"})
+		return
+	}
+
+	category := parts[0]
+	filePath := parts[1]
+
+	targetPath, err := validatePath(category, filePath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 检查文件是否存在
+	info, err := os.Stat(targetPath)
+	if os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if info.IsDir() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot download a directory"})
+		return
+	}
+
+	// 获取文件名
+	fileName := filepath.Base(targetPath)
+
+	// 设置Content-Type
+	ext := filepath.Ext(fileName)
+	mimeType := mime.TypeByExtension(ext)
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	c.Header("Content-Type", mimeType)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	c.File(targetPath)
+}
+
+// 删除服务器文件
+func serverFilesDeleteHandler(c *gin.Context) {
+	category := c.Query("category")
+	subPath := c.Query("path")
+
+	if category == "" || subPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "category and path are required"})
+		return
+	}
+
+	targetPath, err := validatePath(category, subPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 不允许删除根目录
+	baseDir := filepath.Join(serverConfig.DataDir, category)
+	absBaseDir, _ := filepath.Abs(baseDir)
+	if targetPath == absBaseDir {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete root category directory"})
+		return
+	}
+
+	// 检查文件/目录是否存在
+	info, err := os.Stat(targetPath)
+	if os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file or directory not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 删除文件或目录
+	if info.IsDir() {
+		err = os.RemoveAll(targetPath)
+	} else {
+		err = os.Remove(targetPath)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete"})
+		return
+	}
+
+	fmt.Printf("🗑️ 已删除: %s/%s\n", category, subPath)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"path":     subPath,
+		"category": category,
+	})
+}
+
+// 创建文件或文件夹
+func serverFilesCreateHandler(c *gin.Context) {
+	var req struct {
+		Category string `json:"category"`
+		Path     string `json:"path"`
+		Name     string `json:"name"`
+		Type     string `json:"type"` // "file" or "dir"
+		Content  string `json:"content,omitempty"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+
+	if req.Type != "file" && req.Type != "dir" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "type must be 'file' or 'dir'"})
+		return
+	}
+
+	// 验证目录路径
+	targetDir, err := validatePath(req.Category, req.Path)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 确保目标目录存在
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create parent directory"})
+		return
+	}
+
+	// 构建目标路径
+	targetPath := filepath.Join(targetDir, req.Name)
+
+	// 再次验证最终路径
+	baseDir := filepath.Join(serverConfig.DataDir, req.Category)
+	absBaseDir, _ := filepath.Abs(baseDir)
+	absTargetPath, _ := filepath.Abs(targetPath)
+	if !strings.HasPrefix(absTargetPath, absBaseDir) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
+		return
+	}
+
+	// 检查是否已存在
+	if _, err := os.Stat(targetPath); !os.IsNotExist(err) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file or directory already exists"})
+		return
+	}
+
+	if req.Type == "dir" {
+		// 创建文件夹
+		if err := os.MkdirAll(targetPath, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory"})
+			return
+		}
+		fmt.Printf("📁 已创建文件夹: %s/%s/%s\n", req.Category, req.Path, req.Name)
+	} else {
+		// 创建文件
+		file, err := os.Create(targetPath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create file"})
+			return
+		}
+		defer file.Close()
+
+		// 写入内容（如果有）
+		if req.Content != "" {
+			if _, err := file.WriteString(req.Content); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file content"})
+				return
+			}
+		}
+		fmt.Printf("📄 已创建文件: %s/%s/%s\n", req.Category, req.Path, req.Name)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"name":     req.Name,
+		"type":     req.Type,
+		"path":     req.Path,
+		"category": req.Category,
+	})
+}
+
+// 重命名文件或文件夹
+func serverFilesRenameHandler(c *gin.Context) {
+	var req struct {
+		Category string `json:"category"`
+		Path     string `json:"path"`
+		OldName  string `json:"oldName"`
+		NewName  string `json:"newName"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if req.OldName == "" || req.NewName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "oldName and newName are required"})
+		return
+	}
+
+	// 验证并构建旧路径
+	oldFilePath := req.OldName
+	if req.Path != "" {
+		oldFilePath = req.Path + "/" + req.OldName
+	}
+	oldPath, err := validatePath(req.Category, oldFilePath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 验证并构建新路径
+	newFilePath := req.NewName
+	if req.Path != "" {
+		newFilePath = req.Path + "/" + req.NewName
+	}
+	newPath, err := validatePath(req.Category, newFilePath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 检查旧文件是否存在
+	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+
+	// 检查新文件是否已存在
+	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target name already exists"})
+		return
+	}
+
+	// 执行重命名
+	if err := os.Rename(oldPath, newPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rename"})
+		return
+	}
+
+	fmt.Printf("✏️ 已重命名: %s -> %s\n", req.OldName, req.NewName)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"oldName": req.OldName,
+		"newName": req.NewName,
+	})
+}
+
+// 读取文件内容
+func serverFilesReadHandler(c *gin.Context) {
+	category := c.Query("category")
+	subPath := c.Query("path")
+
+	if category == "" || subPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "category and path are required"})
+		return
+	}
+
+	targetPath, err := validatePath(category, subPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 检查文件是否存在
+	info, err := os.Stat(targetPath)
+	if os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if info.IsDir() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot read a directory"})
+		return
+	}
+
+	// 限制文件大小（最大 5MB）
+	if info.Size() > 5*1024*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file too large (max 5MB)"})
+		return
+	}
+
+	content, err := os.ReadFile(targetPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"content": string(content),
+		"size":    info.Size(),
+	})
+}
+
+// 保存文件内容
+func serverFilesSaveHandler(c *gin.Context) {
+	var req struct {
+		Category string `json:"category"`
+		Path     string `json:"path"`
+		Content  string `json:"content"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if req.Category == "" || req.Path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "category and path are required"})
+		return
+	}
+
+	targetPath, err := validatePath(req.Category, req.Path)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 检查文件是否存在
+	info, err := os.Stat(targetPath)
+	if os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if info.IsDir() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot write to a directory"})
+		return
+	}
+
+	// 写入文件
+	if err := os.WriteFile(targetPath, []byte(req.Content), 0644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
+		return
+	}
+
+	fmt.Printf("💾 已保存文件: %s/%s\n", req.Category, req.Path)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"path":    req.Path,
+	})
 }

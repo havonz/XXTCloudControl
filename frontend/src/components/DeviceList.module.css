@@ -1,16 +1,17 @@
 .deviceListContainer {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--bg);
   padding: 2rem;
-  color: white;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 .header {
-  border-radius: 16px;
-  padding: 2rem;
-  margin: 0 2rem 2rem 2rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin: 0 2rem 1.5rem 2rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
   flex-shrink: 0;
 }
 
@@ -23,9 +24,9 @@
 
 .headerTop h1 {
   margin: 0;
-  font-size: 2.5rem;
-  font-weight: 300;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .headerActions {
@@ -34,24 +35,26 @@
 }
 
 .refreshButton, .respringButton {
-  padding: 0.4rem 0.8rem;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.2s ease;
+  background: var(--panel-2);
+  color: var(--text);
 }
 
 .refreshButton {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  background: var(--btn-primary-bg);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .refreshButton:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--primary);
+  color: #fff;
   transform: translateY(-1px);
 }
 
@@ -61,12 +64,14 @@
 }
 
 .respringButton {
-  background: rgba(244, 67, 54, 0.8);
-  color: white;
+  background: rgba(220, 38, 38, 0.28);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .respringButton:hover {
-  background: rgba(244, 67, 54, 1);
+  background: var(--danger);
+  color: #fff;
   transform: translateY(-1px);
 }
 
@@ -76,27 +81,26 @@
 
 .searchInput {
   width: 100%;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-size: 0.8rem;
-  backdrop-filter: blur(10px);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 0.85rem;
 }
 
 .searchInput::placeholder {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-muted);
 }
 
 .searchInput:focus {
   outline: none;
-  border-color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.2);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
 }
 
 .deviceCount {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-muted);
   font-size: 0.8rem;
   text-align: center;
   margin: 0.25rem 0;
@@ -122,11 +126,10 @@
 
 .card {
   flex: 1;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   padding: 0.75rem;
-  backdrop-filter: blur(10px);
   box-sizing: border-box;
 }
 
@@ -134,7 +137,7 @@
   margin: 0 0 0.5rem 0;
   font-size: 1rem;
   font-weight: 600;
-  color: white;
+  color: var(--text);
   text-align: center;
 }
 
@@ -153,30 +156,30 @@
 
 .inputLabel {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .pathInput,
 .scriptInput {
-  padding: 0.4rem 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-size: 0.8rem;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 0.85rem;
 }
 
 .pathInput::placeholder,
 .scriptInput::placeholder {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-muted);
 }
 
 .pathInput:focus,
 .scriptInput:focus {
   outline: none;
-  border-color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
 }
 
 /* Button Groups */
@@ -195,17 +198,15 @@
 
 .compactButton {
   flex: 1;
-  padding: 0.3rem 0.5rem;
-  border: none;
-  border-radius: 5px;
+  padding: 0.35rem 0.5rem;
+  border: 2px solid var(--border);
+  border-radius: 8px;
   font-size: 0.75rem;
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  transition: all 0.2s ease;
+  background: var(--panel-2);
+  color: var(--text);
   min-height: 28px;
   display: flex;
   align-items: center;
@@ -214,9 +215,10 @@
 }
 
 .compactButton:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--hover-bg);
+  border-color: var(--primary);
   transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-sm);
 }
 
 .compactButton:active:not(:disabled) {
@@ -225,49 +227,48 @@
 }
 
 .compactButton:disabled {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.5);
+  background: var(--panel-2);
+  color: var(--text-muted);
   cursor: not-allowed;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-color: var(--border);
   transform: none;
   box-shadow: none;
+  opacity: 0.6;
 }
-
-
 
 /* File Upload Styles */
 .dropZone {
-  border: 2px dashed rgba(255, 255, 255, 0.3);
+  border: 2px dashed var(--border);
   border-radius: 8px;
   padding: 2rem;
   margin-top: 1rem;
   text-align: center;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--panel-2);
   transition: all 0.2s ease;
   cursor: pointer;
 }
 
 .dropZone:hover {
-  border-color: rgba(255, 255, 255, 0.5);
-  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--primary);
+  background: var(--hover-bg);
 }
 
 .dropZone.dragOver {
-  border-color: rgba(76, 175, 80, 0.8);
-  background: rgba(76, 175, 80, 0.1);
+  border-color: var(--success);
+  background: rgba(82, 184, 105, 0.1);
 }
 
 .dropText {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
 .fileList {
   max-height: 120px;
   overflow-y: auto;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--panel-2);
 }
 
 .fileItem {
@@ -275,7 +276,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border);
 }
 
 .fileItem:last-child {
@@ -283,7 +284,7 @@
 }
 
 .fileName {
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text);
   font-size: 0.85rem;
   flex: 1;
   overflow: hidden;
@@ -292,8 +293,8 @@
 }
 
 .removeFileButton {
-  background: rgba(244, 67, 54, 0.8);
-  color: white;
+  background: rgba(220, 38, 38, 0.2);
+  color: var(--danger);
   border: none;
   border-radius: 50%;
   width: 20px;
@@ -312,20 +313,21 @@
 }
 
 .deviceTable {
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  border: 1px solid var(--border);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  background: var(--panel);
 }
 
 .tableHeader {
   display: grid;
   grid-template-columns: 60px 160px 200px 140px 80px 80px 100px 2fr;
-  background: rgba(255, 255, 255, 0.2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -343,28 +345,29 @@
 }
 
 .tableBody::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--scrollbar-track);
   border-radius: 4px;
 }
 
 .tableBody::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 
 .tableBody::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--scrollbar-thumb-hover);
 }
 
 .headerCell {
   padding: 0.5rem;
   font-weight: 600;
-  color: white;
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 30px;
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid var(--border);
+  font-size: 0.9rem;
 }
 
 .headerCell:last-child {
@@ -375,17 +378,17 @@
 .tableRow {
   display: grid;
   grid-template-columns: 60px 160px 200px 140px 80px 80px 100px 2fr;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
 }
 
 .tableRow:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--hover-bg);
 }
 
 .tableRow.selected {
-  background: rgba(76, 175, 80, 0.2);
+  background: var(--selected-bg);
   border-color: #4CAF50;
 }
 
@@ -395,7 +398,7 @@
 
 .tableCell {
   padding: 0.5rem;
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -406,7 +409,7 @@
 }
 
 .tableCell:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--hover-bg);
   transform: scale(1.02);
 }
 
@@ -417,8 +420,7 @@
 .deviceName {
   font-size: 0.75rem;
   font-weight: 600;
-  color: white;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  color: var(--text);
   cursor: pointer;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
@@ -426,13 +428,13 @@
 }
 
 .deviceName:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--hover-bg);
   transform: scale(1.02);
 }
 
 .deviceModel {
   font-size: 1rem;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text);
   cursor: pointer;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
@@ -440,13 +442,13 @@
 }
 
 .deviceModel:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--hover-bg);
   transform: scale(1.02);
 }
 
 .deviceVersion {
   font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text);
   font-weight: 500;
   text-align: center;
   cursor: pointer;
@@ -456,14 +458,14 @@
 }
 
 .deviceVersion:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  background: var(--hover-bg);
+  color: var(--text);
   transform: scale(1.02);
 }
 
 .deviceIp {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-secondary);
   font-family: monospace;
   cursor: pointer;
   padding: 0.25rem 0.5rem;
@@ -472,8 +474,8 @@
 }
 
 .deviceIp:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  background: var(--hover-bg);
+  color: var(--text);
   transform: scale(1.02);
 }
 
@@ -488,14 +490,14 @@
 }
 
 .batteryIndicator:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--hover-bg);
   transform: scale(1.02);
 }
 
 .deviceUdid {
   font-family: 'Courier New', monospace;
   font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -506,14 +508,14 @@
 }
 
 .deviceUdid:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  background: var(--hover-bg);
+  color: var(--text);
   transform: scale(1.02);
 }
 
 .lastLog {
   font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -527,8 +529,8 @@
 }
 
 .lastLog:hover {
-  color: white;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  background: var(--hover-bg);
   border-radius: 4px;
   padding: 0.25rem 0.5rem;
   transform: scale(1.02);
@@ -556,7 +558,7 @@
 .emptyCheckbox {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  border: 2px solid var(--btn-glass-border);
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -566,7 +568,7 @@
 .selectAllCheckbox {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  border: 2px solid var(--btn-glass-border);
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -578,8 +580,8 @@
 }
 
 .selectAllCheckbox:hover {
-  border-color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--primary);
+  background: var(--hover-bg);
 }
 
 .selectAllCheckbox.checked {
@@ -589,9 +591,9 @@
 }
 
 .selectAllCheckbox.indeterminate {
-  background: rgba(255, 152, 0, 0.8);
-  border-color: #FF9800;
-  color: white;
+  background: var(--warning);
+  border-color: var(--warning);
+  color: #fff;
 }
 
 .runningStatus {
@@ -625,10 +627,10 @@
   grid-column: 1 / -1;
   text-align: center;
   padding: 3rem;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--panel-glass);
   backdrop-filter: blur(10px);
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--border-on-gradient);
 }
 
 .loadingState {
@@ -641,8 +643,8 @@
 .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid rgba(255, 255, 255, 0.3);
-  border-top: 4px solid white;
+  border: 4px solid var(--btn-glass-border);
+  border-top: 4px solid var(--text-on-gradient);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -660,8 +662,8 @@
 
 .clearSearchButton {
   padding: 0.75rem 1.5rem;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  background: var(--btn-glass-bg);
+  color: var(--text-on-gradient);
   border: none;
   border-radius: 8px;
   font-size: 1rem;
@@ -670,16 +672,16 @@
 }
 
 .clearSearchButton:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--btn-glass-hover);
 }
 
 .selectedDeviceInfo {
   margin-top: 2rem;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--panel-glass);
   backdrop-filter: blur(10px);
   border-radius: 16px;
   padding: 1.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--border-on-gradient);
 }
 
 /* Toast Notification */
@@ -687,14 +689,13 @@
   position: fixed;
   top: 20px;
   right: 20px;
-  background: rgba(76, 175, 80, 0.95);
-  color: white;
+  background: var(--success);
+  color: #fff;
   padding: 12px 20px;
   border-radius: 8px;
   font-size: 0.9rem;
   font-weight: 500;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-lg);
   z-index: 1000;
   animation: toastSlideIn 0.3s ease-out;
   max-width: 300px;
@@ -721,7 +722,7 @@
 }
 
 .sortableHeader:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--hover-bg);
   color: #4CAF50;
 }
 
@@ -734,13 +735,13 @@
 
 /* Copy UDID Button */
 .copyUdidButton {
-  background: rgba(255, 152, 0, 0.8);
-  color: white;
+  background: var(--panel-2);
+  color: var(--text);
   padding: 0.6rem 1rem;
-  border: none;
+  border: 2px solid var(--border);
   border-radius: 8px;
   font-size: 0.85rem;
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
   flex: 1;
@@ -748,19 +749,20 @@
 }
 
 .copyUdidButton:hover:not(:disabled) {
-  background: rgba(255, 152, 0, 1);
+  background: var(--hover-bg);
+  border-color: var(--primary);
   transform: translateY(-1px);
 }
 
 .copyUdidButton:active:not(:disabled) {
-  background: rgba(230, 137, 0, 1);
+  background: var(--hover-bg);
   transform: translateY(1px) scale(0.98);
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-sm);
   transition: all 0.1s ease;
 }
 
 .copyUdidButton:disabled {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--panel-glass);
   color: rgba(255, 255, 255, 0.5);
   cursor: not-allowed;
 }
@@ -774,7 +776,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--panel-glass);
   padding: 0.75rem 1rem;
   margin-bottom: 0.5rem;
   border-radius: 8px;
@@ -787,8 +789,8 @@
 }
 
 .removeButton {
-  background: rgba(244, 67, 54, 0.8);
-  color: white;
+  background: rgba(220, 38, 38, 0.2);
+  color: var(--danger);
   border: none;
   border-radius: 50%;
   width: 24px;
@@ -802,20 +804,22 @@
 }
 
 .removeButton:hover {
-  background: rgba(244, 67, 54, 1);
+  background: var(--danger);
+  color: #fff;
   transform: scale(1.1);
 }
 
 .clearAllButton {
-  background: rgba(255, 152, 0, 0.8);
-  color: white;
-  border: none;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 2px solid var(--border);
   border-radius: 8px;
   padding: 0.5rem 1rem;
   margin-top: 1rem;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: all 0.3s ease;
+  font-weight: 700;
+  transition: all 0.2s ease;
   width: 100%;
 }
 
@@ -853,7 +857,7 @@
 /* Empty Content Placeholder */
 .emptyContent {
   text-align: center;
-  color: #666;
+  color: var(--text-muted);
   font-style: italic;
   padding: 2rem;
 }
@@ -865,7 +869,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -873,14 +877,15 @@
 }
 
 .modalContent {
-  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  background: var(--panel);
   border-radius: 12px;
   width: 90%;
   max-width: 500px;
   max-height: 80vh;
   overflow: hidden;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-  color: white;
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  border: 1px solid var(--border);
 }
 
 .modalHeader {
@@ -888,33 +893,33 @@
   justify-content: center;
   align-items: center;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
   border-radius: 12px 12px 0 0;
 }
 
 .modalHeader h3 {
   margin: 0;
   font-size: 1.1rem;
-  color: white;
+  color: var(--text);
 }
 
 .modalBody {
   padding: 1.5rem;
   max-height: 60vh;
   overflow-y: auto;
-  color: white;
+  color: var(--text);
 }
 
 .selectedDevicesInfo {
   margin-top: 1rem;
   padding: 0.75rem;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  color: rgba(255, 255, 255, 0.9);
+  background: var(--panel-2);
+  border-radius: 8px;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   text-align: center;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--border);
 }
 
 .modalFooter {
@@ -922,109 +927,89 @@
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
 }
 
 .cancelButton {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--panel-2);
+  color: var(--text);
+  border: 2px solid var(--border);
   padding: 0.5rem 1rem;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
+  font-weight: 700;
+  transition: all 0.2s ease;
 }
 
 .cancelButton:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--hover-bg);
+  border-color: var(--primary);
   transform: translateY(-1px);
 }
 
 .confirmUploadButton {
-  background: rgba(76, 175, 80, 0.8);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--btn-primary-bg);
+  color: var(--primary);
+  border: 2px solid var(--primary);
   padding: 0.5rem 1rem;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
+  font-weight: 700;
+  transition: all 0.2s ease;
 }
 
 .confirmUploadButton:hover:not(:disabled) {
-  background: rgba(76, 175, 80, 1);
+  background: var(--primary);
+  color: #fff;
   transform: translateY(-1px);
 }
 
 .confirmUploadButton:disabled {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.5);
+  background: var(--panel-2);
+  color: var(--text-muted);
   cursor: not-allowed;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-color: var(--border);
 }
 
 /* Clipboard Modal Styles */
 .clipboardModal {
-  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  background: var(--bg-gradient);
   border-radius: 12px;
   width: 90%;
   max-width: 500px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-  color: white;
-}
-
-.modalHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 12px 12px 0 0;
-}
-
-.modalHeader h3 {
-  margin: 0;
-  font-size: 1.2rem;
-  color: white;
-}
-
-.modalBody {
-  padding: 1.5rem;
-  flex: 1;
-  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  color: var(--text-on-gradient);
 }
 
 .selectInput {
   width: 100%;
   padding: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--btn-glass-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  background: var(--panel-glass);
+  color: var(--text-on-gradient);
   font-size: 0.9rem;
 }
 
 .selectInput:focus {
   outline: none;
   border-color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--btn-glass-bg);
 }
 
 .textareaInput {
   width: 100%;
   padding: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--btn-glass-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  background: var(--panel-glass);
+  color: var(--text-on-gradient);
   font-size: 0.9rem;
   resize: vertical;
   min-height: 120px;
@@ -1034,7 +1019,7 @@
 .textareaInput:focus {
   outline: none;
   border-color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--btn-glass-bg);
 }
 
 .textareaInput::placeholder {
@@ -1053,82 +1038,81 @@
   justify-content: flex-end;
   margin-top: 1.5rem;
   padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid var(--border);
 }
 
 .readButton {
-  background: rgba(33, 150, 243, 0.9);
-  color: white;
-  border: none;
+  background: var(--btn-primary-bg);
+  color: var(--primary);
+  border: 2px solid var(--primary);
   padding: 0.75rem 1.5rem;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .readButton:hover:not(:disabled) {
-  background: rgba(33, 150, 243, 1);
+  background: var(--primary);
+  color: #fff;
   transform: translateY(-1px);
 }
 
 .readButton:disabled {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.5);
+  background: var(--panel-2);
+  color: var(--text-muted);
+  border-color: var(--border);
   cursor: not-allowed;
 }
 
 .writeButton {
-  background: rgba(76, 175, 80, 0.9);
-  color: white;
-  border: none;
+  background: var(--btn-primary-bg);
+  color: var(--primary);
+  border: 2px solid var(--primary);
   padding: 0.75rem 1.5rem;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .writeButton:hover:not(:disabled) {
-  background: rgba(76, 175, 80, 1);
+  background: var(--primary);
+  color: #fff;
   transform: translateY(-1px);
 }
 
 .writeButton:disabled {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--panel-glass);
   color: rgba(255, 255, 255, 0.5);
   cursor: not-allowed;
 }
 
-
-
-/* Real-time control styles moved to RealTimeControl.module.css */
-
 /* Confirmation Dialog Styles */
 .confirmModal {
-  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  background: var(--panel);
   border-radius: 12px;
   width: 90%;
   max-width: 400px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  color: var(--text);
   overflow: hidden;
 }
 
 .confirmHeader {
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
 }
 
 .confirmHeader h3 {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
-  color: white;
+  color: var(--text);
 }
 
 .confirmBody {
@@ -1139,7 +1123,7 @@
   margin: 0 0 1rem 0;
   font-size: 0.9rem;
   line-height: 1.4;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text);
 }
 
 .confirmBody p:last-child {
@@ -1147,12 +1131,12 @@
 }
 
 .warningText {
-  color: rgba(255, 193, 7, 0.9) !important;
+  color: var(--warning) !important;
   font-size: 0.85rem !important;
-  background: rgba(255, 193, 7, 0.1);
+  background: rgba(250, 173, 20, 0.1);
   padding: 0.5rem;
   border-radius: 4px;
-  border-left: 3px solid rgba(255, 193, 7, 0.5);
+  border-left: 3px solid var(--warning);
 }
 
 .confirmFooter {
@@ -1160,23 +1144,50 @@
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
 }
 
 .confirmButton {
-  background: rgba(220, 53, 69, 0.8);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(220, 38, 38, 0.2);
+  color: var(--danger);
+  border: 2px solid var(--danger);
   padding: 0.5rem 1rem;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
+  font-weight: 700;
+  transition: all 0.2s ease;
 }
 
 .confirmButton:hover {
-  background: rgba(220, 53, 69, 1);
+  background: var(--danger);
+  color: #fff;
   transform: translateY(-1px);
+}
+
+/* Theme Toggle Button */
+.themeToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.themeToggle:hover {
+  background: var(--hover-bg);
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.themeIcon {
+  font-size: 1rem;
 }
