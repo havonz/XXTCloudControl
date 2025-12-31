@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -774,6 +775,7 @@ func main() {
 	// 设备分组管理API
 	r.GET("/api/groups", groupsListHandler)
 	r.POST("/api/groups", groupsCreateHandler)
+	r.PUT("/api/groups/reorder", groupsReorderHandler) // Must be before :id routes
 	r.PUT("/api/groups/:id", groupsUpdateHandler)
 	r.DELETE("/api/groups/:id", groupsDeleteHandler)
 	r.POST("/api/groups/:id/devices", groupsAddDevicesHandler)
@@ -1457,6 +1459,50 @@ func groupsDeleteHandler(c *gin.Context) {
 	}
 
 	deviceGroups = newGroups
+
+	if err := saveGroups(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// 重新排序分组
+func groupsReorderHandler(c *gin.Context) {
+	var req struct {
+		Order []string `json:"order"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	if len(req.Order) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Order cannot be empty"})
+		return
+	}
+
+	deviceGroupsMu.Lock()
+	defer deviceGroupsMu.Unlock()
+
+	// 创建 ID 到新排序位置的映射
+	orderMap := make(map[string]int)
+	for i, id := range req.Order {
+		orderMap[id] = i
+	}
+
+	// 更新每个分组的 SortOrder
+	for i := range deviceGroups {
+		if newOrder, ok := orderMap[deviceGroups[i].ID]; ok {
+			deviceGroups[i].SortOrder = newOrder
+		}
+	}
+
+	// 按 SortOrder 排序分组数组
+	sort.Slice(deviceGroups, func(i, j int) bool {
+		return deviceGroups[i].SortOrder < deviceGroups[j].SortOrder
+	})
 
 	if err := saveGroups(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})

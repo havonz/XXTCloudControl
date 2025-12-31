@@ -3,6 +3,7 @@ import { GroupStoreState } from '../services/GroupStore';
 import { useDialog } from './DialogContext';
 import styles from './GroupList.module.css';
 import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
+import { useGroupReorder } from '../hooks/useGroupReorder';
 import ScriptConfigModal from './ScriptConfigModal';
 
 interface GroupListProps {
@@ -92,6 +93,29 @@ const GroupList: Component<GroupListProps> = (props) => {
     await scriptConfigManager.openGroupConfig(group.id, group.name, group.scriptPath);
   };
 
+  // Set up drag-sort handlers
+  const {
+    handleDragStart,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    handleListDragOver,
+    handleListDragLeave,
+    handleListDrop,
+    handleDragEnd
+  } = useGroupReorder({
+    groups: props.groupStore.groups,
+    setGroups: props.groupStore.setGroups,
+    groupSortLocked: props.groupStore.groupSortLocked,
+    draggingGroupId: props.groupStore.draggingGroupId,
+    setDraggingGroupId: props.groupStore.setDraggingGroupId,
+    dragOverGroupId: props.groupStore.dragOverGroupId,
+    setDragOverGroupId: props.groupStore.setDragOverGroupId,
+    dragOverListEnd: props.groupStore.dragOverListEnd,
+    setDragOverListEnd: props.groupStore.setDragOverListEnd,
+    reorderGroups: props.groupStore.reorderGroups
+  });
+
   return (
     <div class={styles.groupListContainer}>
       <div class={styles.header}>
@@ -124,10 +148,23 @@ const GroupList: Component<GroupListProps> = (props) => {
             />
             <span>允许多选分组</span>
           </label>
+          <label class={styles.settingsOption}>
+            <input
+              type="checkbox"
+              checked={props.groupStore.groupSortLocked()}
+              onChange={(e) => props.groupStore.setGroupSortLocked(e.currentTarget.checked)}
+            />
+            <span>锁定排序</span>
+          </label>
         </div>
       </Show>
 
-      <ul class={styles.groupList}>
+      <ul 
+        class={styles.groupList}
+        onDragOver={(e) => handleListDragOver(e as DragEvent)}
+        onDragLeave={(e) => handleListDragLeave(e as DragEvent)}
+        onDrop={(e) => handleListDrop(e as DragEvent)}
+      >
         <li 
           class={`${styles.groupItem} ${props.groupStore.checkedGroups().has('__all__') ? styles.checked : ''}`}
           onClick={() => props.groupStore.toggleGroupChecked('__all__')}
@@ -146,9 +183,18 @@ const GroupList: Component<GroupListProps> = (props) => {
         <For each={props.groupStore.groups()}>
           {(group) => (
             <li 
-              class={`${styles.groupItem} ${props.groupStore.checkedGroups().has(group.id) ? styles.checked : ''}`}
+              class={`${styles.groupItem} ${props.groupStore.checkedGroups().has(group.id) ? styles.checked : ''} ${props.groupStore.draggingGroupId() === group.id ? styles.dragging : ''} ${props.groupStore.dragOverGroupId() === group.id ? styles.dragOver : ''}`}
+              draggable={!props.groupStore.groupSortLocked()}
               onClick={() => props.groupStore.toggleGroupChecked(group.id)}
               onContextMenu={(e) => handleContextMenu(e as unknown as MouseEvent, group.id)}
+              onDragStart={(e) => handleDragStart(e as DragEvent, group.id)}
+              onDragOver={(e) => handleDragOver(e as DragEvent, group.id)}
+              onDragLeave={() => handleDragLeave(group.id)}
+              onDrop={(e) => handleDrop(e as DragEvent, group.id)}
+              onDragEnd={handleDragEnd}
+              style={{
+                cursor: props.groupStore.groupSortLocked() ? 'default' : (props.groupStore.draggingGroupId() === group.id ? 'grabbing' : 'grab')
+              }}
             >
               <label class={styles.groupLabel} onClick={(e) => e.stopPropagation()}>
                 <input
@@ -167,6 +213,9 @@ const GroupList: Component<GroupListProps> = (props) => {
             </li>
           )}
         </For>
+        <Show when={props.groupStore.dragOverListEnd()}>
+          <li class={styles.dragOverListEnd} />
+        </Show>
       </ul>
 
       <Show when={props.selectedDeviceCount > 0}>

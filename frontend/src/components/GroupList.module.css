@@ -115,6 +115,25 @@
   border-color: var(--primary);
 }
 
+/* Drag-sort feedback styles */
+.groupItem.dragging {
+  opacity: 0.5;
+  background: var(--panel-2);
+}
+
+.groupItem.dragOver {
+  background: var(--panel-2);
+  border-top: 2px solid var(--primary);
+}
+
+.dragOverListEnd {
+  height: 0px;
+  margin: 6px 0;
+  border-top: 2px solid var(--primary);
+  pointer-events: none;
+  list-style: none;
+}
+
 .groupLabel {
   display: flex;
   align-items: center;

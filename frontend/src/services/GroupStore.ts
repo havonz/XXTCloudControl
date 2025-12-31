@@ -26,6 +26,16 @@ export interface GroupStoreState {
   setGroupMultiSelect: (value: boolean) => void;
   visibleDeviceIds: Accessor<Set<string> | null>;
   
+  // Drag-sort state
+  draggingGroupId: Accessor<string>;
+  setDraggingGroupId: Setter<string>;
+  dragOverGroupId: Accessor<string>;
+  setDragOverGroupId: Setter<string>;
+  dragOverListEnd: Accessor<boolean>;
+  setDragOverListEnd: Setter<boolean>;
+  groupSortLocked: Accessor<boolean>;
+  setGroupSortLocked: Setter<boolean>;
+  
   // Actions
   loadGroups: () => Promise<void>;
   createGroup: (name: string) => Promise<boolean>;
@@ -35,12 +45,19 @@ export interface GroupStoreState {
   removeDevicesFromGroup: (groupId: string, deviceIds: string[]) => Promise<boolean>;
   toggleGroupChecked: (groupId: string) => void;
   bindScriptToGroup: (groupId: string, scriptPath: string) => Promise<boolean>;
+  reorderGroups: (order: string[]) => Promise<boolean>;
 }
 
 export function createGroupStore(): GroupStoreState {
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
   const [checkedGroups, setCheckedGroups] = createSignal<Set<string>>(new Set(['__all__']));
-  const [groupMultiSelect, setGroupMultiSelectVal] = createSignal(true);
+  const [groupMultiSelect, setGroupMultiSelectVal] = createSignal(false); // Default: 不允许多选分组
+  
+  // Drag-sort state signals
+  const [draggingGroupId, setDraggingGroupId] = createSignal<string>('');
+  const [dragOverGroupId, setDragOverGroupId] = createSignal<string>('');
+  const [dragOverListEnd, setDragOverListEnd] = createSignal(false);
+  const [groupSortLocked, setGroupSortLocked] = createSignal(false); // Default: 不锁定排序
 
   // Compute visible device IDs based on checked groups
   const visibleDeviceIds = createMemo<Set<string> | null>(() => {
@@ -238,6 +255,19 @@ export function createGroupStore(): GroupStoreState {
     }
   };
 
+  const reorderGroups = async (order: string[]): Promise<boolean> => {
+    try {
+      const data = await api('/api/groups/reorder', {
+        method: 'PUT',
+        body: JSON.stringify({ order }),
+      });
+      return data.success === true;
+    } catch (error) {
+      console.error('Failed to reorder groups:', error);
+      return false;
+    }
+  };
+
   return {
     groups,
     setGroups,
@@ -246,6 +276,14 @@ export function createGroupStore(): GroupStoreState {
     groupMultiSelect,
     setGroupMultiSelect,
     visibleDeviceIds,
+    draggingGroupId,
+    setDraggingGroupId,
+    dragOverGroupId,
+    setDragOverGroupId,
+    dragOverListEnd,
+    setDragOverListEnd,
+    groupSortLocked,
+    setGroupSortLocked,
     loadGroups,
     createGroup,
     renameGroup,
@@ -254,5 +292,6 @@ export function createGroupStore(): GroupStoreState {
     removeDevicesFromGroup,
     toggleGroupChecked,
     bindScriptToGroup,
+    reorderGroups,
   };
 }
