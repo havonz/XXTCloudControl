@@ -34,6 +34,7 @@ export interface GroupStoreState {
   addDevicesToGroup: (groupId: string, deviceIds: string[]) => Promise<boolean>;
   removeDevicesFromGroup: (groupId: string, deviceIds: string[]) => Promise<boolean>;
   toggleGroupChecked: (groupId: string) => void;
+  bindScriptToGroup: (groupId: string, scriptPath: string) => Promise<boolean>;
 }
 
 export function createGroupStore(): GroupStoreState {
@@ -198,7 +199,6 @@ export function createGroupStore(): GroupStoreState {
         next = onlyThisSelected ? new Set(['__all__']) : new Set([groupId]);
       }
     }
-
     setCheckedGroups(next);
   };
 
@@ -221,6 +221,23 @@ export function createGroupStore(): GroupStoreState {
     }
   };
 
+  const bindScriptToGroup = async (groupId: string, scriptPath: string): Promise<boolean> => {
+    try {
+      const data = await api(`/api/groups/${groupId}/script`, {
+        method: 'PUT',
+        body: JSON.stringify({ scriptPath }),
+      });
+      if (data.success) {
+        await loadGroups();
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to bind script to group:', error);
+      return false;
+    }
+  };
+
   return {
     groups,
     setGroups,
@@ -236,5 +253,6 @@ export function createGroupStore(): GroupStoreState {
     addDevicesToGroup,
     removeDevicesFromGroup,
     toggleGroupChecked,
+    bindScriptToGroup,
   };
 }

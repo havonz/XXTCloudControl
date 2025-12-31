@@ -5,4 +5,5 @@ export interface GroupInfo {
   name: string;
   deviceIds: string[];
   sortOrder: number;
+  scriptPath?: string;
 }

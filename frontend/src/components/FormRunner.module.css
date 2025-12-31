@@ -1,0 +1,343 @@
+/* Backdrop */
+.backdrop {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  background: color-mix(in oklab, var(--text) 30%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+/* Modal container */
+.modal {
+  width: 760px;
+  height: min(640px, 92vh);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.titleButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-weight: 600;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.titleButton:hover {
+  background: var(--row-hover);
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+}
+
+.closeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  padding: 6px 12px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.closeBtn:hover {
+  background: var(--row-hover);
+}
+
+/* Content area */
+.content {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0px;
+  padding: 0px;
+  overflow: hidden;
+}
+
+.scrollArea {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--panel-2);
+  margin: 0;
+}
+
+.itemList {
+  display: flex;
+  flex-direction: column;
+  gap: 0px;
+}
+
+/* Field item */
+.field {
+  padding: 8px;
+  margin: 5.5px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  color: var(--muted-2);
+  font-size: 12px;
+  text-align: left;
+}
+
+.labelText {
+  color: var(--text);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+/* Grid for radio/checkbox segments */
+.frGrid {
+  display: grid;
+  gap: 6px;
+}
+
+/* Button-style toggle segments */
+.frSeg {
+  display: block;
+  padding: 4px 8px;
+  border-radius: 6px;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+  font-size: 13px;
+  border: 1px solid var(--fr-inactive-border);
+  background: var(--fr-inactive-bg);
+  color: var(--text);
+  transition: all 0.15s ease;
+}
+
+.frSeg:not(.active):hover {
+  border-color: var(--fr-inactive-hover-border);
+  background: var(--fr-inactive-hover-bg);
+}
+
+/* Radio active state - Blue */
+.frSegRg.active {
+  border-color: var(--rg-active-border);
+  background: var(--rg-active-bg);
+  color: var(--rg-active-text);
+  font-weight: 600;
+}
+
+.frSegRg.active:hover {
+  border-color: var(--rg-hover-border);
+  background: var(--rg-hover-bg);
+}
+
+/* Checkbox active state - Orange/Brown */
+.frSegCg.active {
+  border-color: var(--cg-active-border);
+  background: var(--cg-active-bg);
+  color: var(--cg-active-text);
+  font-weight: 600;
+}
+
+.frSegCg.active:hover {
+  border-color: var(--cg-hover-border);
+  background: var(--cg-hover-bg);
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* Input styles */
+.field input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 8px;
+  outline: none;
+}
+
+.field input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 15%, transparent);
+}
+
+.field input::placeholder {
+  color: var(--muted-2);
+}
+
+/* Scrollbar styles for scroll area */
+.scrollArea {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--text) 50%, transparent) transparent;
+}
+
+.scrollArea::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.scrollArea::-webkit-scrollbar-track {
+  background: transparent;
+  border-left: 1px solid color-mix(in oklab, var(--text) 6%, transparent);
+}
+
+.scrollArea::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--text) 18%, transparent), color-mix(in oklab, var(--text) 28%, transparent));
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--text) 8%, transparent);
+}
+
+.scrollArea::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--text) 24%, transparent), color-mix(in oklab, var(--text) 36%, transparent));
+}
+
+/* Footer button styles */
+.footer button {
+  padding: 8px 12px;
+  border: 2px solid var(--primary);
+  background: var(--btn-primary-bg, color-mix(in oklab, var(--primary) 28%, transparent));
+  color: var(--primary);
+  border-radius: 8px;
+  cursor: pointer;
+  line-height: 1;
+  font-weight: 700;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 1px 0 var(--btn-primary-shadow, color-mix(in oklab, var(--primary) 25%, transparent));
+  transition: transform .06s ease, box-shadow .06s ease, background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.footer button:hover {
+  background: var(--btn-primary-bg-hover, color-mix(in oklab, var(--primary) 36%, transparent));
+}
+
+.footer button:active {
+  transform: translateY(2px) scale(0.98);
+  box-shadow: 0 0 0 var(--btn-primary-shadow, color-mix(in oklab, var(--primary) 25%, transparent));
+}
+
+/* About Dialog */
+.aboutBackdrop {
+  z-index: 10320;
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklab, var(--text) 30%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.aboutModal {
+  width: min(480px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 18px 48px rgba(0,0,0,0.35);
+}
+
+.aboutHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.aboutTitle {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.aboutSubtitle {
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.aboutContent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aboutField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.aboutLabel {
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.aboutValue {
+  color: var(--text);
+}
+
+.aboutLink {
+  color: var(--primary);
+  word-break: break-all;
+}
+
+.aboutInstructions {
+  color: var(--text);
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.aboutEmpty {
+  color: var(--muted-2);
+}

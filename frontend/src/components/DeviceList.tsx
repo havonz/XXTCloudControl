@@ -11,6 +11,8 @@ import ServerFileBrowser from './ServerFileBrowser';
 import { IconRotate } from '../icons';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
+import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
+import ScriptConfigModal from './ScriptConfigModal';
 
 
 interface DeviceListProps {
@@ -82,6 +84,21 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const selectableScriptsCollection = createMemo(() => 
     createListCollection({ items: selectableScripts() })
   );
+
+  // Script config manager
+  const scriptConfigManager = useScriptConfigManager();
+  const [isConfigurable, setIsConfigurable] = createSignal(false);
+
+  // Handle configuration status check when script selection changes
+  createEffect(async () => {
+    const scriptName = serverScriptName();
+    if (scriptName) {
+      const configurable = await scriptConfigManager.checkConfigurable(scriptName);
+      setIsConfigurable(configurable);
+    } else {
+      setIsConfigurable(false);
+    }
+  });
 
   // Force reactivity tracking
   createEffect(() => {
@@ -603,28 +620,38 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         </Select.Item>
                       )}</For>
                     </Select.ItemGroup>
-                  </Select.Content>
-                </Select.Positioner>
-              </Portal>
-              <Select.HiddenSelect />
-            </Select.Root>
-            <button 
-              class={styles.iconButton} 
-              onClick={fetchSelectableScripts}
-              disabled={isLoadingScripts()}
-              title="刷新脚本列表"
-            >
-              <IconRotate size={14} class={isLoadingScripts() ? styles.spin : ''} />
-            </button>
-          </div>
-          
-          <button 
-            class={styles.toolbarActionButton}
-            disabled={!serverScriptName() || props.selectedDevices().length === 0 || isSendingScript()}
-            onClick={handleSendAndStartScript}
-          >
-            {isSendingScript() ? '启动中...' : '启动脚本'}
-          </button>
+                    </Select.Content>
+                  </Select.Positioner>
+                </Portal>
+              </Select.Root>
+              <button 
+                class={styles.iconButton} 
+                onClick={fetchSelectableScripts}
+                disabled={isLoadingScripts()}
+                title="刷新脚本列表"
+              >
+                <IconRotate size={14} class={isLoadingScripts() ? styles.spin : ''} />
+              </button>
+            </div>
+
+            <Show when={isConfigurable()}>
+              <button 
+                onClick={() => scriptConfigManager.openGlobalConfig(serverScriptName())}
+                class={styles.toolbarActionButton}
+              >
+                配置
+              </button>
+            </Show>
+            
+            <div class={styles.scriptActionButtons}>
+              <button 
+                class={styles.toolbarActionButton}
+                disabled={!serverScriptName() || props.selectedDevices().length === 0 || isSendingScript()}
+                onClick={handleSendAndStartScript}
+              >
+                {isSendingScript() ? '启动中...' : '启动脚本'}
+              </button>
+            </div>
           
           <button 
             onClick={handleStopScript}
@@ -1196,7 +1223,18 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           <div class={styles.toast}>
             {toastMessage()}
           </div>
-        </Show>
+      </Show>
+
+      {/* Script Configuration Modal */}
+      <ScriptConfigModal
+        open={scriptConfigManager.isOpen()}
+        title={scriptConfigManager.configTitle()}
+        items={scriptConfigManager.uiItems()}
+        initialValues={scriptConfigManager.initialValues()}
+        scriptInfo={scriptConfigManager.scriptInfo()}
+        onClose={scriptConfigManager.closeConfig}
+        onSubmit={scriptConfigManager.submitConfig}
+      />
     </div>
   );
 };

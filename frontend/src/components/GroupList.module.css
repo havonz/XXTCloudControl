@@ -130,12 +130,22 @@
 }
 
 .groupName {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-  white-space: nowrap;
+  flex: 1;
+  font-size: 0.95rem;
+  color: var(--text-color);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupScript {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-left: 4px;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .deviceCount {

@@ -730,6 +730,11 @@ func main() {
 		log.Printf("Warning: Failed to load groups: %v", err)
 	}
 
+	// 加载分组脚本配置
+	if err := loadGroupScriptConfigs(); err != nil {
+		log.Printf("Warning: Failed to load group script configs: %v", err)
+	}
+
 	// 设置Gin模式
 	gin.SetMode(gin.ReleaseMode)
 
@@ -768,6 +773,15 @@ func main() {
 	r.DELETE("/api/groups/:id", groupsDeleteHandler)
 	r.POST("/api/groups/:id/devices", groupsAddDevicesHandler)
 	r.DELETE("/api/groups/:id/devices", groupsRemoveDevicesHandler)
+	r.PUT("/api/groups/:id/script", groupsBindScriptHandler)
+	r.GET("/api/groups/:id/script-config", groupsGetScriptConfigHandler)
+	r.POST("/api/groups/:id/script-config", groupsSetScriptConfigHandler)
+	r.DELETE("/api/groups/:id/script-config", groupsDeleteScriptConfigHandler)
+
+	// 脚本配置相关
+	r.GET("/api/scripts/config-status", scriptConfigStatusHandler)
+	r.GET("/api/scripts/config", scriptConfigGetHandler)
+	r.POST("/api/scripts/config", scriptConfigSaveHandler)
 
 	// 静态文件服务 - 使用NoRoute避免路由冲突
 	r.NoRoute(staticFileHandler)
@@ -1127,20 +1141,37 @@ type ServerFileItem struct {
 
 // 分组信息结构
 type GroupInfo struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	DeviceIDs []string `json:"deviceIds"`
-	SortOrder int      `json:"sortOrder"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	DeviceIDs  []string `json:"deviceIds"`
+	SortOrder  int      `json:"sortOrder"`
+	ScriptPath string   `json:"scriptPath,omitempty"` // 绑定的脚本路径
+}
+
+// 分组脚本配置记录
+type GroupScriptConfig struct {
+	GroupID    string                 `json:"groupId"`
+	ScriptPath string                 `json:"scriptPath"`
+	Config     map[string]interface{} `json:"config"`
 }
 
 var (
 	deviceGroups   = make([]GroupInfo, 0)
 	deviceGroupsMu sync.RWMutex
+
+	// 分组脚本配置：map[groupID]map[scriptPath]config
+	groupScriptConfigs   = make(map[string]map[string]map[string]interface{})
+	groupScriptConfigsMu sync.RWMutex
 )
 
-// 获取分组存储文件路径
+// 获取分组数据存储路径
 func getGroupsFilePath() string {
 	return filepath.Join(serverConfig.DataDir, "groups.json")
+}
+
+// 获取分组脚本配置存储路径
+func getGroupScriptConfigsFilePath() string {
+	return filepath.Join(serverConfig.DataDir, "group_script_configs.json")
 }
 
 // 加载分组数据
@@ -1149,12 +1180,12 @@ func loadGroups() error {
 	defer deviceGroupsMu.Unlock()
 
 	filePath := getGroupsFilePath()
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil
+	}
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			deviceGroups = make([]GroupInfo, 0)
-			return nil
-		}
 		return err
 	}
 
@@ -1164,11 +1195,70 @@ func loadGroups() error {
 // 保存分组数据
 func saveGroups() error {
 	filePath := getGroupsFilePath()
+
 	data, err := json.MarshalIndent(deviceGroups, "", "  ")
 	if err != nil {
 		return err
 	}
+
 	return os.WriteFile(filePath, data, 0644)
+}
+
+// 加载分组脚本配置
+func loadGroupScriptConfigs() error {
+	groupScriptConfigsMu.Lock()
+	defer groupScriptConfigsMu.Unlock()
+
+	filePath := getGroupScriptConfigsFilePath()
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(data, &groupScriptConfigs)
+}
+
+// 保存分组脚本配置
+func saveGroupScriptConfigs() error {
+	groupScriptConfigsMu.Lock()
+	defer groupScriptConfigsMu.Unlock()
+
+	filePath := getGroupScriptConfigsFilePath()
+
+	data, err := json.MarshalIndent(groupScriptConfigs, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// resolveDeviceScriptConfig 获取设备针对特定脚本的研究配置（从所属分组继承）
+func resolveDeviceScriptConfig(udid string, scriptName string) map[string]interface{} {
+	deviceGroupsMu.RLock()
+	groupScriptConfigsMu.RLock()
+	defer deviceGroupsMu.RUnlock()
+	defer groupScriptConfigsMu.RUnlock()
+
+	// 找到包含该设备的分组
+	for _, group := range deviceGroups {
+		for _, dID := range group.DeviceIDs {
+			if dID == udid {
+				// 检查该分组是否有针对该脚本的配置
+				if scripts, ok := groupScriptConfigs[group.ID]; ok {
+					if config, ok := scripts[scriptName]; ok {
+						return config
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // 生成唯一ID
@@ -2062,13 +2152,44 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 
 	for _, udid := range req.Devices {
 		if conn, exists := deviceLinks[udid]; exists {
+			// 获取该设备是否有所属分组的特定配置
+			groupConfig := resolveDeviceScriptConfig(udid, req.Name)
+
 			// 1. 发送所有文件 (覆盖写入)
 			for _, f := range filesToSend {
+				finalData := f.Data
+
+				// 如果是 main.json 且有分组特定配置，则合并
+				// 注意：在 iOS 上路径通常使用 / 分隔符
+				isMainJson := f.Path == "lua/scripts/main.json" ||
+					f.Path == "lua/scripts/"+req.Name+"/lua/scripts/main.json"
+
+				if isMainJson && groupConfig != nil {
+					// 解码原始 main.json
+					rawJson, _ := base64.StdEncoding.DecodeString(f.Data)
+					var mainObj map[string]interface{}
+					if err := json.Unmarshal(rawJson, &mainObj); err == nil {
+						// 合并配置到 Config 字段
+						configObj, ok := mainObj["Config"].(map[string]interface{})
+						if !ok {
+							configObj = make(map[string]interface{})
+						}
+						for k, v := range groupConfig {
+							configObj[k] = v
+						}
+						mainObj["Config"] = configObj
+
+						// 重新编码
+						newJson, _ := json.Marshal(mainObj)
+						finalData = base64.StdEncoding.EncodeToString(newJson)
+					}
+				}
+
 				putMsg := Message{
 					Type: "file/put",
 					Body: gin.H{
 						"path": f.Path,
-						"data": f.Data,
+						"data": finalData,
 					},
 				}
 				go sendMessage(conn, putMsg)
@@ -2100,4 +2221,218 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(filesToSend)})
+}
+
+// scriptConfigStatusHandler 检查脚本是否可配置
+func scriptConfigStatusHandler(c *gin.Context) {
+	name := c.Query("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+
+	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
+	scriptPath := filepath.Join(scriptsDir, name)
+
+	// 只有目录才可能包含 main.json
+	info, err := os.Stat(scriptPath)
+	if err != nil || !info.IsDir() {
+		c.JSON(http.StatusOK, gin.H{"configurable": false})
+		return
+	}
+
+	mainJsonPath := filepath.Join(scriptPath, "lua", "scripts", "main.json")
+	if _, err := os.Stat(mainJsonPath); err == nil {
+		c.JSON(http.StatusOK, gin.H{"configurable": true})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"configurable": false})
+	}
+}
+
+// scriptConfigGetHandler 读取 main.json
+func scriptConfigGetHandler(c *gin.Context) {
+	name := c.Query("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+
+	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
+	mainJsonPath := filepath.Join(scriptsDir, name, "lua", "scripts", "main.json")
+
+	data, err := os.ReadFile(mainJsonPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "main.json not found"})
+		return
+	}
+
+	var config interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse main.json"})
+		return
+	}
+
+	c.JSON(http.StatusOK, config)
+}
+
+// scriptConfigSaveHandler 保存 main.json 中的 Config 字段
+func scriptConfigSaveHandler(c *gin.Context) {
+	var req struct {
+		Name   string                 `json:"name"`
+		Config map[string]interface{} `json:"config"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
+	mainJsonPath := filepath.Join(scriptsDir, req.Name, "lua", "scripts", "main.json")
+
+	// 读取现有的 main.json
+	data, err := os.ReadFile(mainJsonPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "main.json not found"})
+		return
+	}
+
+	var mainObj map[string]interface{}
+	if err := json.Unmarshal(data, &mainObj); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse main.json"})
+		return
+	}
+
+	// 更新 Config 字段
+	mainObj["Config"] = req.Config
+
+	// 保存回去
+	newData, err := json.MarshalIndent(mainObj, "", "  ")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to marshal json"})
+		return
+	}
+
+	if err := os.WriteFile(mainJsonPath, newData, 0644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// groupsBindScriptHandler 绑定脚本到分组
+func groupsBindScriptHandler(c *gin.Context) {
+	groupID := c.Param("id")
+	var req struct {
+		ScriptPath string `json:"scriptPath"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	deviceGroupsMu.Lock()
+	defer deviceGroupsMu.Unlock()
+
+	found := false
+	for i := range deviceGroups {
+		if deviceGroups[i].ID == groupID {
+			deviceGroups[i].ScriptPath = req.ScriptPath
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		return
+	}
+
+	if err := saveGroups(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// groupsGetScriptConfigHandler 获取分组特定的脚本配置
+func groupsGetScriptConfigHandler(c *gin.Context) {
+	groupID := c.Param("id")
+	scriptPath := c.Query("script")
+
+	if scriptPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "script is required"})
+		return
+	}
+
+	groupScriptConfigsMu.RLock()
+	defer groupScriptConfigsMu.RUnlock()
+
+	if scripts, ok := groupScriptConfigs[groupID]; ok {
+		if config, ok := scripts[scriptPath]; ok {
+			c.JSON(http.StatusOK, config)
+			return
+		}
+	}
+
+	// 如果没有特定配置，返回空
+	c.JSON(http.StatusOK, gin.H{})
+}
+
+// groupsSetScriptConfigHandler 设置分组特定的脚本配置
+func groupsSetScriptConfigHandler(c *gin.Context) {
+	groupID := c.Param("id")
+	var req struct {
+		ScriptPath string                 `json:"scriptPath"`
+		Config     map[string]interface{} `json:"config"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	groupScriptConfigsMu.Lock()
+	if _, ok := groupScriptConfigs[groupID]; !ok {
+		groupScriptConfigs[groupID] = make(map[string]map[string]interface{})
+	}
+	groupScriptConfigs[groupID][req.ScriptPath] = req.Config
+	groupScriptConfigsMu.Unlock()
+
+	if err := saveGroupScriptConfigs(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// groupsDeleteScriptConfigHandler 删除分组特定的脚本配置
+func groupsDeleteScriptConfigHandler(c *gin.Context) {
+	groupID := c.Param("id")
+	scriptPath := c.Query("script")
+
+	if scriptPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "script is required"})
+		return
+	}
+
+	groupScriptConfigsMu.Lock()
+	if scripts, ok := groupScriptConfigs[groupID]; ok {
+		delete(scripts, scriptPath)
+		if len(scripts) == 0 {
+			delete(groupScriptConfigs, groupID)
+		}
+	}
+	groupScriptConfigsMu.Unlock()
+
+	if err := saveGroupScriptConfigs(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
