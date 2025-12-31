@@ -7,6 +7,12 @@ export default defineConfig({
     port: 3000,
     https: false, // 可以设置为 true 启用HTTPS，但需要证书
     host: '127.0.0.1', // 使用localhost确保crypto.subtle可用
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:46980',
+        changeOrigin: true,
+      }
+    }
   },
   preview: {
     port: 4173,
