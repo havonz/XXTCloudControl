@@ -1322,23 +1322,60 @@ func saveGroupScriptConfigs() error {
 	return os.WriteFile(filePath, data, 0644)
 }
 
-// resolveDeviceScriptConfig 获取设备针对特定脚本的研究配置（从所属分组继承）
-func resolveDeviceScriptConfig(udid string, scriptName string) map[string]interface{} {
+// resolveDeviceScriptConfig 获取设备针对特定脚本的配置
+// 规则：
+// 1. 如果 selectedGroups 包含 "__all__" -> 返回 nil (使用全局配置)
+// 2. 按分组的 sortOrder 顺序，找到第一个有该脚本配置的分组
+// 3. 如果没有找到配置 -> 返回 nil (使用全局配置)
+func resolveDeviceScriptConfig(udid string, scriptName string, selectedGroups []string) map[string]interface{} {
+	// 如果选中的是"所有设备"，使用全局配置
+	for _, gid := range selectedGroups {
+		if gid == "__all__" {
+			return nil
+		}
+	}
+
+	// 如果没有选中任何分组，使用全局配置
+	if len(selectedGroups) == 0 {
+		return nil
+	}
+
 	deviceGroupsMu.RLock()
 	groupScriptConfigsMu.RLock()
 	defer deviceGroupsMu.RUnlock()
 	defer groupScriptConfigsMu.RUnlock()
 
-	// 找到包含该设备的分组
+	// 创建选中分组的快速查找表
+	selectedSet := make(map[string]bool)
+	for _, gid := range selectedGroups {
+		selectedSet[gid] = true
+	}
+
+	// 按 sortOrder 排序找出选中的分组中包含该设备且有配置的第一个分组
+	// deviceGroups 已经按 sortOrder 排序好了
 	for _, group := range deviceGroups {
+		// 只考虑被选中的分组
+		if !selectedSet[group.ID] {
+			continue
+		}
+
+		// 检查设备是否在该分组中
+		deviceInGroup := false
 		for _, dID := range group.DeviceIDs {
 			if dID == udid {
-				// 检查该分组是否有针对该脚本的配置
-				if scripts, ok := groupScriptConfigs[group.ID]; ok {
-					if config, ok := scripts[scriptName]; ok {
-						return config
-					}
-				}
+				deviceInGroup = true
+				break
+			}
+		}
+
+		if !deviceInGroup {
+			continue
+		}
+
+		// 检查该分组是否有针对该脚本的配置
+		if scripts, ok := groupScriptConfigs[group.ID]; ok {
+			if config, ok := scripts[scriptName]; ok {
+				return config
 			}
 		}
 	}
@@ -2181,8 +2218,9 @@ func serverFilesOpenLocalHandler(c *gin.Context) {
 // 发送消息并启动脚本处理函数
 func scriptsSendAndStartHandler(c *gin.Context) {
 	var req struct {
-		Devices []string `json:"devices"`
-		Name    string   `json:"name"`
+		Devices        []string `json:"devices"`
+		Name           string   `json:"name"`
+		SelectedGroups []string `json:"selectedGroups"` // 选中的分组ID列表
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -2282,7 +2320,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	for _, udid := range req.Devices {
 		if conn, exists := deviceLinks[udid]; exists {
 			// 获取该设备是否有所属分组的特定配置
-			groupConfig := resolveDeviceScriptConfig(udid, req.Name)
+			groupConfig := resolveDeviceScriptConfig(udid, req.Name, req.SelectedGroups)
 
 			// 1. 发送所有文件 (覆盖写入)
 			for _, f := range filesToSend {

@@ -35,15 +35,8 @@ export function useGroupReorder(options: UseGroupReorderOptions): UseGroupReorde
   const persistGroupOrder = async (nextOrder: GroupInfo[]) => {
     if (options.groupSortLocked()) return;
     const ordered = nextOrder.map((group, index) => ({ ...group, sortOrder: index }));
-    const orderIds = ordered.map(g => g.id);
-    console.log('[useGroupReorder] persistGroupOrder called:', { 
-      nextOrderLength: nextOrder.length, 
-      orderIds,
-      ordered 
-    });
     options.setGroups(ordered);
-    const result = await options.reorderGroups(orderIds);
-    console.log('[useGroupReorder] reorderGroups result:', result);
+    await options.reorderGroups(ordered.map(g => g.id));
   };
 
   const handleDragStart = (event: DragEvent, groupId: string) => {

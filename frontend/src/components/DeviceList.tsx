@@ -32,6 +32,7 @@ interface DeviceListProps {
   isLoading: boolean;
   serverHost: string;
   serverPort: string;
+  checkedGroups?: Accessor<Set<string>>; // 选中的分组ID列表
   sidebar?: JSX.Element;
 }
 
@@ -174,6 +175,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         body: JSON.stringify({
           devices: props.selectedDevices().map((d: Device) => d.udid),
           name: serverScriptName(),
+          selectedGroups: props.checkedGroups ? Array.from(props.checkedGroups()) : ['__all__'],
         }),
       });
       

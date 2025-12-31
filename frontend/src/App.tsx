@@ -470,6 +470,7 @@ const App: Component = () => {
               isLoading={isLoadingDevices()}
               serverHost={serverHost()}
               serverPort={serverPort()}
+              checkedGroups={groupStore.checkedGroups}
               sidebar={
                 <GroupList
                   groupStore={groupStore}
