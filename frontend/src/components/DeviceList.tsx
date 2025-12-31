@@ -1,4 +1,4 @@
-import { Component, createSignal, For, Accessor, Show, createEffect } from 'solid-js';
+import { Component, createSignal, For, Accessor, Show, createEffect, createMemo } from 'solid-js';
 import { Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { useTheme } from './ThemeContext';
@@ -9,7 +9,9 @@ import DeviceBindingModal from './DeviceBindingModal';
 import DictionaryModal from './DictionaryModal';
 import { ScriptSelectionModal } from './ScriptSelectionModal';
 import ServerFileBrowser from './ServerFileBrowser';
-import { IconMoon, IconSun } from '../icons';
+import { IconMoon, IconSun, IconRotate } from '../icons';
+import { Select, createListCollection } from '@ark-ui/solid';
+import { Portal } from 'solid-js/web';
 
 
 interface DeviceListProps {
@@ -68,12 +70,75 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [sortField, setSortField] = createSignal<string>('');
   const [sortDirection, setSortDirection] = createSignal<'asc' | 'desc'>('asc');
 
+  // Selectable scripts state
+  const [selectableScripts, setSelectableScripts] = createSignal<string[]>([]);
+  const [isLoadingScripts, setIsLoadingScripts] = createSignal(false);
+  const [isSendingScript, setIsSendingScript] = createSignal(false);
+  const [serverScriptName, setServerScriptName] = createSignal(''); // 独立的服务器脚本选择
+  
+  // Collection for Select component (reactive)
+  const selectableScriptsCollection = createMemo(() => 
+    createListCollection({ items: selectableScripts() })
+  );
+
   // Force reactivity tracking
   createEffect(() => {
     props.selectedDevices().length;
     props.selectedDevices().map(d => d.udid);
     setForceUpdate(prev => prev + 1); // Force component update
   });
+
+
+  // Fetch selectable scripts from server
+  const fetchSelectableScripts = async () => {
+    if (isLoadingScripts()) return;
+    
+    setIsLoadingScripts(true);
+    try {
+      const serverUrl = window.location.origin;
+      const response = await fetch(`${serverUrl}/api/scripts/selectable`);
+      const data = await response.json();
+      
+      if (data.scripts) {
+        setSelectableScripts(data.scripts);
+      }
+    } catch (error) {
+      console.error('获取可选脚本失败:', error);
+    } finally {
+      setIsLoadingScripts(false);
+    }
+  };
+
+  const handleSendAndStartScript = async () => {
+    if (!serverScriptName() || props.selectedDevices().length === 0) return;
+    
+    setIsSendingScript(true);
+    try {
+      const response = await fetch('/api/scripts/send-and-start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          devices: props.selectedDevices().map((d: Device) => d.udid),
+          name: serverScriptName(),
+        }),
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        showToastMessage('脚本已发送并启动');
+      } else {
+        console.error('发送脚本失败:', result.error);
+        showToastMessage('发送脚本失败: ' + (result.error || '未知错误'));
+      }
+    } catch (error) {
+      console.error('发送脚本错误:', error);
+      showToastMessage('发送脚本网络错误');
+    } finally {
+      setIsSendingScript(false);
+    }
+  };
 
   // Copy to clipboard function
   const copyToClipboard = async (text: string, type: string) => {
@@ -565,6 +630,64 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               >
                 浏览服务器文件
               </button>
+            </div>
+            
+            <div class={styles.scriptSelectorContainer}>
+              <div class={styles.scriptSelectorHeader}>
+                <label class={styles.inputLabel}>服务器脚本列表:</label>
+                <button 
+                  class={styles.iconButton} 
+                  onClick={fetchSelectableScripts}
+                  disabled={isLoadingScripts()}
+                  title="刷新脚本列表"
+                >
+                  <IconRotate size={14} class={isLoadingScripts() ? styles.spin : ''} />
+                </button>
+              </div>
+              <div class={styles.scriptSelectorRow}>
+                <Select.Root
+                  collection={selectableScriptsCollection()}
+                  value={serverScriptName() ? [serverScriptName()] : []}
+                  onValueChange={(e) => {
+                    const next = e.value[0] ?? '';
+                    setServerScriptName(next);
+                  }}
+                  onOpenChange={(e) => {
+                    if (e.open) fetchSelectableScripts();
+                  }}
+                >
+                  <Select.Control>
+                    <Select.Trigger class="cbx-select">
+                      <span>{serverScriptName() || '-- 选择脚本 --'}</span>
+                      <span class="dropdown-arrow">▼</span>
+                    </Select.Trigger>
+                  </Select.Control>
+                  <Portal>
+                    <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
+                      <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
+                        <Select.ItemGroup>
+                          <For each={selectableScripts()}>{(script) => (
+                            <Select.Item item={script} class="cbx-item">
+                              <div class="cbx-item-content">
+                                <Select.ItemIndicator>✓</Select.ItemIndicator>
+                                <Select.ItemText>{script}</Select.ItemText>
+                              </div>
+                            </Select.Item>
+                          )}</For>
+                        </Select.ItemGroup>
+                      </Select.Content>
+                    </Select.Positioner>
+                  </Portal>
+                  <Select.HiddenSelect />
+                </Select.Root>
+                <button 
+                  class={styles.sendStartButton}
+                  disabled={!serverScriptName() || props.selectedDevices().length === 0 || isSendingScript()}
+                  onClick={handleSendAndStartScript}
+                >
+                  {isSendingScript() ? '发送中...' : '发送并启动'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

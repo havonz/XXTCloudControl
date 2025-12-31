@@ -63,6 +63,78 @@
   cursor: not-allowed;
 }
 
+.refresh.iconButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.primaryButton {
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1.2rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.primaryButton:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.primaryButton:disabled {
+  background: var(--border);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  opacity: 0.7;
+  box-shadow: none;
+}
+
+.scriptSelectorRow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.scriptSelectorRow > :first-child {
+  flex: 1;
+}
+
+.sendStartButton {
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.sendStartButton:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.sendStartButton:disabled {
+  background: var(--border);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .respringButton {
   background: rgba(220, 38, 38, 0.28);
   border-color: var(--danger);
@@ -158,6 +230,40 @@
   font-size: 0.8rem;
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+
+.scriptSelectorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.scriptSelect:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
+}
+
+.iconButton {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  border-radius: 4px;
+}
+
+.iconButton:hover {
+  background: var(--hover-bg);
+  color: var(--primary);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
 }
 
 .pathInput,

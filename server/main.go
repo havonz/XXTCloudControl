@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"encoding/base64"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -751,6 +753,8 @@ func main() {
 	r.GET("/api/server-files/download/*path", serverFilesDownloadHandler)
 	r.DELETE("/api/server-files/delete", serverFilesDeleteHandler)
 	r.POST("/api/server-files/open-local", serverFilesOpenLocalHandler)
+	r.GET("/api/scripts/selectable", selectableScriptsHandler)
+	r.POST("/api/scripts/send-and-start", scriptsSendAndStartHandler)
 
 	// 静态文件服务 - 使用NoRoute避免路由冲突
 	r.NoRoute(staticFileHandler)
@@ -1451,53 +1455,86 @@ func serverFilesRenameHandler(c *gin.Context) {
 		return
 	}
 
-	// 验证并构建旧路径
-	oldFilePath := req.OldName
-	if req.Path != "" {
-		oldFilePath = req.Path + "/" + req.OldName
-	}
-	oldPath, err := validatePath(req.Category, oldFilePath)
+	// 验证目录路径
+	targetDir, err := validatePath(req.Category, req.Path)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 验证并构建新路径
-	newFilePath := req.NewName
-	if req.Path != "" {
-		newFilePath = req.Path + "/" + req.NewName
-	}
-	newPath, err := validatePath(req.Category, newFilePath)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+	// 构建路径
+	oldPath := filepath.Join(targetDir, req.OldName)
+	newPath := filepath.Join(targetDir, req.NewName)
 
-	// 检查旧文件是否存在
-	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
-		return
-	}
-
-	// 检查新文件是否已存在
-	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "target name already exists"})
-		return
-	}
-
-	// 执行重命名
+	// 重命名
 	if err := os.Rename(oldPath, newPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rename"})
 		return
 	}
 
-	fmt.Printf("✏️ 已重命名: %s -> %s\n", req.OldName, req.NewName)
+	fmt.Printf("📝 已重命名: %s/%s -> %s\n", req.Category, req.OldName, req.NewName)
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"oldName": req.OldName,
-		"newName": req.NewName,
-	})
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// 检查是否为有效的可执行脚本
+func isSelectableScript(basePath string, name string, isDir bool) bool {
+	fullPath := filepath.Join(basePath, name)
+
+	if !isDir {
+		// 文件：必须是 .lua 或 .xxt
+		ext := strings.ToLower(filepath.Ext(name))
+		return ext == ".lua" || ext == ".xxt"
+	}
+
+	// 目录：检查是否是 .xpp
+	if strings.ToLower(filepath.Ext(name)) == ".xpp" {
+		return true
+	}
+
+	// 目录：或者是包含 lua/scripts/main.lua 或 lua/scripts/main.xxt 的平铺脚本
+	mainLua := filepath.Join(fullPath, "lua", "scripts", "main.lua")
+	if _, err := os.Stat(mainLua); err == nil {
+		return true
+	}
+	mainXxt := filepath.Join(fullPath, "lua", "scripts", "main.xxt")
+	if _, err := os.Stat(mainXxt); err == nil {
+		return true
+	}
+
+	return false
+}
+
+// 可选脚本列表处理函数
+func selectableScriptsHandler(c *gin.Context) {
+	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
+
+	// 确保目录存在
+	if _, err := os.Stat(scriptsDir); os.IsNotExist(err) {
+		c.JSON(http.StatusOK, gin.H{"scripts": []string{}})
+		return
+	}
+
+	entries, err := os.ReadDir(scriptsDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read scripts directory"})
+		return
+	}
+
+	selectableScripts := make([]string, 0)
+	for _, entry := range entries {
+		name := entry.Name()
+		// 忽略隐藏文件
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		if isSelectableScript(scriptsDir, name, entry.IsDir()) {
+			selectableScripts = append(selectableScripts, name)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"scripts": selectableScripts})
 }
 
 // 读取文件内容
@@ -1643,4 +1680,147 @@ func serverFilesOpenLocalHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// 发送消息并启动脚本处理函数
+func scriptsSendAndStartHandler(c *gin.Context) {
+	var req struct {
+		Devices []string `json:"devices"`
+		Name    string   `json:"name"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if len(req.Devices) == 0 || req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "devices and name are required"})
+		return
+	}
+
+	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
+	scriptPath := filepath.Join(scriptsDir, req.Name)
+
+	fileInfo, err := os.Stat(scriptPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "script not found"})
+		return
+	}
+
+	isDir := fileInfo.IsDir()
+	// 检查是否是平铺脚本 (包含 lua/scripts/)
+	isPiled := false
+	if isDir {
+		if _, err := os.Stat(filepath.Join(scriptPath, "lua", "scripts")); err == nil {
+			isPiled = true
+		}
+	}
+
+	// 收集要发送的文件
+	type FileData struct {
+		Path string
+		Data string
+	}
+	filesToSend := make([]FileData, 0)
+
+	if !isDir {
+		// 普通文件，发送到 /var/mobile/Media/1st_Click/lua/scripts/
+		content, err := os.ReadFile(scriptPath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script file"})
+			return
+		}
+		filesToSend = append(filesToSend, FileData{
+			Path: filepath.Join("lua", "scripts", req.Name),
+			Data: base64.StdEncoding.EncodeToString(content),
+		})
+	} else if isPiled {
+		// 平铺脚本，映射整个目录结构
+		err := filepath.Walk(scriptPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			relPath, _ := filepath.Rel(scriptPath, path)
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			filesToSend = append(filesToSend, FileData{
+				Path: relPath,
+				Data: base64.StdEncoding.EncodeToString(content),
+			})
+			return nil
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script directory"})
+			return
+		}
+	} else {
+		// 普通目录 (如 .xpp)，发送整个目录到 /var/mobile/Media/1st_Click/lua/scripts/
+		err := filepath.Walk(scriptPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			relPath, _ := filepath.Rel(scriptPath, path)
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			filesToSend = append(filesToSend, FileData{
+				Path: filepath.Join("lua", "scripts", req.Name, relPath),
+				Data: base64.StdEncoding.EncodeToString(content),
+			})
+			return nil
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script directory"})
+			return
+		}
+	}
+
+	// 发送给选定的设备
+	mu.Lock()
+	defer mu.Unlock()
+
+	for _, udid := range req.Devices {
+		if conn, exists := deviceLinks[udid]; exists {
+			// 1. 发送所有文件 (覆盖写入)
+			for _, f := range filesToSend {
+				putMsg := Message{
+					Type: "file/put",
+					Body: gin.H{
+						"path": f.Path,
+						"data": f.Data,
+					},
+				}
+				go sendMessage(conn, putMsg)
+			}
+
+			// 2. 启动脚本
+			runName := req.Name
+			if isPiled {
+				// 对于平铺脚本，启动 main.lua 或 main.xxt
+				if _, err := os.Stat(filepath.Join(scriptPath, "lua", "scripts", "main.lua")); err == nil {
+					runName = "main.lua"
+				} else {
+					runName = "main.xxt"
+				}
+			}
+
+			runMsg := Message{
+				Type: "script/run",
+				Body: gin.H{
+					"name": runName,
+				},
+			}
+			// 延迟一小段时间发送启动命令，由于 file/put 是异步发送的，这里也异步以保持顺序
+			go func(c *SafeConn, m Message) {
+				time.Sleep(500 * time.Millisecond) // 给文件系统一点时间
+				sendMessage(c, m)
+			}(conn, runMsg)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(filesToSend)})
 }

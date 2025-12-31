@@ -16,6 +16,7 @@
     "vite-plugin-solid": "^2.7.0"
   },
   "dependencies": {
+    "@ark-ui/solid": "^5.30.0",
     "@types/qrcode": "^1.5.5",
     "qrcode": "^1.5.4",
     "solid-icons": "^1.1.0",

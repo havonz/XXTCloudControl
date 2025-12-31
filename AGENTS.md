@@ -31,3 +31,19 @@
 ## 安全与配置提示
 - `xxtcloudserver.json` 与 `server/xxtcloudserver.json` 不应提交版本库（已在 `.gitignore`）。
 - 密码以 HMAC-SHA256 结果存储，避免在日志、截图或文档中暴露明文。
+
+## 什么是**平铺脚本**
+「平铺脚本」是一种按文件夹组织的脚本单元，通常包含资源与脚本文件，例如：
+
+ ```
+ 脚本路径/
+ ├── res/
+ │   ├── 1.png
+ │   └── 2.png
+ └── lua/
+     ├── a.lua
+     ├── b.lua
+     └── scripts/
+         ├── c.lua
+         └── main.lua
+ ```
