@@ -1,0 +1,88 @@
+
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" 
+     width="350" height="350" viewBox="0 0 350 350">
+  <defs>
+    <!-- 控制台背景渐变 -->
+    <linearGradient id="consoleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a1a"/>
+      <stop offset="100%" style="stop-color:#0d1117"/>
+    </linearGradient>
+    
+    <!-- 屏幕内容区域渐变 -->
+    <linearGradient id="screenGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a1628"/>
+      <stop offset="100%" style="stop-color:#132136"/>
+    </linearGradient>
+    
+    <!-- 蓝色文字渐变 -->
+    <linearGradient id="blueText" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#488FCD"/>
+      <stop offset="100%" style="stop-color:#5aa3e0"/>
+    </linearGradient>
+    
+    <!-- 原始 logo 的渐变定义 -->
+    <linearGradient id="logoGradient" gradientUnits="userSpaceOnUse" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" style="stop-color:#1F5E97"/>
+      <stop offset="1" style="stop-color:#488FCD"/>
+    </linearGradient>
+    
+    <!-- Logo 路径定义 -->
+    <path id="logoPath" d="M85,121V67.217V67h18v0.217V121l-9,9L85,121z M247,121V67h18v54l-9,9L247,121z M13,31l36,36v0.217V121
+        l27,27l-27,27v27l36,36.001V175l9-9l9,9v72.002l36,36V175l-27-27l27-27V67.217V67h18v234.002l18,18l18-18V67h18v54l27,27l-27,27
+        v108.002l36-36V175l9-9l9,9v63.002L301,202v-27l-27-27l27-27V67l36-36H13z"/>
+    
+    <!-- 屏幕反光 -->
+    <linearGradient id="screenReflection" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff"/>
+      <stop offset="100%" style="stop-color:#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    
+    <!-- 云朵图形 -->
+    <g id="cloudShape">
+      <path d="M 30 20 Q 20 20 15 28 Q 8 28 5 35 Q 5 42 12 45 L 48 45 Q 55 45 55 38 Q 55 32 50 28 Q 50 20 40 18 Q 35 15 30 20 Z" 
+            fill="url(#blueText)" opacity="0.3"/>
+    </g>
+  </defs>
+  
+  <!-- 控制台窗口外框 -->
+  <rect x="20" y="25" width="310" height="300" rx="12" ry="12" fill="#2d333b" stroke="#444c56" stroke-width="2"/>
+  
+  <!-- 窗口顶栏 -->
+  <rect x="20" y="25" width="310" height="35" rx="12" ry="12" fill="#21262d"/>
+  <rect x="20" y="52" width="310" height="8" fill="#21262d"/>
+  
+  <!-- 窗口控制按钮 -->
+  <circle cx="38" cy="42" r="7" fill="#ff5f56"/>
+  <circle cx="60" cy="42" r="7" fill="#ffbd2e"/>
+  <circle cx="82" cy="42" r="7" fill="#27ca3f"/>
+  
+  <!-- 标题文字 -->
+  <text x="105" y="47" fill="#8b949e" font-family="SF Mono, Monaco, monospace" font-size="13" font-weight="500">XXTCloudControl</text>
+  
+  <!-- 控制台内容区域 -->
+  <rect x="28" y="68" width="294" height="250" fill="url(#screenGradient)" rx="6"/>
+  
+  <!-- 云朵装饰 -->
+  <use xlink:href="#cloudShape" transform="translate(40, 85) scale(0.8)"/>
+  <use xlink:href="#cloudShape" transform="translate(250, 95) scale(0.6)"/>
+  <use xlink:href="#cloudShape" transform="translate(230, 260) scale(0.7)"/>
+  
+  <!-- 控制台提示符 -->
+  <text x="45" y="110" fill="url(#blueText)" font-family="SF Mono, Monaco, monospace" font-size="16" font-weight="400">cloud@control:~$</text>
+  
+  <!-- 嵌入的 Logo（中心位置，适中大小） -->
+  <g transform="translate(175, 185) scale(0.42) translate(-175, -156)">
+    <use xlink:href="#logoPath" fill="url(#logoGradient)" opacity="0.85"/>
+  </g>
+  
+  <!-- 命令行光标（在 $ 符号后面，继续右移） -->
+  <rect x="200" y="95" width="10" height="18" fill="#488FCD" opacity="0.8">
+    <animate attributeName="opacity" values="0.8;0;0.8" dur="1.2s" repeatCount="indefinite"/>
+  </rect>
+  
+  <!-- 屏幕反光效果 -->
+  <rect x="28" y="68" width="294" height="125" fill="url(#screenReflection)" rx="6" opacity="0.06"/>
+  
+  <!-- 细微的扫描线效果 -->
+  <rect x="28" y="68" width="294" height="250" rx="6" fill="none" stroke="#488FCD" stroke-width="0.5" opacity="0.15"/>
+</svg>

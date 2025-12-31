@@ -1,3 +1,76 @@
+.appContainer {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.appHeader {
+  height: 48px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  width: 24px;
+  height: 24px;
+}
+
+.appTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.themeToggle {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  border-radius: 6px;
+}
+
+.themeToggle:hover {
+  background: var(--hover-bg);
+  color: var(--primary);
+}
+
+.appMain {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Auth / Login specific if needed in this file */
 .App {
   text-align: center;
   min-height: 100vh;
@@ -5,159 +78,4 @@
   flex-direction: column;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-}
-
-.header {
-  padding: 2rem;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-}
-
-.header h1 {
-  margin: 0 0 1rem 0;
-  font-size: 2rem;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  font-size: 1.1rem;
-}
-
-.statusIndicator {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
-}
-
-.main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 2rem;
-  max-width: 800px;
-  margin: 0 auto;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.messageContainer {
-  flex: 1;
-  margin-bottom: 2rem;
-}
-
-.messageContainer h3 {
-  margin-bottom: 1rem;
-  font-size: 1.5rem;
-  font-weight: 400;
-}
-
-.messages {
-  background: var(--panel);
-  border-radius: 8px;
-  padding: 1.5rem;
-  min-height: 300px;
-  max-height: 400px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-}
-
-.message {
-  background: var(--panel-2);
-  margin-bottom: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  text-align: left;
-  word-wrap: break-word;
-  border-left: 3px solid var(--primary);
-}
-
-.noMessages {
-  color: var(--text-muted);
-  font-style: italic;
-  text-align: center;
-  margin-top: 2rem;
-}
-
-.inputContainer {
-  display: flex;
-  gap: 1rem;
-  background: var(--panel);
-  padding: 1.5rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-}
-
-.input {
-  flex: 1;
-  padding: 0.5rem 0.75rem;
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  font-size: 1rem;
-  background: var(--input-bg);
-  color: var(--text);
-  outline: none;
-  transition: all 0.2s ease;
-}
-
-.input:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
-}
-
-.input:disabled {
-  background: var(--btn-glass-bg);
-  color: var(--text-muted);
-  cursor: not-allowed;
-}
-
-.sendButton {
-  padding: 0.5rem 1.25rem;
-  border: 2px solid var(--primary);
-  border-radius: 8px;
-  background: var(--btn-primary-bg);
-  color: var(--primary);
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.sendButton:hover:not(:disabled) {
-  background: var(--primary);
-  color: #fff;
-  transform: translateY(-1px);
-  box-shadow: var(--shadow);
-}
-
-.sendButton:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* 滚动条样式 */
-.messages::-webkit-scrollbar {
-  width: 6px;
-}
-
-.messages::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-  border-radius: 3px;
-}
-
-.messages::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 3px;
-}
-
-.messages::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
 }

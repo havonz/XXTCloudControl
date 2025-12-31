@@ -1,12 +1,19 @@
-import { Component, createSignal, onCleanup } from 'solid-js';
+import { Component, createSignal, onCleanup, createMemo, createEffect } from 'solid-js';
 import { WebSocketService, Device } from './services/WebSocketService';
 import { AuthService, LoginCredentials } from './services/AuthService';
+import { createGroupStore } from './services/GroupStore';
 import LoginForm from './components/LoginForm';
 import DeviceList from './components/DeviceList';
 import FileBrowser from './components/FileBrowser';
+import GroupList from './components/GroupList';
+import NewGroupModal from './components/NewGroupModal';
+import AddToGroupModal from './components/AddToGroupModal';
+import { useTheme } from './components/ThemeContext';
+import { IconMoon, IconSun } from './icons';
 import styles from './App.module.css';
 
 const App: Component = () => {
+  const { theme, toggleTheme } = useTheme();
   const [isAuthenticated, setIsAuthenticated] = createSignal(false);
   const [isConnecting, setIsConnecting] = createSignal(false);
   const [loginError, setLoginError] = createSignal('');
@@ -24,6 +31,18 @@ const App: Component = () => {
   const [fileList, setFileList] = createSignal<any[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = createSignal(false);
   const [pendingDownload, setPendingDownload] = createSignal<{fileName: string, deviceUdid: string} | null>(null);
+  
+  // Group management state
+  const groupStore = createGroupStore();
+  const [showNewGroupModal, setShowNewGroupModal] = createSignal(false);
+  const [showAddToGroupModal, setShowAddToGroupModal] = createSignal(false);
+  
+  // Filter devices based on selected groups
+  const filteredDevices = createMemo(() => {
+    const visible = groupStore.visibleDeviceIds();
+    if (visible === null) return devices(); // Show all devices
+    return devices().filter(d => visible.has(d.udid));
+  });
   
   let wsService: WebSocketService | null = null;
   const authService = AuthService.getInstance();
@@ -177,7 +196,7 @@ const App: Component = () => {
     setSelectedDevices(devices);
 
     // Show selection count in page title for debugging
-    document.title = `XXT 云控面板 (${devices.length} selected)`;
+    document.title = `XXT 云控制器 (${devices.length} selected)`;
   };
 
   const handleRefreshDevices = () => {
@@ -394,6 +413,20 @@ const App: Component = () => {
     }
   };
 
+  // Load groups when authenticated
+  createEffect(() => {
+    if (isAuthenticated()) {
+      groupStore.loadGroups();
+    }
+  });
+
+  // Handle adding selected devices to a group
+  const handleAddDevicesToGroup = async (groupId: string): Promise<boolean> => {
+    const deviceIds = selectedDevices().map(d => d.udid);
+    if (deviceIds.length === 0) return false;
+    return await groupStore.addDevicesToGroup(groupId, deviceIds);
+  };
+
   return (
     <div class={styles.App}>
       {!isAuthenticated() ? (
@@ -403,25 +436,68 @@ const App: Component = () => {
           error={loginError()}
         />
       ) : (
-        <DeviceList 
-          devices={devices()}
-          onDeviceSelect={handleDeviceSelect}
-          selectedDevices={selectedDevices}
-          onRespring={handleRespring}
-          onRefresh={handleRefreshDevices}
-          onStartScript={handleStartScript}
-          onStopScript={handleStopScript}
-          onRespringDevices={handleRespringDevices}
-          onUploadFiles={handleUploadFiles}
-          onOpenFileBrowser={handleOpenFileBrowser}
-          onReadClipboard={handleReadClipboard}
-          onWriteClipboard={handleWriteClipboard}
-          webSocketService={wsService}
-          isLoading={isLoadingDevices()}
-          serverHost={serverHost()}
-          serverPort={serverPort()}
-        />
+        <div class={styles.appContainer}>
+          <header class={styles.appHeader}>
+            <div class={styles.headerLeft}>
+              <img src="/favicon-48.png" alt="Logo" class={styles.logo} />
+              <h1 class={styles.appTitle}>XXT 云控制器</h1>
+            </div>
+            <div class={styles.headerRight}>
+              <button
+                onClick={toggleTheme}
+                class={styles.themeToggle}
+                title={theme() === 'light' ? '切换到暗色模式' : '切换到亮色模式'}
+              >
+                {theme() === 'light' ? <IconMoon size={18} /> : <IconSun size={18} />}
+              </button>
+            </div>
+          </header>
+          <main class={styles.appMain}>
+            <DeviceList 
+              devices={filteredDevices()}
+              onDeviceSelect={handleDeviceSelect}
+              selectedDevices={selectedDevices}
+              onRespring={handleRespring}
+              onRefresh={handleRefreshDevices}
+              onStartScript={handleStartScript}
+              onStopScript={handleStopScript}
+              onRespringDevices={handleRespringDevices}
+              onUploadFiles={handleUploadFiles}
+              onOpenFileBrowser={handleOpenFileBrowser}
+              onReadClipboard={handleReadClipboard}
+              onWriteClipboard={handleWriteClipboard}
+              webSocketService={wsService}
+              isLoading={isLoadingDevices()}
+              serverHost={serverHost()}
+              serverPort={serverPort()}
+              sidebar={
+                <GroupList
+                  groupStore={groupStore}
+                  deviceCount={devices().length}
+                  onOpenNewGroupModal={() => setShowNewGroupModal(true)}
+                  onOpenAddToGroupModal={() => setShowAddToGroupModal(true)}
+                  selectedDeviceCount={selectedDevices().length}
+                />
+              }
+            />
+          </main>
+        </div>
       )}
+      
+      {/* Modals */}
+      <NewGroupModal
+        open={showNewGroupModal()}
+        onClose={() => setShowNewGroupModal(false)}
+        onCreateGroup={groupStore.createGroup}
+      />
+      
+      <AddToGroupModal
+        open={showAddToGroupModal()}
+        onClose={() => setShowAddToGroupModal(false)}
+        groups={groupStore.groups()}
+        selectedDeviceCount={selectedDevices().length}
+        onAddToGroup={handleAddDevicesToGroup}
+      />
       
       <FileBrowser
         deviceUdid={fileBrowserDevice()?.udid || ''}

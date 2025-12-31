@@ -178,3 +178,6 @@ cython_debug/
 /build
 /server/data/
 /server/xxtcloudserver.json
+/assets/icons/
+/frontend/public/
+.playwright-mcp/

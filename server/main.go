@@ -725,6 +725,11 @@ func main() {
 		log.Fatalf("Failed to initialize data directories: %v", err)
 	}
 
+	// 加载分组数据
+	if err := loadGroups(); err != nil {
+		log.Printf("Warning: Failed to load groups: %v", err)
+	}
+
 	// 设置Gin模式
 	gin.SetMode(gin.ReleaseMode)
 
@@ -755,6 +760,14 @@ func main() {
 	r.POST("/api/server-files/open-local", serverFilesOpenLocalHandler)
 	r.GET("/api/scripts/selectable", selectableScriptsHandler)
 	r.POST("/api/scripts/send-and-start", scriptsSendAndStartHandler)
+
+	// 设备分组管理API
+	r.GET("/api/groups", groupsListHandler)
+	r.POST("/api/groups", groupsCreateHandler)
+	r.PUT("/api/groups/:id", groupsUpdateHandler)
+	r.DELETE("/api/groups/:id", groupsDeleteHandler)
+	r.POST("/api/groups/:id/devices", groupsAddDevicesHandler)
+	r.DELETE("/api/groups/:id/devices", groupsRemoveDevicesHandler)
 
 	// 静态文件服务 - 使用NoRoute避免路由冲突
 	r.NoRoute(staticFileHandler)
@@ -1108,6 +1121,270 @@ type ServerFileItem struct {
 	Type    string `json:"type"` // "file" or "dir"
 	Size    int64  `json:"size"`
 	ModTime string `json:"modTime"`
+}
+
+// ==================== 设备分组管理 ====================
+
+// 分组信息结构
+type GroupInfo struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	DeviceIDs []string `json:"deviceIds"`
+	SortOrder int      `json:"sortOrder"`
+}
+
+var (
+	deviceGroups   = make([]GroupInfo, 0)
+	deviceGroupsMu sync.RWMutex
+)
+
+// 获取分组存储文件路径
+func getGroupsFilePath() string {
+	return filepath.Join(serverConfig.DataDir, "groups.json")
+}
+
+// 加载分组数据
+func loadGroups() error {
+	deviceGroupsMu.Lock()
+	defer deviceGroupsMu.Unlock()
+
+	filePath := getGroupsFilePath()
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			deviceGroups = make([]GroupInfo, 0)
+			return nil
+		}
+		return err
+	}
+
+	return json.Unmarshal(data, &deviceGroups)
+}
+
+// 保存分组数据
+func saveGroups() error {
+	filePath := getGroupsFilePath()
+	data, err := json.MarshalIndent(deviceGroups, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// 生成唯一ID
+func generateGroupID() string {
+	return fmt.Sprintf("g%d", time.Now().UnixNano())
+}
+
+// 列出所有分组
+func groupsListHandler(c *gin.Context) {
+	deviceGroupsMu.RLock()
+	defer deviceGroupsMu.RUnlock()
+
+	c.JSON(http.StatusOK, gin.H{"groups": deviceGroups})
+}
+
+// 创建分组
+func groupsCreateHandler(c *gin.Context) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Group name cannot be empty"})
+		return
+	}
+
+	deviceGroupsMu.Lock()
+	defer deviceGroupsMu.Unlock()
+
+	newGroup := GroupInfo{
+		ID:        generateGroupID(),
+		Name:      name,
+		DeviceIDs: []string{},
+		SortOrder: len(deviceGroups),
+	}
+	deviceGroups = append(deviceGroups, newGroup)
+
+	if err := saveGroups(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "group": newGroup})
+}
+
+// 更新分组（重命名）
+func groupsUpdateHandler(c *gin.Context) {
+	groupID := c.Param("id")
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Group name cannot be empty"})
+		return
+	}
+
+	deviceGroupsMu.Lock()
+	defer deviceGroupsMu.Unlock()
+
+	found := false
+	for i := range deviceGroups {
+		if deviceGroups[i].ID == groupID {
+			deviceGroups[i].Name = name
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		return
+	}
+
+	if err := saveGroups(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// 删除分组
+func groupsDeleteHandler(c *gin.Context) {
+	groupID := c.Param("id")
+
+	deviceGroupsMu.Lock()
+	defer deviceGroupsMu.Unlock()
+
+	found := false
+	newGroups := make([]GroupInfo, 0, len(deviceGroups))
+	for _, g := range deviceGroups {
+		if g.ID != groupID {
+			newGroups = append(newGroups, g)
+		} else {
+			found = true
+		}
+	}
+
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		return
+	}
+
+	deviceGroups = newGroups
+
+	if err := saveGroups(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// 添加设备到分组
+func groupsAddDevicesHandler(c *gin.Context) {
+	groupID := c.Param("id")
+	var req struct {
+		DeviceIDs []string `json:"deviceIds"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	deviceGroupsMu.Lock()
+	defer deviceGroupsMu.Unlock()
+
+	found := false
+	for i := range deviceGroups {
+		if deviceGroups[i].ID == groupID {
+			// 使用 map 去重
+			existing := make(map[string]bool)
+			for _, id := range deviceGroups[i].DeviceIDs {
+				existing[id] = true
+			}
+			for _, id := range req.DeviceIDs {
+				if !existing[id] {
+					deviceGroups[i].DeviceIDs = append(deviceGroups[i].DeviceIDs, id)
+					existing[id] = true
+				}
+			}
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		return
+	}
+
+	if err := saveGroups(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// 从分组移除设备
+func groupsRemoveDevicesHandler(c *gin.Context) {
+	groupID := c.Param("id")
+	var req struct {
+		DeviceIDs []string `json:"deviceIds"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	deviceGroupsMu.Lock()
+	defer deviceGroupsMu.Unlock()
+
+	found := false
+	for i := range deviceGroups {
+		if deviceGroups[i].ID == groupID {
+			// 创建要移除的设备 ID 集合
+			toRemove := make(map[string]bool)
+			for _, id := range req.DeviceIDs {
+				toRemove[id] = true
+			}
+			// 过滤掉要移除的设备
+			newDeviceIDs := make([]string, 0)
+			for _, id := range deviceGroups[i].DeviceIDs {
+				if !toRemove[id] {
+					newDeviceIDs = append(newDeviceIDs, id)
+				}
+			}
+			deviceGroups[i].DeviceIDs = newDeviceIDs
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		return
+	}
+
+	if err := saveGroups(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // 列出服务器文件

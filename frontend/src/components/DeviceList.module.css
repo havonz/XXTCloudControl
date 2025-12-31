@@ -8,8 +8,8 @@
 
 .header {
   border-radius: 8px;
-  padding: 1.5rem;
-  margin: 0 2rem 1.5rem 2rem;
+  padding: 1rem;
+  margin: 0 0 1rem 0;
   border: 1px solid var(--border);
   background: var(--panel);
   flex-shrink: 0;
@@ -180,56 +180,227 @@
 
 .deviceListContainer {
   width: 100%;
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 0.75rem;
+  padding: 8px;
   box-sizing: border-box;
   overflow: hidden;
+  gap: 8px;
 }
 
-/* Three Cards Layout */
-.cardsContainer {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
+/* Action Toolbar - Single Row */
+.actionToolbar {
+  background: var(--panel-glass);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 12px;
+  box-shadow: var(--shadow-sm);
   flex-shrink: 0;
 }
 
-.card {
-  flex: 1;
-  background: var(--panel);
+.actionToolbarRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.toolbarActionButton {
+  padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0.75rem;
-  box-sizing: border-box;
-}
-
-.cardTitle {
-  margin: 0 0 0.5rem 0;
-  font-size: 1rem;
-  font-weight: 600;
+  background: var(--panel-2);
   color: var(--text);
-  text-align: center;
-}
-
-.cardContent {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-/* Input Groups */
-.inputGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.inputLabel {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
+  font-size: 13px;
   font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.toolbarActionButton:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--primary);
+}
+
+.toolbarActionButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.scriptSelectGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.moreActionsContainer {
+  position: relative;
+}
+
+.moreActionsMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 100;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+}
+
+.menuItem {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.menuItem:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.menuItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mainLayoutBody {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebarSection {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.contentArea {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.managementToolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.toolbarLeft {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+}
+
+.toolbarButton {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.toolbarButton:hover {
+  background: var(--hover-bg);
+  border-color: var(--primary);
+}
+
+.toolbarButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.columnSettingsContainer {
+  position: relative;
+}
+
+.columnDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  z-index: 100;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+}
+
+.columnOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.columnOption:hover {
+  background: var(--hover-bg);
+}
+
+.deviceCountSummary {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tableArea {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.deviceTable {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--panel);
+  /* grid-template-columns is set inline */
 }
 
 
@@ -465,15 +636,15 @@
 }
 
 .headerCell {
-  padding: 0.5rem;
+  padding: 0.25rem 0.5rem;
   font-weight: 600;
   color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 30px;
+  min-height: 24px;
   border-right: 1px solid var(--border);
-  font-size: 0.9rem;
+  font-size: 0.8rem;
 }
 
 .headerCell:last-child {
@@ -487,6 +658,7 @@
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: all 0.2s ease;
+  min-height: 28px;
 }
 
 .tableRow:hover {
@@ -503,12 +675,12 @@
 }
 
 .tableCell {
-  padding: 0.5rem;
+  padding: 0.2rem 0.4rem;
   border-right: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 36px;
+  min-height: 28px;
   cursor: pointer;
   border-radius: 4px;
   transition: all 0.2s ease;
@@ -528,7 +700,7 @@
   font-weight: 600;
   color: var(--text);
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
+  padding: 0.1rem 0.3rem;
   border-radius: 4px;
   transition: all 0.2s ease;
 }
@@ -553,12 +725,12 @@
 }
 
 .deviceVersion {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--text);
   font-weight: 500;
   text-align: center;
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
+  padding: 0.1rem 0.3rem;
   border-radius: 4px;
   transition: all 0.2s ease;
 }
@@ -570,11 +742,11 @@
 }
 
 .deviceIp {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: var(--text-secondary);
   font-family: monospace;
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
+  padding: 0.1rem 0.3rem;
   border-radius: 4px;
   transition: all 0.2s ease;
 }
@@ -586,9 +758,9 @@
 }
 
 .batteryIndicator {
-  font-size: 1rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  padding: 0.25rem 0.5rem;
+  padding: 0.1rem 0.3rem;
   border-radius: 4px;
   text-align: center;
   cursor: pointer;
@@ -602,13 +774,13 @@
 
 .deviceUdid {
   font-family: 'Courier New', monospace;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
+  padding: 0.1rem 0.3rem;
   border-radius: 4px;
   transition: all 0.2s ease;
 }
@@ -620,13 +792,13 @@
 }
 
 .lastLog {
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: help;
-  padding: 0.25rem 0;
+  padding: 0.1rem 0;
 }
 
 /* Make the last log column left-aligned */
@@ -703,9 +875,9 @@
 }
 
 .runningStatus {
-  padding: 0.25rem 0.75rem;
-  border-radius: 12px;
-  font-size: 0.8rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
   font-weight: 500;
   text-align: center;
   cursor: pointer;
