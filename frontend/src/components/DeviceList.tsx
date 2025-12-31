@@ -2,6 +2,7 @@ import { Component, createSignal, For, Accessor, Show, createEffect } from 'soli
 import { Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { useTheme } from './ThemeContext';
+import { useDialog } from './DialogContext';
 import RealTimeControl from './RealTimeControl';
 import styles from './DeviceList.module.css';
 import DeviceBindingModal from './DeviceBindingModal';
@@ -31,6 +32,7 @@ interface DeviceListProps {
 }
 
 const DeviceList: Component<DeviceListProps> = (props) => {
+  const dialog = useDialog();
   const { theme, toggleTheme } = useTheme();
   const [searchTerm, setSearchTerm] = createSignal('');
   const [forceUpdate, setForceUpdate] = createSignal(0);
@@ -286,14 +288,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
 
   
-  const handleRespringDevices = () => {
+  const handleRespringDevices = async () => {
     if (props.selectedDevices().length === 0) {
       showToastMessage('请先选择设备');
       return;
     }
     
     // 显示确认弹窗
-    setShowRespringConfirm(true);
+    if (await dialog.confirm(`确定要注销选中的 ${props.selectedDevices().length} 台设备吗？`)) {
+      handleConfirmRespring();
+    }
   };
 
   const handleConfirmRespring = () => {

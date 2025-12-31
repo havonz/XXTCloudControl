@@ -13,8 +13,12 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
   );
 }
 
+import { DialogProvider } from './components/DialogContext';
+
 render(() => (
   <ThemeProvider>
-    <App />
+    <DialogProvider>
+      <App />
+    </DialogProvider>
   </ThemeProvider>
 ), root!);

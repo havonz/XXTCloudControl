@@ -1,4 +1,5 @@
 import { createSignal, Show } from 'solid-js';
+import { useDialog } from './DialogContext';
 import styles from './DictionaryModal.module.css';
 
 interface DictionaryModalProps {
@@ -10,13 +11,14 @@ interface DictionaryModalProps {
 }
 
 export default function DictionaryModal(props: DictionaryModalProps) {
+  const dialog = useDialog();
   const [key, setKey] = createSignal('');
   const [value, setValue] = createSignal('');
   const [isLoading, setIsLoading] = createSignal(false);
 
   const handleSetValue = async () => {
     if (!key().trim() || !value().trim()) {
-      alert('请输入键名和值');
+      await dialog.alert('请输入键名和值');
       return;
     }
     
@@ -33,7 +35,7 @@ export default function DictionaryModal(props: DictionaryModalProps) {
 
   const handlePushToQueue = async () => {
     if (!key().trim() || !value().trim()) {
-      alert('请输入键名和值');
+      await dialog.alert('请输入键名和值');
       return;
     }
     

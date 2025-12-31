@@ -1,4 +1,5 @@
 import { createSignal, createEffect, For, Show } from 'solid-js';
+import { useDialog } from './DialogContext';
 import {
   IconFolderPlus,
   IconFileCirclePlus,
@@ -37,11 +38,8 @@ export interface FileBrowserProps {
 }
 
 export default function FileBrowser(props: FileBrowserProps) {
+  const dialog = useDialog();
   const [currentPath, setCurrentPath] = createSignal('/lua/scripts');
-  const [newFolderName, setNewFolderName] = createSignal('');
-  const [showNewFolderInput, setShowNewFolderInput] = createSignal(false);
-  const [newFileNameForFile, setNewFileNameForFile] = createSignal('');
-  const [showNewFileInput, setShowNewFileInput] = createSignal(false);
   const [showHidden, setShowHidden] = createSignal(false);
   const [isSelectMode, setIsSelectMode] = createSignal(false);
   const [selectedItems, setSelectedItems] = createSignal<Set<string>>(new Set<string>());
@@ -100,8 +98,8 @@ export default function FileBrowser(props: FileBrowserProps) {
     }
   };
 
-  const handleDeleteFile = (file: FileItem) => {
-    if (!confirm(`确定要删除 "${file.name}" 吗？`)) return;
+  const handleDeleteFile = async (file: FileItem) => {
+    if (!await dialog.confirm(`确定要删除 "${file.name}" 吗？`)) return;
     const fullPath = currentPath() === '/' 
       ? `/${file.name}` 
       : `${currentPath()}/${file.name}`;
@@ -119,17 +117,15 @@ export default function FileBrowser(props: FileBrowserProps) {
     props.onDownloadFile(props.deviceUdid, fullPath);
   };
 
-  const handleCreateFolder = () => {
-    const folderName = newFolderName().trim();
-    if (!folderName) return;
+  const handleCreateFolder = async () => {
+    const folderName = await dialog.prompt('新建文件夹', '请输入文件夹名称');
+    if (!folderName?.trim()) return;
 
     const folderPath = currentPath() === '/' 
-      ? `/${folderName}` 
-      : `${currentPath()}/${folderName}`;
+      ? `/${folderName.trim()}` 
+      : `${currentPath()}/${folderName.trim()}`;
     
     props.onCreateDirectory(props.deviceUdid, folderPath);
-    setNewFolderName('');
-    setShowNewFolderInput(false);
     
     // 刷新当前目录
     setTimeout(() => {
@@ -137,27 +133,26 @@ export default function FileBrowser(props: FileBrowserProps) {
     }, 500);
   };
 
-  const handleCreateFile = () => {
-    const fileName = newFileNameForFile().trim();
-    if (!fileName) return;
+  const handleCreateFile = async () => {
+    const fileName = await dialog.prompt('新建文件', '请输入文件名称');
+    if (!fileName?.trim()) return;
+
+    const name = fileName.trim();
 
     // 检查文件是否已存在
-    const exists = props.files.some(f => f.name === fileName);
+    const exists = props.files.some(f => f.name === name);
     if (exists) {
-      alert(`文件 "${fileName}" 已存在！`);
+      await dialog.alert(`文件 "${name}" 已存在！`);
       return;
     }
 
     const filePath = currentPath() === '/' 
-      ? `/${fileName}` 
-      : `${currentPath()}/${fileName}`;
+      ? `/${name}` 
+      : `${currentPath()}/${name}`;
     
     // 创建空文件（模拟上传一个空 Blob）
-    const emptyFile = new File([], fileName, { type: 'text/plain' });
+    const emptyFile = new File([], name, { type: 'text/plain' });
     props.onUploadFile(props.deviceUdid, filePath, emptyFile);
-    
-    setNewFileNameForFile('');
-    setShowNewFileInput(false);
     
     // 刷新当前目录
     setTimeout(() => {
@@ -274,18 +269,18 @@ export default function FileBrowser(props: FileBrowserProps) {
              <div class={styles.actions}>
               <button 
                 class={styles.actionButton}
-                onClick={() => setShowNewFolderInput(!showNewFolderInput())}
-              >
-                <IconFolderPlus size={16} />
-                <span>新建文件夹</span>
-              </button>
-              
-              <button 
-                class={styles.actionButton}
-                onClick={() => setShowNewFileInput(!showNewFileInput())}
+                onClick={handleCreateFile}
               >
                 <IconFileCirclePlus size={16} />
                 <span>新建文件</span>
+              </button>
+
+              <button 
+                class={styles.actionButton}
+                onClick={handleCreateFolder}
+              >
+                <IconFolderPlus size={16} />
+                <span>新建文件夹</span>
               </button>
 
               <button class={styles.actionButton} onClick={() => props.onListFiles(props.deviceUdid, currentPath())}>
@@ -347,9 +342,9 @@ export default function FileBrowser(props: FileBrowserProps) {
               <button 
                 class={styles.deleteAction} 
                 disabled={selectedItems().size === 0}
-                onClick={() => {
-                  if (confirm(`确定要删除选中的 ${selectedItems().size} 个项目吗？`)) {
-                    alert('批量删除功能待完善');
+                onClick={async () => {
+                  if (await dialog.confirm(`确定要删除选中的 ${selectedItems().size} 个项目吗？`)) {
+                    await dialog.alert('批量删除功能待完善');
                   }
                 }}
               >
@@ -359,57 +354,6 @@ export default function FileBrowser(props: FileBrowserProps) {
             </div>
           </Show>
 
-          <Show when={showNewFolderInput()}>
-            <div class={styles.newFolderInput}>
-              <input
-                type="text"
-                placeholder="输入文件夹名称"
-                value={newFolderName()}
-                onInput={(e) => setNewFolderName(e.currentTarget.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') handleCreateFolder();
-                }}
-                class={styles.folderNameInput}
-                autofocus
-              />
-              <button class={styles.confirmButton} onClick={handleCreateFolder}>创建</button>
-              <button 
-                class={styles.cancelButton} 
-                onClick={() => {
-                  setShowNewFolderInput(false);
-                  setNewFolderName('');
-                }}
-              >
-                取消
-              </button>
-            </div>
-          </Show>
-
-          <Show when={showNewFileInput()}>
-            <div class={styles.newFolderInput}>
-              <input
-                type="text"
-                placeholder="输入文件名称"
-                value={newFileNameForFile()}
-                onInput={(e) => setNewFileNameForFile(e.currentTarget.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') handleCreateFile();
-                }}
-                class={styles.folderNameInput}
-                autofocus
-              />
-              <button class={styles.confirmButton} onClick={handleCreateFile}>创建</button>
-              <button 
-                class={styles.cancelButton} 
-                onClick={() => {
-                  setShowNewFileInput(false);
-                  setNewFileNameForFile('');
-                }}
-              >
-                取消
-              </button>
-            </div>
-          </Show>
           
           <div 
             class={`${styles.fileList} ${isDragOver() ? styles.dragOver : ''}`}

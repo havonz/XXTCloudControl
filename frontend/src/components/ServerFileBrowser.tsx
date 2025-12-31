@@ -1,4 +1,5 @@
 import { createSignal, createEffect, For, Show } from 'solid-js';
+import { useDialog } from './DialogContext';
 import {
   IconCode,
   IconBoxesStacked,
@@ -12,7 +13,6 @@ import {
   IconTrash,
   IconPen,
   IconEye,
-  IconArrowUp,
   IconHouse,
   IconXmark,
 } from '../icons';
@@ -33,6 +33,7 @@ export interface ServerFileBrowserProps {
 }
 
 export default function ServerFileBrowser(props: ServerFileBrowserProps) {
+  const dialog = useDialog();
   const [currentCategory, setCurrentCategory] = createSignal<'scripts' | 'files' | 'reports'>('scripts');
   const [currentPath, setCurrentPath] = createSignal('');
   const [files, setFiles] = createSignal<ServerFileItem[]>([]);
@@ -45,16 +46,6 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   // 选择模式
   const [isSelectMode, setIsSelectMode] = createSignal(false);
   const [selectedItems, setSelectedItems] = createSignal<Set<string>>(new Set());
-  
-  // 创建弹窗
-  const [showCreateModal, setShowCreateModal] = createSignal(false);
-  const [createType, setCreateType] = createSignal<'file' | 'dir'>('file');
-  const [createName, setCreateName] = createSignal('');
-  
-  // 重命名弹窗
-  const [showRenameModal, setShowRenameModal] = createSignal(false);
-  const [renameOldName, setRenameOldName] = createSignal('');
-  const [renameNewName, setRenameNewName] = createSignal('');
   
   // 编辑器弹窗
   const [showEditorModal, setShowEditorModal] = createSignal(false);
@@ -130,15 +121,6 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     loadFiles();
   };
 
-  const handleGoUp = () => {
-    const path = currentPath();
-    if (!path) return;
-    const parts = path.split('/').filter(p => p);
-    parts.pop();
-    setCurrentPath(parts.join('/'));
-    setSelectedItems(new Set<string>());
-    loadFiles();
-  };
 
   const handleFileClick = (file: ServerFileItem) => {
     if (isSelectMode()) {
@@ -178,23 +160,23 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   const handleDelete = async (file: ServerFileItem) => {
     const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
-    if (!confirm(`确定要删除 "${file.name}" 吗？`)) return;
+    if (!await dialog.confirm(`确定要删除 "${file.name}" 吗？`)) return;
     
     try {
       const params = new URLSearchParams({ category: currentCategory(), path: filePath });
       const response = await fetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
       const data = await response.json();
-      if (data.error) alert('删除失败: ' + data.error);
+      if (data.error) await dialog.alert('删除失败: ' + data.error);
       else loadFiles();
     } catch (err) {
-      alert('删除失败: ' + (err as Error).message);
+      await dialog.alert('删除失败: ' + (err as Error).message);
     }
   };
 
   const handleBatchDelete = async () => {
     const selected = selectedItems();
     if (selected.size === 0) return;
-    if (!confirm(`确定要删除选中的 ${selected.size} 个项目吗？`)) return;
+    if (!await dialog.confirm(`确定要删除选中的 ${selected.size} 个项目吗？`)) return;
     
     for (const name of selected) {
       const filePath = currentPath() ? `${currentPath()}/${name}` : name;
@@ -210,47 +192,42 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   };
 
   // 创建
-  const handleCreate = async () => {
-    const name = createName().trim();
-    if (!name) { alert('请输入名称'); return; }
+  const handleCreate = async (type: 'file' | 'dir') => {
+    const title = type === 'file' ? '新建文件' : '新建文件夹';
+    const message = type === 'file' ? '请输入文件名称' : '请输入文件夹名称';
+    const name = await dialog.prompt(title, message);
+    if (!name?.trim()) return;
     
     try {
       const response = await fetch(`${props.serverBaseUrl}/api/server-files/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: currentCategory(), path: currentPath(), name, type: createType() })
+        body: JSON.stringify({ category: currentCategory(), path: currentPath(), name: name.trim(), type })
       });
       const data = await response.json();
-      if (data.error) alert('创建失败: ' + data.error);
-      else { setShowCreateModal(false); setCreateName(''); loadFiles(); }
+      if (data.error) await dialog.alert('创建失败: ' + data.error);
+      else loadFiles();
     } catch (err) {
-      alert('创建失败: ' + (err as Error).message);
+      await dialog.alert('创建失败: ' + (err as Error).message);
     }
   };
 
   // 重命名
-  const openRenameDialog = (file: ServerFileItem) => {
-    setRenameOldName(file.name);
-    setRenameNewName(file.name);
-    setShowRenameModal(true);
-  };
-
-  const handleRename = async () => {
-    const newName = renameNewName().trim();
-    if (!newName) { alert('请输入新名称'); return; }
-    if (newName === renameOldName()) { setShowRenameModal(false); return; }
+  const handleRename = async (file: ServerFileItem) => {
+    const newName = await dialog.prompt('重命名', '请输入新名称', file.name);
+    if (!newName?.trim() || newName.trim() === file.name) return;
     
     try {
       const response = await fetch(`${props.serverBaseUrl}/api/server-files/rename`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: currentCategory(), path: currentPath(), oldName: renameOldName(), newName })
+        body: JSON.stringify({ category: currentCategory(), path: currentPath(), oldName: file.name, newName: newName.trim() })
       });
       const data = await response.json();
-      if (data.error) alert('重命名失败: ' + data.error);
-      else { setShowRenameModal(false); loadFiles(); }
+      if (data.error) await dialog.alert('重命名失败: ' + data.error);
+      else loadFiles();
     } catch (err) {
-      alert('重命名失败: ' + (err as Error).message);
+      await dialog.alert('重命名失败: ' + (err as Error).message);
     }
   };
 
@@ -261,12 +238,12 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const params = new URLSearchParams({ category: currentCategory(), path: filePath });
       const response = await fetch(`${props.serverBaseUrl}/api/server-files/read?${params}`);
       const data = await response.json();
-      if (data.error) { alert('读取失败: ' + data.error); return; }
+      if (data.error) { await dialog.alert('读取失败: ' + data.error); return; }
       setEditorFileName(file.name);
       setEditorContent(data.content);
       setShowEditorModal(true);
     } catch (err) {
-      alert('读取失败: ' + (err as Error).message);
+      await dialog.alert('读取失败: ' + (err as Error).message);
     }
   };
 
@@ -280,10 +257,10 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         body: JSON.stringify({ category: currentCategory(), path: filePath, content: editorContent() })
       });
       const data = await response.json();
-      if (data.error) alert('保存失败: ' + data.error);
+      if (data.error) await dialog.alert('保存失败: ' + data.error);
       else setShowEditorModal(false);
     } catch (err) {
-      alert('保存失败: ' + (err as Error).message);
+      await dialog.alert('保存失败: ' + (err as Error).message);
     } finally {
       setEditorSaving(false);
     }
@@ -325,11 +302,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         formData.append('path', currentPath());
         const response = await fetch(`${props.serverBaseUrl}/api/server-files/upload`, { method: 'POST', body: formData });
         const data = await response.json();
-        if (data.error) alert(`上传 ${file.name} 失败: ` + data.error);
+        if (data.error) await dialog.alert(`上传 ${file.name} 失败: ` + data.error);
       }
       loadFiles();
     } catch (err) {
-      alert('上传失败: ' + (err as Error).message);
+      await dialog.alert('上传失败: ' + (err as Error).message);
     } finally {
       setIsUploading(false);
     }
@@ -400,14 +377,14 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
             <div class={styles.actions}>
               <button 
                 class={styles.actionButton} 
-                onClick={() => { setCreateType('file'); setCreateName(''); setShowCreateModal(true); }}
+                onClick={() => handleCreate('file')}
               >
                 <IconFileCirclePlus size={16} />
                 <span>新建文件</span>
               </button>
               <button 
                 class={styles.actionButton} 
-                onClick={() => { setCreateType('dir'); setCreateName(''); setShowCreateModal(true); }}
+                onClick={() => handleCreate('dir')}
               >
                 <IconFolderPlus size={16} />
                 <span>新建文件夹</span>
@@ -528,7 +505,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                             <IconEye size={14} />
                           </button>
                         </Show>
-                        <button class={styles.actionBtn} onClick={() => openRenameDialog(file)} title="重命名">
+                        <button class={styles.actionBtn} onClick={() => handleRename(file)} title="重命名">
                           <IconPen size={14} />
                         </button>
                         <Show when={file.type === 'file'}>
@@ -556,33 +533,6 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         </div>
       </div>
       
-      {/* 创建弹窗 */}
-      <Show when={showCreateModal()}>
-        <div class={styles.createOverlay} onClick={() => setShowCreateModal(false)}>
-          <div class={styles.createModal} onClick={(e) => e.stopPropagation()}>
-            <h3>{createType() === 'file' ? '新建文件' : '新建文件夹'}</h3>
-            <input type="text" class={styles.createInput} placeholder={createType() === 'file' ? '文件名' : '文件夹名'} value={createName()} onInput={(e) => setCreateName(e.currentTarget.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreate()} />
-            <div class={styles.createActions}>
-              <button class={styles.cancelBtn} onClick={() => setShowCreateModal(false)}>取消</button>
-              <button class={styles.confirmBtn} onClick={handleCreate}>创建</button>
-            </div>
-          </div>
-        </div>
-      </Show>
-      
-      {/* 重命名弹窗 */}
-      <Show when={showRenameModal()}>
-        <div class={styles.createOverlay} onClick={() => setShowRenameModal(false)}>
-          <div class={styles.createModal} onClick={(e) => e.stopPropagation()}>
-            <h3>重命名</h3>
-            <input type="text" class={styles.createInput} value={renameNewName()} onInput={(e) => setRenameNewName(e.currentTarget.value)} onKeyDown={(e) => e.key === 'Enter' && handleRename()} />
-            <div class={styles.createActions}>
-              <button class={styles.cancelBtn} onClick={() => setShowRenameModal(false)}>取消</button>
-              <button class={styles.confirmBtn} onClick={handleRename}>确定</button>
-            </div>
-          </div>
-        </div>
-      </Show>
       
       {/* 编辑器弹窗 */}
       <Show when={showEditorModal()}>

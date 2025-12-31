@@ -1,4 +1,5 @@
 import { createSignal, For, Show } from 'solid-js';
+import { useDialog } from './DialogContext';
 import {
   IconCode,
   IconBoxesStacked,
@@ -15,6 +16,7 @@ export interface ServerUploadModalProps {
 }
 
 export default function ServerUploadModal(props: ServerUploadModalProps) {
+  const dialog = useDialog();
   const [selectedCategory, setSelectedCategory] = createSignal<'scripts' | 'files' | 'reports'>('scripts');
   const [uploadPath, setUploadPath] = createSignal('');
   const [uploadFiles, setUploadFiles] = createSignal<File[]>([]);
@@ -68,7 +70,7 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
       props.onClose();
     } catch (error) {
       console.error('上传失败:', error);
-      alert('上传失败: ' + (error as Error).message);
+      await dialog.alert('上传失败: ' + (error as Error).message);
     } finally {
       setIsUploading(false);
     }

@@ -1,4 +1,5 @@
 import { createSignal, Show, createEffect } from 'solid-js';
+import { useDialog } from './DialogContext';
 import styles from './ClipboardModal.module.css';
 
 interface ClipboardModalProps {
@@ -12,6 +13,7 @@ interface ClipboardModalProps {
 }
 
 export default function ClipboardModal(props: ClipboardModalProps) {
+  const dialog = useDialog();
   const [clipboardContent, setClipboardContent] = createSignal('');
   const [clipboardUti, setClipboardUti] = createSignal('public.plain-text');
   const [isReadingClipboard, setIsReadingClipboard] = createSignal(false);
@@ -30,9 +32,9 @@ export default function ClipboardModal(props: ClipboardModalProps) {
     }
   });
 
-  const handleReadClipboard = () => {
+  const handleReadClipboard = async () => {
     if (props.selectedDevicesCount === 0) {
-      alert('请先选择设备');
+      await dialog.alert('请先选择设备');
       return;
     }
 
@@ -51,14 +53,14 @@ export default function ClipboardModal(props: ClipboardModalProps) {
     }
   };
 
-  const handleWriteClipboard = () => {
+  const handleWriteClipboard = async () => {
     if (props.selectedDevicesCount === 0) {
-      alert('请先选择设备');
+      await dialog.alert('请先选择设备');
       return;
     }
 
     if (!clipboardContent().trim()) {
-      alert('请输入内容');
+      await dialog.alert('请输入内容');
       return;
     }
 
