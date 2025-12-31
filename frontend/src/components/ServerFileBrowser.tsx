@@ -6,6 +6,7 @@ import {
   IconChartColumn,
   IconFileCirclePlus,
   IconFolderPlus,
+  IconFolderOpen,
   IconRotate,
   IconSquareCheck,
   IconUpload,
@@ -42,6 +43,13 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isUploading, setIsUploading] = createSignal(false);
   const [showHidden, setShowHidden] = createSignal(false);
+  const [isLocal, setIsLocal] = createSignal(false);
+  
+  createEffect(() => {
+    if (props.isOpen) {
+      setIsLocal(!!(window as any).XXTConfig?.ui?.isLocal);
+    }
+  });
   
   // 选择模式
   const [isSelectMode, setIsSelectMode] = createSignal(false);
@@ -285,11 +293,18 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     if (droppedFiles.length > 0) await uploadFiles(droppedFiles);
   };
 
-  const handleFileSelect = async (event: Event) => {
-    const input = event.target as HTMLInputElement;
-    const selectedFiles = Array.from(input.files || []);
-    if (selectedFiles.length > 0) await uploadFiles(selectedFiles);
-    input.value = '';
+  const handleOpenLocal = async () => {
+    try {
+      const response = await fetch(`${props.serverBaseUrl}/api/server-files/open-local`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: currentCategory(), path: currentPath() })
+      });
+      const data = await response.json();
+      if (data.error) await dialog.alert('打开失败: ' + data.error);
+    } catch (err) {
+      await dialog.alert('打开失败: ' + (err as Error).message);
+    }
   };
 
   const uploadFiles = async (filesToUpload: File[]) => {
@@ -403,11 +418,16 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 <IconSquareCheck size={16} />
                 <span>选择模式</span>
               </button>
-              <label class={styles.uploadButton}>
-                <IconUpload size={16} />
-                <span>在本机打开当前根目录</span>
-                <input type="file" multiple style="display:none" onChange={handleFileSelect} />
-              </label>
+              <Show when={isLocal()}>
+                <button 
+                  class={styles.actionButton} 
+                  onClick={handleOpenLocal}
+                  title="在操作系统的文件资源管理器中打开当前目录"
+                >
+                  <IconFolderOpen size={16} />
+                  <span>在本机打开当前目录</span>
+                </button>
+              </Show>
               <label class={styles.showHiddenLabel}>
                 <input 
                   type="checkbox" 

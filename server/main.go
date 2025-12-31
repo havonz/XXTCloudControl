@@ -15,7 +15,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -748,6 +750,7 @@ func main() {
 	r.POST("/api/server-files/save", serverFilesSaveHandler)
 	r.GET("/api/server-files/download/*path", serverFilesDownloadHandler)
 	r.DELETE("/api/server-files/delete", serverFilesDeleteHandler)
+	r.POST("/api/server-files/open-local", serverFilesOpenLocalHandler)
 
 	// 静态文件服务 - 使用NoRoute避免路由冲突
 	r.NoRoute(staticFileHandler)
@@ -827,6 +830,16 @@ func printNetworkEndpoints(port int) {
 	fmt.Println("=========================")
 }
 
+// 检查是否为本地请求
+func isLocalRequest(c *gin.Context) bool {
+	host, _, err := net.SplitHostPort(c.Request.RemoteAddr)
+	if err != nil {
+		host = c.Request.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip.IsLoopback() || (ip.To4() != nil && ip.To4().IsLoopback())
+}
+
 // 配置API处理函数（Gin风格）
 func configHandler(c *gin.Context) {
 	// 设置响应头
@@ -845,11 +858,12 @@ window.XXTConfig = {
     ui: {
         screenCaptureScale: 30,
         maxScreenshotWaitTime: 500,
-        fpsUpdateInterval: 1000
+        fpsUpdateInterval: 1000,
+        isLocal: %t
     }
 };
 
-console.log('统一服务器配置已加载 (端口: %d):', window.XXTConfig);`, serverConfig.Port, serverConfig.Port)
+console.log('统一服务器配置已加载 (端口: %d):', window.XXTConfig);`, serverConfig.Port, isLocalRequest(c), serverConfig.Port)
 
 	c.String(http.StatusOK, configJS)
 }
@@ -1589,4 +1603,44 @@ func serverFilesSaveHandler(c *gin.Context) {
 		"success": true,
 		"path":    req.Path,
 	})
+}
+
+// serverFilesOpenLocalHandler 在本机打开文件夹
+func serverFilesOpenLocalHandler(c *gin.Context) {
+	if !isLocalRequest(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only allowed from local machine"})
+		return
+	}
+
+	var req struct {
+		Category string `json:"category"`
+		Path     string `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	targetPath, err := validatePath(req.Category, req.Path)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", targetPath)
+	case "darwin":
+		cmd = exec.Command("open", targetPath)
+	default: // linux and others
+		cmd = exec.Command("xdg-open", targetPath)
+	}
+
+	if err := cmd.Start(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
