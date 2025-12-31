@@ -4,7 +4,7 @@ import { AuthService, LoginCredentials } from './services/AuthService';
 import { createGroupStore } from './services/GroupStore';
 import LoginForm from './components/LoginForm';
 import DeviceList from './components/DeviceList';
-import FileBrowser from './components/FileBrowser';
+import DeviceFileBrowser from './components/DeviceFileBrowser';
 import GroupList from './components/GroupList';
 import NewGroupModal from './components/NewGroupModal';
 import AddToGroupModal from './components/AddToGroupModal';
@@ -499,7 +499,7 @@ const App: Component = () => {
         onAddToGroup={handleAddDevicesToGroup}
       />
       
-      <FileBrowser
+      <DeviceFileBrowser
         deviceUdid={fileBrowserDevice()?.udid || ''}
         deviceName={fileBrowserDevice()?.name || ''}
         isOpen={fileBrowserOpen()}

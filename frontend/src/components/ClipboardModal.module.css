@@ -147,6 +147,11 @@
   box-shadow: var(--shadow);
 }
 
+.actionButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .actionButton:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -171,6 +176,11 @@
   border-color: var(--primary);
   color: var(--text);
   transform: translateY(-1px);
+}
+
+.cancelButton:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 /* Responsive adjustments */

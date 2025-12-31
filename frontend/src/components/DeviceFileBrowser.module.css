@@ -60,6 +60,11 @@
   background: var(--hover-bg);
 }
 
+.closeButton:active {
+  transform: scale(0.92);
+  transition: all 0.1s ease;
+}
+
 /* 目录切换标签 */
 .tabs {
   display: flex;
@@ -87,6 +92,11 @@
 
 .tab:hover {
   background: var(--hover-bg);
+}
+
+.tab:active {
+  transform: scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .tab.active {
@@ -129,6 +139,11 @@
   background: var(--hover-bg);
   border-color: var(--primary);
   transform: translateY(-1px);
+}
+
+.actionButton:active, .uploadButton:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .actionButton.activeAction {
@@ -181,6 +196,11 @@
   color: var(--primary);
 }
 
+.breadcrumbItem:active {
+  transform: scale(0.96);
+  transition: all 0.1s ease;
+}
+
 .breadcrumbSeparator {
   color: var(--text-muted);
   opacity: 0.5;
@@ -228,6 +248,11 @@
 .deleteAction:hover:not(:disabled) {
   background: var(--danger);
   color: #fff;
+}
+
+.deleteAction:active:not(:disabled) {
+  transform: scale(0.96);
+  transition: all 0.1s ease;
 }
 
 .deleteAction:disabled {
@@ -288,6 +313,11 @@
   color: #fff;
 }
 
+.confirmButton:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .cancelButton {
   background: rgba(220, 38, 38, 0.2);
   color: var(--danger);
@@ -297,6 +327,11 @@
 .cancelButton:hover {
   background: var(--danger);
   color: #fff;
+}
+
+.cancelButton:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 /* File List Table */
@@ -402,12 +437,22 @@
   background: rgba(88, 101, 242, 0.2);
 }
 
+.actionBtn:active {
+  transform: scale(0.9);
+  transition: all 0.1s ease;
+}
+
 .deleteBtn {
   color: var(--danger);
 }
 
 .deleteBtn:hover {
   background: rgba(220, 38, 38, 0.2);
+}
+
+.deleteBtn:active {
+  transform: scale(0.9);
+  transition: all 0.1s ease;
 }
 
 .loading {

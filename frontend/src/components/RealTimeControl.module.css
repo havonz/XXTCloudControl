@@ -90,6 +90,11 @@
   box-shadow: var(--shadow-sm);
 }
 
+.deviceItem:active {
+  transform: scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .deviceItem.active {
   background: var(--btn-primary-bg);
   border-color: var(--primary);
@@ -303,6 +308,11 @@
   transform: translateY(-1px);
 }
 
+.cancelButton:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 /* Clipboard button container spacing */
 .clipboardSection {
   margin-top: 1.5rem;
@@ -330,6 +340,11 @@
   color: #fff;
   transform: translateY(-1px);
   box-shadow: var(--shadow);
+}
+
+.clipboardButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .clipboardButton:disabled {

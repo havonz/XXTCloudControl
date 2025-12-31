@@ -80,6 +80,11 @@
   background: var(--border);
 }
 
+.cancelButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .submitButton {
   border: 1px solid var(--primary);
   background: var(--primary);
@@ -88,6 +93,11 @@
 
 .submitButton:hover:not(:disabled) {
   filter: brightness(1.1);
+}
+
+.submitButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .submitButton:disabled,

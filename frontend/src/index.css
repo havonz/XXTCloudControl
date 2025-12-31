@@ -228,6 +228,11 @@ code {
   border-color: var(--primary) !important;
 }
 
+.cbx-trigger:active, .cbx-clear:active {
+  transform: scale(0.96);
+  transition: all 0.1s ease !important;
+}
+
 .cbx-panel { 
   background: var(--panel) !important; 
   border: 1px solid var(--border) !important; 

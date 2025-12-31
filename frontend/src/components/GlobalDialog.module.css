@@ -102,6 +102,11 @@
   color: #fff;
 }
 
+.confirmBtn:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .cancelBtn {
   background: var(--panel-2);
   border: 2px solid var(--border);
@@ -111,6 +116,11 @@
 .cancelBtn:hover {
   background: var(--hover-bg);
   color: var(--text);
+}
+
+.cancelBtn:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 @keyframes fadeIn {

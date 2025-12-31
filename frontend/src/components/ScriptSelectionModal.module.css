@@ -115,6 +115,11 @@
   box-shadow: var(--shadow);
 }
 
+.selectButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .selectButton:disabled {
   background: var(--panel-2);
   color: var(--text-muted);
@@ -148,6 +153,11 @@
   background: var(--hover-bg);
   border-color: var(--primary);
   transform: translateY(-1px);
+}
+
+.cancelButton:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 /* 响应式设计 */

@@ -15,7 +15,7 @@ import {
   IconUpload,
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
-import styles from './FileBrowser.module.css';
+import styles from './DeviceFileBrowser.module.css';
 
 export interface FileItem {
   name: string;
@@ -23,7 +23,7 @@ export interface FileItem {
   path?: string;
 }
 
-export interface FileBrowserProps {
+export interface DeviceFileBrowserProps {
   deviceUdid: string;
   deviceName: string;
   isOpen: boolean;
@@ -37,7 +37,7 @@ export interface FileBrowserProps {
   isLoading: boolean;
 }
 
-export default function FileBrowser(props: FileBrowserProps) {
+export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const dialog = useDialog();
   const [currentPath, setCurrentPath] = createSignal('/lua/scripts');
   const [showHidden, setShowHidden] = createSignal(false);

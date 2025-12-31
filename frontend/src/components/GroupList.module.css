@@ -9,6 +9,9 @@
   min-width: 200px;
   max-width: 280px;
   box-shadow: var(--shadow);
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .header {
@@ -53,6 +56,12 @@
   border-color: var(--primary);
 }
 
+.addButton:active,
+.settingsButton:active {
+  transform: scale(0.92);
+  transition: all 0.1s ease;
+}
+
 .settingsPanel {
   padding: 8px 12px;
   background: var(--panel-2);
@@ -80,7 +89,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 300px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -157,6 +167,11 @@
   filter: brightness(1.1);
 }
 
+.addToGroupButton:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 /* Context Menu */
 .contextBackdrop {
   position: fixed;
@@ -194,6 +209,11 @@
 
 .contextMenu button:hover {
   background: var(--panel-2);
+}
+
+.contextMenu button:active {
+  transform: scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .contextMenu .dangerButton {

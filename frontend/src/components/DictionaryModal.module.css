@@ -152,6 +152,11 @@
   transform: translateY(-1px);
 }
 
+.actionButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .actionButton:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -183,6 +188,11 @@
   background: var(--hover-bg);
   border-color: var(--primary);
   transform: translateY(-1px);
+}
+
+.cancelButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .cancelButton:disabled {

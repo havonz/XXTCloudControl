@@ -71,6 +71,11 @@
   background: var(--hover-bg);
 }
 
+.closeButton:active {
+  transform: scale(0.92);
+  transition: all 0.1s ease;
+}
+
 /* 目录切换标签 */
 .tabs {
   display: flex;
@@ -98,6 +103,11 @@
 
 .tab:hover {
   background: var(--hover-bg);
+}
+
+.tab:active {
+  transform: scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .tab.active {
@@ -146,6 +156,12 @@
 .uploadButton:hover {
   background: var(--hover-bg);
   transform: translateY(-1px);
+}
+
+.actionButton:active,
+.uploadButton:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .actionButton.activeAction {
@@ -197,6 +213,11 @@
   color: var(--primary);
 }
 
+.breadcrumbItem:active {
+  transform: scale(0.96);
+  transition: all 0.1s ease;
+}
+
 .breadcrumbSeparator {
   color: var(--text-muted);
   opacity: 0.5;
@@ -229,6 +250,11 @@
   background: var(--hover-bg);
 }
 
+.selectAction:active {
+  transform: scale(0.96);
+  transition: all 0.1s ease;
+}
+
 .deleteAction {
   display: inline-flex;
   align-items: center;
@@ -248,6 +274,11 @@
 .deleteAction:hover:not(:disabled) {
   background: var(--danger);
   color: #fff;
+}
+
+.deleteAction:active:not(:disabled) {
+  transform: scale(0.96);
+  transition: all 0.1s ease;
 }
 
 .deleteAction:disabled {
@@ -394,6 +425,11 @@
   background: var(--hover-bg);
 }
 
+.actionBtn:active {
+  transform: scale(0.9);
+  transition: all 0.1s ease;
+}
+
 .downloadButton {
   background: rgba(76, 175, 80, 0.2);
   color: var(--success);
@@ -403,6 +439,11 @@
   background: rgba(76, 175, 80, 0.4);
 }
 
+.downloadButton:active {
+  transform: scale(0.9);
+  transition: all 0.1s ease;
+}
+
 .deleteButton {
   background: rgba(244, 67, 54, 0.2);
   color: var(--danger);
@@ -410,6 +451,11 @@
 
 .deleteButton:hover {
   background: rgba(244, 67, 54, 0.4);
+}
+
+.deleteButton:active {
+  transform: scale(0.9);
+  transition: all 0.1s ease;
 }
 
 .checkbox {
@@ -554,6 +600,11 @@
   background: var(--hover-bg);
 }
 
+.cancelBtn:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .confirmBtn {
   background: var(--btn-primary-bg);
   border: 2px solid var(--primary);
@@ -563,6 +614,11 @@
 .confirmBtn:hover {
   background: var(--primary);
   color: #fff;
+}
+
+.confirmBtn:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .confirmBtn:disabled {

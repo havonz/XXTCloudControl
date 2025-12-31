@@ -56,6 +56,11 @@
   color: var(--text);
 }
 
+.closeButton:active {
+  transform: scale(0.92);
+  transition: all 0.1s ease;
+}
+
 .body {
   padding: 1.5rem;
 }
@@ -98,6 +103,11 @@
 .categoryBtn:hover:not(.active) {
   background: var(--hover-bg);
   border-color: var(--border-hover);
+}
+
+.categoryBtn:active {
+  transform: scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .categoryBtn.active {
@@ -218,6 +228,11 @@
   background: rgba(220, 38, 38, 0.1);
 }
 
+.removeBtn:active {
+  transform: scale(0.9);
+  transition: all 0.1s ease;
+}
+
 .footer {
   padding: 1rem 1.5rem;
   border-top: 1px solid var(--border);
@@ -246,6 +261,11 @@
   background: var(--hover-bg);
 }
 
+.cancelBtn:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .uploadBtn {
   background: var(--btn-primary-bg);
   border: 2px solid var(--primary);
@@ -255,6 +275,11 @@
 .uploadBtn:hover:not(:disabled) {
   background: var(--primary);
   color: #fff;
+}
+
+.uploadBtn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .uploadBtn:disabled {

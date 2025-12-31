@@ -114,6 +114,11 @@
   box-shadow: var(--shadow);
 }
 
+.loginButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .loginButton:disabled {
   opacity: 0.7;
   cursor: not-allowed;
@@ -170,6 +175,11 @@
   box-shadow: var(--shadow);
 }
 
+.clearPasswordButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
 .clearPasswordButton:disabled {
   opacity: 0.7;
   cursor: not-allowed;
@@ -197,6 +207,11 @@
   color: #fff;
   transform: translateY(-1px);
   box-shadow: var(--shadow);
+}
+
+.storedValueButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .storedValueButton:disabled {
