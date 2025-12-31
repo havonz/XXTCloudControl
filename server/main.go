@@ -735,6 +735,11 @@ func main() {
 		log.Printf("Warning: Failed to load group script configs: %v", err)
 	}
 
+	// 加载应用设置
+	if err := loadAppSettings(); err != nil {
+		log.Printf("Warning: Failed to load app settings: %v", err)
+	}
+
 	// 设置Gin模式
 	gin.SetMode(gin.ReleaseMode)
 
@@ -782,6 +787,10 @@ func main() {
 	r.GET("/api/scripts/config-status", scriptConfigStatusHandler)
 	r.GET("/api/scripts/config", scriptConfigGetHandler)
 	r.POST("/api/scripts/config", scriptConfigSaveHandler)
+
+	// 应用设置API
+	r.GET("/api/app-settings/selected-script", getSelectedScriptHandler)
+	r.POST("/api/app-settings/selected-script", setSelectedScriptHandler)
 
 	// 静态文件服务 - 使用NoRoute避免路由冲突
 	r.NoRoute(staticFileHandler)
@@ -1162,7 +1171,81 @@ var (
 	// 分组脚本配置：map[groupID]map[scriptPath]config
 	groupScriptConfigs   = make(map[string]map[string]map[string]interface{})
 	groupScriptConfigsMu sync.RWMutex
+
+	// 应用设置
+	appSettings   = AppSettings{}
+	appSettingsMu sync.RWMutex
 )
+
+// 应用设置结构体
+type AppSettings struct {
+	SelectedScript string `json:"selectedScript"`
+}
+
+// 获取应用设置存储路径
+func getAppSettingsFilePath() string {
+	return filepath.Join(serverConfig.DataDir, "app_settings.json")
+}
+
+// 加载应用设置
+func loadAppSettings() error {
+	appSettingsMu.Lock()
+	defer appSettingsMu.Unlock()
+
+	filePath := getAppSettingsFilePath()
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(data, &appSettings)
+}
+
+// 保存应用设置
+func saveAppSettings() error {
+	filePath := getAppSettingsFilePath()
+	data, err := json.MarshalIndent(appSettings, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// GET /api/app-settings/selected-script
+func getSelectedScriptHandler(c *gin.Context) {
+	appSettingsMu.RLock()
+	defer appSettingsMu.RUnlock()
+
+	c.JSON(http.StatusOK, gin.H{"selectedScript": appSettings.SelectedScript})
+}
+
+// POST /api/app-settings/selected-script
+func setSelectedScriptHandler(c *gin.Context) {
+	var req struct {
+		SelectedScript string `json:"selectedScript"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	appSettingsMu.Lock()
+	appSettings.SelectedScript = req.SelectedScript
+	appSettingsMu.Unlock()
+
+	if err := saveAppSettings(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
 
 // 获取分组数据存储路径
 func getGroupsFilePath() string {

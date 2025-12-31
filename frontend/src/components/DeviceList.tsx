@@ -1,4 +1,4 @@
-import { Component, createSignal, For, Accessor, Show, createEffect, createMemo, JSX } from 'solid-js';
+import { Component, createSignal, For, Accessor, Show, createEffect, createMemo, JSX, onMount } from 'solid-js';
 import { Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { useDialog } from './DialogContext';
@@ -105,6 +105,39 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     props.selectedDevices().length;
     props.selectedDevices().map(d => d.udid);
     setForceUpdate(prev => prev + 1); // Force component update
+  });
+
+  // Load saved script from backend on mount
+  const loadSavedScript = async () => {
+    try {
+      const response = await fetch('/api/app-settings/selected-script');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.selectedScript) {
+          setServerScriptName(data.selectedScript);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load saved script:', error);
+    }
+  };
+
+  // Save selected script to backend
+  const saveSelectedScript = async (scriptName: string) => {
+    try {
+      await fetch('/api/app-settings/selected-script', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selectedScript: scriptName })
+      });
+    } catch (error) {
+      console.error('Failed to save selected script:', error);
+    }
+  };
+
+  // Load saved script on component mount
+  onMount(() => {
+    loadSavedScript();
   });
 
 
@@ -596,6 +629,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               onValueChange={(e) => {
                 const next = e.value[0] ?? '';
                 setServerScriptName(next);
+                saveSelectedScript(next);
               }}
               onOpenChange={(e) => {
                 if (e.open) fetchSelectableScripts();
