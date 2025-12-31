@@ -33,6 +33,7 @@ interface DeviceListProps {
   serverHost: string;
   serverPort: string;
   checkedGroups?: Accessor<Set<string>>; // 选中的分组ID列表
+  getPreferredGroupScript?: () => { scriptPath: string; groupId: string } | null; // 获取分组绑定脚本
   sidebar?: JSX.Element;
 }
 
@@ -163,7 +164,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   };
 
   const handleSendAndStartScript = async () => {
-    if (!serverScriptName() || props.selectedDevices().length === 0) return;
+    // 如果选中了分组且分组有绑定脚本，优先使用分组绑定的脚本
+    const preferredScript = props.getPreferredGroupScript?.();
+    const effectiveScriptName = preferredScript?.scriptPath || serverScriptName();
+    
+    if (!effectiveScriptName || props.selectedDevices().length === 0) return;
     
     setIsSendingScript(true);
     try {
@@ -174,7 +179,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         },
         body: JSON.stringify({
           devices: props.selectedDevices().map((d: Device) => d.udid),
-          name: serverScriptName(),
+          name: effectiveScriptName,
           selectedGroups: props.checkedGroups ? Array.from(props.checkedGroups()) : ['__all__'],
         }),
       });

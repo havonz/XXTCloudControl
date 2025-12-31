@@ -46,6 +46,10 @@ export interface GroupStoreState {
   toggleGroupChecked: (groupId: string) => void;
   bindScriptToGroup: (groupId: string, scriptPath: string) => Promise<boolean>;
   reorderGroups: (order: string[]) => Promise<boolean>;
+  // 获取选中分组的绑定脚本信息
+  getPreferredGroupScript: () => { scriptPath: string; groupId: string } | null;
+  // 返回需要选中的设备ID列表
+  getDevicesForCheckedGroups: () => Set<string>;
 }
 
 export function createGroupStore(): GroupStoreState {
@@ -78,6 +82,41 @@ export function createGroupStore(): GroupStoreState {
     }
     return result;
   });
+
+  // Get devices that should be selected based on checked groups
+  const getDevicesForCheckedGroups = (): Set<string> => {
+    const checked = checkedGroups();
+    if (checked.has('__all__')) return new Set<string>(); // Empty means "use existing selection"
+    
+    const result = new Set<string>();
+    const groupList = groups();
+    
+    for (const gid of checked) {
+      if (gid === '__all__') continue;
+      const group = groupList.find(g => g.id === gid);
+      if (group?.deviceIds) {
+        for (const deviceId of group.deviceIds) {
+          if (deviceId) result.add(deviceId);
+        }
+      }
+    }
+    return result;
+  };
+
+  // Get the first checked group's bound script (by sortOrder)
+  const getPreferredGroupScript = (): { scriptPath: string; groupId: string } | null => {
+    const checked = checkedGroups();
+    if (checked.has('__all__')) return null;
+    
+    // Groups are already sorted by sortOrder
+    const groupList = groups();
+    for (const group of groupList) {
+      if (checked.has(group.id) && group.scriptPath?.trim()) {
+        return { scriptPath: group.scriptPath.trim(), groupId: group.id };
+      }
+    }
+    return null;
+  };
 
   // Load groups from server
   const loadGroups = async () => {
@@ -293,5 +332,7 @@ export function createGroupStore(): GroupStoreState {
     toggleGroupChecked,
     bindScriptToGroup,
     reorderGroups,
+    getPreferredGroupScript,
+    getDevicesForCheckedGroups,
   };
 }

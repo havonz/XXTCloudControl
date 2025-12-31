@@ -471,6 +471,7 @@ const App: Component = () => {
               serverHost={serverHost()}
               serverPort={serverPort()}
               checkedGroups={groupStore.checkedGroups}
+              getPreferredGroupScript={groupStore.getPreferredGroupScript}
               sidebar={
                 <GroupList
                   groupStore={groupStore}
@@ -478,6 +479,12 @@ const App: Component = () => {
                   onOpenNewGroupModal={() => setShowNewGroupModal(true)}
                   onOpenAddToGroupModal={() => setShowAddToGroupModal(true)}
                   selectedDeviceCount={selectedDevices().length}
+                  onDeviceSelectionChange={(deviceIds) => {
+                    // 当分组选中改变时，同步设备选中
+                    const allDevices = devices();
+                    const newSelection = allDevices.filter(d => deviceIds.has(d.udid));
+                    setSelectedDevices(newSelection);
+                  }}
                 />
               }
             />

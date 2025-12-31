@@ -12,6 +12,7 @@ interface GroupListProps {
   onOpenNewGroupModal: () => void;
   onOpenAddToGroupModal: () => void;
   selectedDeviceCount: number;
+  onDeviceSelectionChange?: (deviceIds: Set<string>) => void; // 当分组选中改变时同步设备选中
 }
 
 const GroupList: Component<GroupListProps> = (props) => {
@@ -26,6 +27,16 @@ const GroupList: Component<GroupListProps> = (props) => {
   };
 
   const closeContextMenu = () => setContextMenu(null);
+
+  // 包装 toggleGroupChecked，加上设备选中同步
+  const handleToggleGroup = (groupId: string) => {
+    props.groupStore.toggleGroupChecked(groupId);
+    // 分组选中后，通知父组件更新设备选中
+    if (props.onDeviceSelectionChange) {
+      const devices = props.groupStore.getDevicesForCheckedGroups();
+      props.onDeviceSelectionChange(devices);
+    }
+  };
 
   const handleRenameGroup = async () => {
     const menu = contextMenu();
@@ -167,13 +178,13 @@ const GroupList: Component<GroupListProps> = (props) => {
       >
         <li 
           class={`${styles.groupItem} ${props.groupStore.checkedGroups().has('__all__') ? styles.checked : ''}`}
-          onClick={() => props.groupStore.toggleGroupChecked('__all__')}
+          onClick={() => handleToggleGroup('__all__')}
         >
           <label class={styles.groupLabel} onClick={(e) => e.stopPropagation()}>
             <input
               type="checkbox"
               checked={props.groupStore.checkedGroups().has('__all__')}
-              onChange={() => props.groupStore.toggleGroupChecked('__all__')}
+              onChange={() => handleToggleGroup('__all__')}
             />
             <span class={styles.groupName}>所有设备</span>
           </label>
@@ -185,7 +196,7 @@ const GroupList: Component<GroupListProps> = (props) => {
             <li 
               class={`${styles.groupItem} ${props.groupStore.checkedGroups().has(group.id) ? styles.checked : ''} ${props.groupStore.draggingGroupId() === group.id ? styles.dragging : ''} ${props.groupStore.dragOverGroupId() === group.id ? styles.dragOver : ''}`}
               draggable={!props.groupStore.groupSortLocked()}
-              onClick={() => props.groupStore.toggleGroupChecked(group.id)}
+              onClick={() => handleToggleGroup(group.id)}
               onContextMenu={(e) => handleContextMenu(e as unknown as MouseEvent, group.id)}
               onDragStart={(e) => handleDragStart(e as DragEvent, group.id)}
               onDragOver={(e) => handleDragOver(e as DragEvent, group.id)}
@@ -200,7 +211,7 @@ const GroupList: Component<GroupListProps> = (props) => {
                 <input
                   type="checkbox"
                   checked={props.groupStore.checkedGroups().has(group.id)}
-                  onChange={() => props.groupStore.toggleGroupChecked(group.id)}
+                  onChange={() => handleToggleGroup(group.id)}
                 />
                 <span class={styles.groupName}>{group.name}</span>
                 <Show when={group.scriptPath}>
