@@ -21,6 +21,7 @@ import {
 import { renderFileIcon } from '../utils/fileIcons';
 import styles from './ServerFileBrowser.module.css';
 import { authFetch, appendAuthQuery } from '../services/httpAuth';
+import { scanEntries, ScannedFile } from '../utils/fileUpload';
 
 export interface ServerFileItem {
   name: string;
@@ -327,8 +328,16 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const handleDragLeave = (e: DragEvent) => { e.preventDefault(); dragCounter--; if (dragCounter === 0) setIsDragOver(false); };
   const handleDrop = async (e: DragEvent) => {
     e.preventDefault(); dragCounter = 0; setIsDragOver(false);
-    const droppedFiles = Array.from(e.dataTransfer?.files || []);
-    if (droppedFiles.length > 0) await uploadFiles(droppedFiles);
+    if (e.dataTransfer?.items) {
+      const scannedFiles = await scanEntries(e.dataTransfer.items);
+      if (scannedFiles.length > 0) await uploadFiles(scannedFiles);
+    } else {
+      const droppedFiles = Array.from(e.dataTransfer?.files || []);
+      if (droppedFiles.length > 0) {
+        const scannedFiles: ScannedFile[] = droppedFiles.map(file => ({ file, relativePath: file.name }));
+        await uploadFiles(scannedFiles);
+      }
+    }
   };
 
   const handleOpenLocal = async () => {
@@ -345,17 +354,25 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     }
   };
 
-  const uploadFiles = async (filesToUpload: File[]) => {
+  const uploadFiles = async (filesToUpload: ScannedFile[]) => {
     setIsUploading(true);
     try {
-      for (const file of filesToUpload) {
+      for (const { file, relativePath } of filesToUpload) {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('category', currentCategory());
-        formData.append('path', currentPath());
+        
+        // Calculate the target directory based on relativePath
+        const lastSlash = relativePath.lastIndexOf('/');
+        const relativeDir = lastSlash !== -1 ? relativePath.substring(0, lastSlash) : '';
+        const targetPath = currentPath() 
+          ? (relativeDir ? `${currentPath()}/${relativeDir}` : currentPath())
+          : relativeDir;
+          
+        formData.append('path', targetPath);
         const response = await authFetch(`${props.serverBaseUrl}/api/server-files/upload`, { method: 'POST', body: formData });
         const data = await response.json();
-        if (data.error) await dialog.alert(`上传 ${file.name} 失败: ` + data.error);
+        if (data.error) await dialog.alert(`上传 ${relativePath} 失败: ` + data.error);
       }
       loadFiles();
     } catch (err) {

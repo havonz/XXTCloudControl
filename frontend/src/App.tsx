@@ -11,6 +11,7 @@ import AddToGroupModal from './components/AddToGroupModal';
 import { useTheme } from './components/ThemeContext';
 import { IconMoon, IconSun } from './icons';
 import styles from './App.module.css';
+import { ScannedFile } from './utils/fileUpload';
 
 const App: Component = () => {
   const { theme, toggleTheme } = useTheme();
@@ -261,7 +262,7 @@ const App: Component = () => {
 
 
 
-  const handleUploadFiles = async (files: File[], uploadPath: string) => {
+  const handleUploadFiles = async (scannedFiles: ScannedFile[], uploadPath: string) => {
     if (!wsService) {
       console.warn('WebSocket服务未连接');
       return;
@@ -272,7 +273,7 @@ const App: Component = () => {
       return;
     }
 
-    if (!files || files.length === 0) {
+    if (!scannedFiles || scannedFiles.length === 0) {
       console.warn('未选择文件');
       return;
     }
@@ -280,18 +281,18 @@ const App: Component = () => {
     const deviceUdids = selectedDevices().map(device => device.udid);
     
     // 上传每个文件
-    for (const file of files) {
+    for (const { file, relativePath } of scannedFiles) {
       try {
         // 将文件转换为Base64
         const base64Data = await fileToBase64(file);
         // 构建完整的文件路径
-        const fullPath = uploadPath.endsWith('/') ? `${uploadPath}${file.name}` : `${uploadPath}/${file.name}`;
+        const fullPath = uploadPath.endsWith('/') ? `${uploadPath}${relativePath}` : `${uploadPath}/${relativePath}`;
         
         // 发送上传请求
         await wsService.uploadFile(deviceUdids, fullPath, base64Data);
 
       } catch (error) {
-        console.error(`上传文件 ${file.name} 失败:`, error);
+        console.error(`上传文件 ${relativePath} 失败:`, error);
       }
     }
   };

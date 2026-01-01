@@ -18,6 +18,7 @@ import {
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
 import styles from './DeviceFileBrowser.module.css';
+import { scanEntries, ScannedFile } from '../utils/fileUpload';
 
 export interface FileItem {
   name: string;
@@ -261,20 +262,6 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     }, 1000);
   };
 
-  const handleUploadFile = (file: File) => {
-    if (!file) return;
-
-    const filePath = currentPath() === '/' 
-      ? `/${file.name}` 
-      : `${currentPath()}/${file.name}`;
-    
-    props.onUploadFile(props.deviceUdid, filePath, file);
-    
-    // 刷新当前目录
-    setTimeout(() => {
-      props.onListFiles(props.deviceUdid, currentPath());
-    }, 1000);
-  };
 
   // 拖拽上传处理
   const handleDragEnter = (e: DragEvent) => {
@@ -298,13 +285,28 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     dragCounter = 0;
     setIsDragOver(false);
     
-    const droppedFiles = Array.from(e.dataTransfer?.files || []);
-    if (droppedFiles.length > 0) {
+    let scannedFiles: ScannedFile[] = [];
+    if (e.dataTransfer?.items) {
+      scannedFiles = await scanEntries(e.dataTransfer.items);
+    } else {
+      const droppedFiles = Array.from(e.dataTransfer?.files || []);
+      scannedFiles = droppedFiles.map(file => ({ file, relativePath: file.name }));
+    }
+
+    if (scannedFiles.length > 0) {
       setIsUploading(true);
-      for (const file of droppedFiles) {
-        handleUploadFile(file);
+      for (const { file, relativePath } of scannedFiles) {
+        const fullPath = currentPath() === '/' 
+          ? `/${relativePath}` 
+          : `${currentPath()}/${relativePath}`;
+        props.onUploadFile(props.deviceUdid, fullPath, file);
       }
-      setTimeout(() => setIsUploading(false), 1500);
+      
+      // 刷新当前目录
+      setTimeout(() => {
+        setIsUploading(false);
+        props.onListFiles(props.deviceUdid, currentPath());
+      }, 1500);
     }
   };
 

@@ -14,6 +14,7 @@ import { Portal } from 'solid-js/web';
 import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
 import ScriptConfigModal from './ScriptConfigModal';
 import { authFetch } from '../services/httpAuth';
+import { scanEntries, ScannedFile } from '../utils/fileUpload';
 
 
 interface DeviceListProps {
@@ -25,7 +26,7 @@ interface DeviceListProps {
   onStartScript: (scriptName: string) => void;
   onStopScript: () => void;
   onRespringDevices: () => void;
-  onUploadFiles: (files: File[], uploadPath: string) => Promise<void>;
+  onUploadFiles: (files: ScannedFile[], uploadPath: string) => Promise<void>;
   onOpenFileBrowser: (deviceUdid: string, deviceName: string) => void;
   onReadClipboard: () => void;
   onWriteClipboard: (uti: string, data: string) => void;
@@ -113,15 +114,14 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   
   // Upload modal state
-  const [showUploadModal, setShowUploadModal] = createSignal(false);
-
   const [showDeviceBindingModal, setShowDeviceBindingModal] = createSignal(false);
   const [showDictionaryModal, setShowDictionaryModal] = createSignal(false);
   const [showRespringConfirm, setShowRespringConfirm] = createSignal(false);
   const [showScriptSelectionModal, setShowScriptSelectionModal] = createSignal(false);
   const [showServerFileBrowser, setShowServerFileBrowser] = createSignal(false);
-  const [modalUploadFiles, setModalUploadFiles] = createSignal<File[]>([]);
+  const [showUploadModal, setShowUploadModal] = createSignal(false);
   const [modalUploadPath, setModalUploadPath] = createSignal('/lua/scripts');
+  const [modalUploadFiles, setModalUploadFiles] = createSignal<ScannedFile[]>([]);
   const [modalIsDragOver, setModalIsDragOver] = createSignal(false);
   let modalFileInputRef: HTMLInputElement | undefined;
   
@@ -592,19 +592,31 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     setModalIsDragOver(false);
   };
 
-  const handleModalDrop = (e: DragEvent) => {
+  const handleModalDrop = async (e: DragEvent) => {
     e.preventDefault();
     setModalIsDragOver(false);
     
-    const files = Array.from(e.dataTransfer?.files || []);
-    setModalUploadFiles(prev => [...prev, ...files]);
+    if (e.dataTransfer?.items) {
+      const scannedFiles = await scanEntries(e.dataTransfer.items);
+      if (scannedFiles.length > 0) {
+        setModalUploadFiles(prev => [...prev, ...scannedFiles]);
+      }
+    } else if (e.dataTransfer?.files) {
+      const files = Array.from(e.dataTransfer.files);
+      const scannedFiles: ScannedFile[] = files.map(file => ({ file, relativePath: file.name }));
+      setModalUploadFiles(prev => [...prev, ...scannedFiles]);
+    }
   };
 
   const handleModalFileSelect = (e: Event) => {
     const target = e.target as HTMLInputElement;
     if (target.files) {
       const files = Array.from(target.files);
-      setModalUploadFiles(prev => [...prev, ...files]);
+      const scannedFiles: ScannedFile[] = files.map(file => ({ 
+        file, 
+        relativePath: (file as any).webkitRelativePath || file.name 
+      }));
+      setModalUploadFiles(prev => [...prev, ...scannedFiles]);
     }
   };
 
@@ -1317,9 +1329,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 <Show when={modalUploadFiles().length > 0}>
                   <div class={styles.fileList}>
                     <For each={modalUploadFiles()}>
-                      {(file, index) => (
+                      {(item, index) => (
                         <div class={styles.fileItem}>
-                          <span class={styles.fileName}>{file.name}</span>
+                          <span class={styles.modalFileName}>{item.relativePath}</span>
                           <button 
                             onClick={() => removeModalFile(index())}
                             class={styles.removeFileButton}
