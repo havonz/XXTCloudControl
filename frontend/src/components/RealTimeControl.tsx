@@ -1,4 +1,4 @@
-import { createSignal, For, Show, onCleanup, createEffect } from 'solid-js';
+import { createSignal, For, Show, onCleanup, createEffect, onMount } from 'solid-js';
 import styles from './RealTimeControl.module.css';
 import ClipboardModal from './ClipboardModal';
 import type { Device } from '../services/AuthService';
@@ -543,6 +543,20 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     }
   };
 
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      if (showClipboardModal()) {
+        setShowClipboardModal(false);
+      } else if (props.isOpen) {
+        handleClose();
+      }
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeyDown);
+  });
+
   // 监听 isOpen 变化
   createEffect(() => {
     if (props.isOpen) {
@@ -557,6 +571,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
   // 组件卸载时清理
   onCleanup(() => {
     stopScreenCapture();
+    window.removeEventListener('keydown', handleKeyDown);
   });
 
   return (

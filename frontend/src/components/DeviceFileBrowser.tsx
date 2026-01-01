@@ -1,4 +1,4 @@
-import { createSignal, createEffect, For, Show } from 'solid-js';
+import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { useDialog } from './DialogContext';
 import {
   IconFolderPlus,
@@ -100,6 +100,24 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     setSelectedItems(new Set<string>());
     props.onListFiles(props.deviceUdid, path);
   };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      if (showEditorModal()) {
+        setShowEditorModal(false);
+      } else if (props.isOpen) {
+        props.onClose();
+      }
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeyDown);
+  });
+
+  onCleanup(() => {
+    window.removeEventListener('keydown', handleKeyDown);
+  });
 
   const handleFileClick = (file: FileItem) => {
     if (isSelectMode()) {

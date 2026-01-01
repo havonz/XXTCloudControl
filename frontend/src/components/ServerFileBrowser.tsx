@@ -1,4 +1,4 @@
-import { createSignal, createEffect, For, Show } from 'solid-js';
+import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { useDialog } from './DialogContext';
 import {
   IconCode,
@@ -100,6 +100,26 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       setIsSelectMode(false);
       setSelectedItems(new Set<string>());
     }
+  });
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      if (showImagePreview()) {
+        setShowImagePreview(false);
+      } else if (showEditorModal()) {
+        setShowEditorModal(false);
+      } else if (props.isOpen) {
+        props.onClose();
+      }
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeyDown);
+  });
+
+  onCleanup(() => {
+    window.removeEventListener('keydown', handleKeyDown);
   });
 
   const sortedFiles = () => {

@@ -1,4 +1,4 @@
-import { createSignal, createMemo, Show, createEffect } from 'solid-js';
+import { createSignal, createMemo, Show, createEffect, onMount, onCleanup } from 'solid-js';
 import QRCode from 'qrcode';
 import styles from './DeviceBindingModal.module.css';
 
@@ -56,6 +56,20 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
   const handleClose = () => {
     props.onClose();
   };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      handleClose();
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeyDown);
+  });
+
+  onCleanup(() => {
+    window.removeEventListener('keydown', handleKeyDown);
+  });
 
   return (
     <Show when={props.isOpen}>

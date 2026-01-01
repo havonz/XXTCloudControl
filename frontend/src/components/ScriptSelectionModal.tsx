@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal, onMount, onCleanup } from 'solid-js';
 import styles from './ScriptSelectionModal.module.css';
 
 interface ScriptSelectionModalProps {
@@ -33,11 +33,21 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
     props.onClose();
   };
 
-  const handleKeyPress = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && !isLoading() && scriptName().trim()) {
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      handleCancel();
+    } else if (e.key === 'Enter' && !isLoading() && scriptName().trim()) {
       handleSelectScript();
     }
   };
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeyDown);
+  });
+
+  onCleanup(() => {
+    window.removeEventListener('keydown', handleKeyDown);
+  });
 
   if (!props.isOpen) return null;
   return (
@@ -58,7 +68,6 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
                 type="text"
                 value={scriptName()}
                 onInput={(e) => setScriptName(e.currentTarget.value)}
-                onKeyPress={handleKeyPress}
                 placeholder="请输入脚本名称（如：main.lua）"
                 class={styles.input}
                 disabled={isLoading()}

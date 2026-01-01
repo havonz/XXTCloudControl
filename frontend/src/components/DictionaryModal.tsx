@@ -1,4 +1,4 @@
-import { createSignal, Show } from 'solid-js';
+import { createSignal, Show, onMount, onCleanup } from 'solid-js';
 import { useDialog } from './DialogContext';
 import styles from './DictionaryModal.module.css';
 
@@ -55,6 +55,20 @@ export default function DictionaryModal(props: DictionaryModalProps) {
       props.onClose();
     }
   };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      handleClose();
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeyDown);
+  });
+
+  onCleanup(() => {
+    window.removeEventListener('keydown', handleKeyDown);
+  });
 
   return (
     <Show when={props.isOpen}>

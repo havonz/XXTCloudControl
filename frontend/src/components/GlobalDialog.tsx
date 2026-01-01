@@ -1,4 +1,4 @@
-import { Component, createSignal, onMount, Show, For, createMemo } from 'solid-js';
+import { Component, createSignal, onMount, onCleanup, Show, For, createMemo } from 'solid-js';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
 import styles from './GlobalDialog.module.css';
@@ -25,6 +25,11 @@ export const GlobalDialog: Component<GlobalDialogProps> = (props) => {
       inputRef.focus();
       inputRef.select();
     }
+    window.addEventListener('keydown', handleKeyDown);
+  });
+
+  onCleanup(() => {
+    window.removeEventListener('keydown', handleKeyDown);
   });
 
   const handleConfirm = () => {
@@ -55,7 +60,7 @@ export const GlobalDialog: Component<GlobalDialogProps> = (props) => {
 
   return (
     <div class={styles.overlay} onClick={(e) => e.target === e.currentTarget && handleCancel()}>
-      <div class={styles.modal} onKeyDown={handleKeyDown}>
+      <div class={styles.modal}>
         <div class={styles.header}>
           <h3>{props.title}</h3>
         </div>

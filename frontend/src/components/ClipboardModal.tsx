@@ -1,4 +1,4 @@
-import { createSignal, Show, createEffect } from 'solid-js';
+import { createSignal, Show, createEffect, onMount, onCleanup } from 'solid-js';
 import { useDialog } from './DialogContext';
 import styles from './ClipboardModal.module.css';
 
@@ -79,6 +79,20 @@ export default function ClipboardModal(props: ClipboardModalProps) {
     setIsReadingClipboard(false);
     props.onClose();
   };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      handleClose();
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeyDown);
+  });
+
+  onCleanup(() => {
+    window.removeEventListener('keydown', handleKeyDown);
+  });
 
   return (
     <Show when={props.isOpen}>

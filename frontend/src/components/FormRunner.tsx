@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, onMount, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { createFormRunnerStore } from '../services/formRunnerStore';
@@ -25,6 +25,24 @@ export default function FormRunner(props: FormRunnerProps) {
     } else {
       setAboutOpen(false);
     }
+  });
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      if (aboutOpen()) {
+        setAboutOpen(false);
+      } else if (props.open && props.onClose) {
+        props.onClose();
+      }
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeyDown);
+  });
+
+  onCleanup(() => {
+    window.removeEventListener('keydown', handleKeyDown);
   });
 
   const handleSubmit = () => {
