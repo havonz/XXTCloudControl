@@ -431,6 +431,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
               <label class={styles.showHiddenLabel}>
                 <input 
                   type="checkbox" 
+                  class="themed-checkbox"
                   checked={showHidden()} 
                   onChange={(e) => setShowHidden(e.currentTarget.checked)} 
                 />
@@ -499,7 +500,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                   <div class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}>
                     <Show when={isSelectMode()}>
                       <div class={styles.tableCell} style={{ width: '40px' }}>
-                        <input type="checkbox" class={styles.checkbox} checked={selectedItems().has(file.name)} onChange={() => toggleSelection(file.name)} />
+                        <input type="checkbox" class="themed-checkbox" checked={selectedItems().has(file.name)} onChange={() => toggleSelection(file.name)} />
                       </div>
                     </Show>
                     <div class={`${styles.tableCell} ${styles.typeColumn}`} onClick={() => handleFileClick(file)}>

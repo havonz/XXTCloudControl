@@ -336,3 +336,42 @@ code {
   align-items: center;
   gap: 6px;
 }
+
+/* Global themed checkbox styles */
+.themed-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  background: var(--input-bg);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.themed-checkbox:hover {
+  border-color: var(--primary);
+  background: var(--hover-bg);
+}
+
+.themed-checkbox:checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.themed-checkbox:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  line-height: 1;
+}

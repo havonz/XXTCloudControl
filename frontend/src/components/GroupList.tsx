@@ -154,6 +154,7 @@ const GroupList: Component<GroupListProps> = (props) => {
           <label class={styles.settingsOption}>
             <input
               type="checkbox"
+              class="themed-checkbox"
               checked={props.groupStore.groupMultiSelect()}
               onChange={(e) => props.groupStore.setGroupMultiSelect(e.currentTarget.checked)}
             />
@@ -162,6 +163,7 @@ const GroupList: Component<GroupListProps> = (props) => {
           <label class={styles.settingsOption}>
             <input
               type="checkbox"
+              class="themed-checkbox"
               checked={props.groupStore.groupSortLocked()}
               onChange={(e) => props.groupStore.setGroupSortLocked(e.currentTarget.checked)}
             />
@@ -180,15 +182,22 @@ const GroupList: Component<GroupListProps> = (props) => {
           class={`${styles.groupItem} ${props.groupStore.checkedGroups().has('__all__') ? styles.checked : ''}`}
           onClick={() => handleToggleGroup('__all__')}
         >
-          <label class={styles.groupLabel} onClick={(e) => e.stopPropagation()}>
+          <div class={styles.groupItemContent}>
             <input
               type="checkbox"
+              class={`themed-checkbox ${styles.groupCheckbox}`}
               checked={props.groupStore.checkedGroups().has('__all__')}
-              onChange={() => handleToggleGroup('__all__')}
+              onChange={(e) => {
+                e.stopPropagation();
+                handleToggleGroup('__all__');
+              }}
+              onClick={(e) => e.stopPropagation()}
             />
-            <span class={styles.groupName}>所有设备</span>
-          </label>
-          <span class={styles.deviceCount}>{props.deviceCount} 台</span>
+            <div class={styles.groupInfoStack}>
+              <span class={styles.groupName}>所有设备</span>
+              <span class={styles.groupSubInfo}>{props.deviceCount} 台设备</span>
+            </div>
+          </div>
         </li>
         
         <For each={props.groupStore.groups()}>
@@ -207,20 +216,25 @@ const GroupList: Component<GroupListProps> = (props) => {
                 cursor: props.groupStore.groupSortLocked() ? 'default' : (props.groupStore.draggingGroupId() === group.id ? 'grabbing' : 'grab')
               }}
             >
-              <label class={styles.groupLabel} onClick={(e) => e.stopPropagation()}>
+              <div class={styles.groupItemContent}>
                 <input
                   type="checkbox"
+                  class={`themed-checkbox ${styles.groupCheckbox}`}
                   checked={props.groupStore.checkedGroups().has(group.id)}
-                  onChange={() => handleToggleGroup(group.id)}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    handleToggleGroup(group.id);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
                 />
-                <span class={styles.groupName}>{group.name}</span>
-                <Show when={group.scriptPath}>
-                  <span class={styles.groupScript} title={`已绑定脚本: ${group.scriptPath}`}>
-                    ({group.scriptPath})
+                <div class={styles.groupInfoStack}>
+                  <span class={styles.groupName}>{group.name}</span>
+                  <span class={styles.groupSubInfo}>{group.deviceIds?.length || 0} 台设备</span>
+                  <span class={styles.groupSubInfo}>
+                    绑定脚本: {group.scriptPath || '未绑定'}
                   </span>
-                </Show>
-              </label>
-              <span class={styles.deviceCount}>{group.deviceIds?.length || 0} 台</span>
+                </div>
+              </div>
             </li>
           )}
         </For>

@@ -12,6 +12,7 @@
   height: 100%;
   box-sizing: border-box;
   overflow: hidden;
+  text-align: left;
 }
 
 .header {
@@ -96,14 +97,14 @@
 
 .groupItem {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
+  flex-direction: column;
+  padding: 10px 12px;
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
   background: transparent;
   border: 1px solid transparent;
+  min-height: 48px;
 }
 
 .groupItem:hover {
@@ -134,44 +135,44 @@
   list-style: none;
 }
 
-.groupLabel {
+.groupItemContent {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  flex: 1;
-  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
 }
 
-.groupLabel input[type="checkbox"] {
+.groupCheckbox {
+  margin-top: 4px;
   cursor: pointer;
   flex-shrink: 0;
+}
+
+.groupInfoStack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-start;
 }
 
 .groupName {
-  flex: 1;
-  font-size: 0.95rem;
-  color: var(--text-color);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.groupScript {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  margin-left: 4px;
-  max-width: 100px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.deviceCount {
+.groupSubInfo {
   font-size: 12px;
   color: var(--text-muted);
-  flex-shrink: 0;
-  margin-left: 8px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .actions {

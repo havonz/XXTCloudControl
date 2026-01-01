@@ -629,7 +629,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
                 <label class={styles.checkboxLabel}>
                   <input 
                     type="checkbox" 
-                    class={styles.checkbox}
+                    class="themed-checkbox"
                     checked={syncControl()}
                     onChange={(e) => setSyncControl(e.target.checked)}
                   />

@@ -846,6 +846,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         <label class={styles.columnOption}>
                           <input 
                             type="checkbox" 
+                            class="themed-checkbox"
                             checked={visibleColumns().includes(col.id)}
                             onChange={() => toggleColumn(col.id)}
                           />
@@ -1006,19 +1007,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     >
                       <div class={styles.tableCell}>
                         <div 
-                          style={{
-                            width: '20px',
-                            height: '20px',
-                            border: '2px solid white',
-                            'border-radius': '4px',
-                            display: 'flex',
-                            'align-items': 'center',
-                            'justify-content': 'center',
-                            'font-weight': 'bold',
-                            background: isSelected ? '#4CAF50' : 'transparent',
-                            'border-color': isSelected ? '#4CAF50' : 'rgba(255,255,255,0.3)',
-                            color: isSelected ? 'white' : 'transparent'
-                          }}
+                          class={`${styles.deviceCheckbox} ${isSelected ? styles.checked : ''}`}
                         >
                           {isSelected ? '✓' : ''}
                         </div>

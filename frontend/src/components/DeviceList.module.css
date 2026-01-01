@@ -905,14 +905,34 @@
 }
 
 .selectAllCheckbox.checked {
-  background: #4CAF50;
-  border-color: #4CAF50;
-  color: white;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
 }
 
 .selectAllCheckbox.indeterminate {
   background: var(--warning);
   border-color: var(--warning);
+  color: #fff;
+}
+
+/* Device row checkbox */
+.deviceCheckbox {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  background: transparent;
+  transition: all 0.2s ease;
+}
+
+.deviceCheckbox.checked {
+  background: var(--primary);
+  border-color: var(--primary);
   color: #fff;
 }
 
@@ -1009,10 +1029,11 @@
   position: fixed;
   top: 20px;
   right: 20px;
-  background: var(--success);
-  color: #fff;
+  background: var(--panel-2);
+  color: var(--text);
   padding: 12px 20px;
   border-radius: 8px;
+  border: 1px solid var(--border);
   font-size: 0.9rem;
   font-weight: 500;
   box-shadow: var(--shadow-lg);

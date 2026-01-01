@@ -302,6 +302,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
               <label class={styles.showHiddenLabel}>
                 <input 
                   type="checkbox" 
+                  class="themed-checkbox"
                   checked={showHidden()} 
                   onChange={(e) => setShowHidden(e.currentTarget.checked)} 
                 />
@@ -399,6 +400,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                       <div class={styles.tableCell} style={{ width: '40px' }}>
                         <input 
                           type="checkbox" 
+                          class="themed-checkbox"
                           checked={selectedItems().has(file.name)} 
                           onChange={() => {
                             const current = new Set(selectedItems());

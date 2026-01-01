@@ -1,4 +1,6 @@
-import { Component, createSignal, For, Show, createEffect } from 'solid-js';
+import { Component, createSignal, createMemo, For, Show, createEffect } from 'solid-js';
+import { Select, createListCollection } from '@ark-ui/solid';
+import { Portal } from 'solid-js/web';
 import type { GroupInfo } from '../types';
 import styles from './AddToGroupModal.module.css';
 
@@ -13,6 +15,25 @@ interface AddToGroupModalProps {
 const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
   const [selectedGroupId, setSelectedGroupId] = createSignal('');
   const [isSubmitting, setIsSubmitting] = createSignal(false);
+
+  // Create collection for Select component
+  const groupCollection = createMemo(() => 
+    createListCollection({
+      items: props.groups.map(g => ({
+        value: g.id,
+        label: `${g.name} (${g.deviceIds?.length || 0} 台)`
+      }))
+    })
+  );
+
+  // Get selected group label for display
+  const selectedGroupLabel = createMemo(() => {
+    const group = props.groups.find(g => g.id === selectedGroupId());
+    if (group) {
+      return `${group.name} (${group.deviceIds?.length || 0} 台)`;
+    }
+    return '-- 选择分组 --';
+  });
 
   // Auto-select first group when modal opens
   createEffect(() => {
@@ -60,20 +81,41 @@ const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
             
             <div class={styles.groupSelect}>
               <label class={styles.selectLabel}>选择分组:</label>
-              <select
-                class={styles.select}
-                value={selectedGroupId()}
-                onChange={(e) => setSelectedGroupId(e.currentTarget.value)}
+              <Select.Root
+                collection={groupCollection()}
+                value={selectedGroupId() ? [selectedGroupId()] : []}
+                onValueChange={(e) => {
+                  const next = e.value[0] ?? '';
+                  setSelectedGroupId(next);
+                }}
                 disabled={isSubmitting()}
               >
-                <For each={props.groups}>
-                  {(group) => (
-                    <option value={group.id}>
-                      {group.name} ({group.deviceIds?.length || 0} 台)
-                    </option>
-                  )}
-                </For>
-              </select>
+                <Select.Control>
+                  <Select.Trigger class="cbx-select" style={{ width: '100%' }}>
+                    <span>{selectedGroupLabel()}</span>
+                    <span class="dropdown-arrow">▼</span>
+                  </Select.Trigger>
+                </Select.Control>
+                <Portal>
+                  <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
+                    <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
+                      <Select.ItemGroup>
+                        <For each={props.groups}>{(group) => (
+                          <Select.Item 
+                            item={{ value: group.id, label: `${group.name} (${group.deviceIds?.length || 0} 台)` }} 
+                            class="cbx-item"
+                          >
+                            <div class="cbx-item-content">
+                              <Select.ItemIndicator>✓</Select.ItemIndicator>
+                              <Select.ItemText>{group.name} ({group.deviceIds?.length || 0} 台)</Select.ItemText>
+                            </div>
+                          </Select.Item>
+                        )}</For>
+                      </Select.ItemGroup>
+                    </Select.Content>
+                  </Select.Positioner>
+                </Portal>
+              </Select.Root>
             </div>
           </Show>
 
