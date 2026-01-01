@@ -46,6 +46,70 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [visibleColumns, setVisibleColumns] = createSignal<string[]>(['name', 'udid', 'ip', 'version', 'battery', 'running', 'log']);
   const [showColumnSettings, setShowColumnSettings] = createSignal(false);
 
+  // Column widths state
+  const DEFAULT_WIDTHS: Record<string, number> = {
+    selection: 60,
+    name: 160,
+    udid: 200,
+    ip: 140,
+    version: 80,
+    battery: 80,
+    running: 100,
+    log: 400
+  };
+
+  const [columnWidths, setColumnWidths] = createSignal<Record<string, number>>((() => {
+    const saved = localStorage.getItem('deviceListColumnWidths');
+    if (saved) {
+      try {
+        return { ...DEFAULT_WIDTHS, ...JSON.parse(saved) };
+      } catch (e) {
+        console.error('Failed to parse saved column widths:', e);
+      }
+    }
+    return DEFAULT_WIDTHS;
+  })());
+
+  const saveWidths = (widths: Record<string, number>) => {
+    localStorage.setItem('deviceListColumnWidths', JSON.stringify(widths));
+  };
+
+  let resizingColumn: string | null = null;
+  let startX = 0;
+  let startWidth = 0;
+
+  const handleResizeStart = (e: MouseEvent, colId: string) => {
+    e.stopPropagation();
+    resizingColumn = colId;
+    startX = e.pageX;
+    startWidth = columnWidths()[colId] || DEFAULT_WIDTHS[colId];
+    
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeStop);
+    document.body.classList.add('resizing');
+  };
+
+  const handleResizeMove = (e: MouseEvent) => {
+    if (!resizingColumn) return;
+    const delta = e.pageX - startX;
+    const newWidth = Math.max(50, startWidth + delta);
+    
+    setColumnWidths(prev => ({
+      ...prev,
+      [resizingColumn!]: newWidth
+    }));
+  };
+
+  const handleResizeStop = () => {
+    if (resizingColumn) {
+      saveWidths(columnWidths());
+    }
+    resizingColumn = null;
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeStop);
+    document.body.classList.remove('resizing');
+  };
+
   
   // Upload modal state
   const [showUploadModal, setShowUploadModal] = createSignal(false);
@@ -929,18 +993,20 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           <div 
             class={styles.deviceTable}
             style={{ 
-              'grid-template-columns': `60px ${visibleColumns().map(id => {
-                if (id === 'log') return '2fr';
-                if (id === 'udid') return '200px';
-                if (id === 'name') return '160px';
-                if (id === 'ip') return '140px';
-                if (id === 'battery' || id === 'version') return '80px';
-                if (id === 'running') return '100px';
-                return '1fr';
+              'grid-template-columns': `${columnWidths().selection}px ${visibleColumns().map((id, index) => {
+                if (index === visibleColumns().length - 1) return '1fr';
+                const width = columnWidths()[id];
+                return `${width}px`;
               }).join(' ')}`
             }}
           >
-              <div class={styles.tableHeader}>
+              <div class={styles.tableHeader} style={{ 
+                'grid-template-columns': `${columnWidths().selection}px ${visibleColumns().map((id, index) => {
+                  if (index === visibleColumns().length - 1) return '1fr';
+                  const width = columnWidths()[id];
+                  return `${width}px`;
+                }).join(' ')}`
+              }}>
                 <div class={styles.headerCell}>
                   <div 
                     class={`${styles.selectAllCheckbox} ${
@@ -951,6 +1017,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   >
                     {isAllSelected() ? '✓' : isPartiallySelected() ? '−' : ''}
                   </div>
+                  <div 
+                    class={styles.resizeHandle} 
+                    onMouseDown={(e) => handleResizeStart(e, 'selection')}
+                  />
                 </div>
                 
                 <Show when={visibleColumns().includes('name')}>
@@ -959,6 +1029,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <span class={styles.sortIndicator}>
                       {sortField() === 'name' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
                     </span>
+                    <div 
+                      class={styles.resizeHandle} 
+                      onMouseDown={(e) => handleResizeStart(e, 'name')}
+                      onClick={(e) => e.stopPropagation()}
+                    />
                   </div>
                 </Show>
                 
@@ -968,6 +1043,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <span class={styles.sortIndicator}>
                       {sortField() === 'udid' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
                     </span>
+                    <div 
+                      class={styles.resizeHandle} 
+                      onMouseDown={(e) => handleResizeStart(e, 'udid')}
+                      onClick={(e) => e.stopPropagation()}
+                    />
                   </div>
                 </Show>
                 
@@ -977,6 +1057,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <span class={styles.sortIndicator}>
                       {sortField() === 'ip' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
                     </span>
+                    <div 
+                      class={styles.resizeHandle} 
+                      onMouseDown={(e) => handleResizeStart(e, 'ip')}
+                      onClick={(e) => e.stopPropagation()}
+                    />
                   </div>
                 </Show>
                 
@@ -986,6 +1071,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <span class={styles.sortIndicator}>
                       {sortField() === 'version' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
                     </span>
+                    <div 
+                      class={styles.resizeHandle} 
+                      onMouseDown={(e) => handleResizeStart(e, 'version')}
+                      onClick={(e) => e.stopPropagation()}
+                    />
                   </div>
                 </Show>
                 
@@ -995,6 +1085,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <span class={styles.sortIndicator}>
                       {sortField() === 'battery' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
                     </span>
+                    <div 
+                      class={styles.resizeHandle} 
+                      onMouseDown={(e) => handleResizeStart(e, 'battery')}
+                      onClick={(e) => e.stopPropagation()}
+                    />
                   </div>
                 </Show>
                 
@@ -1004,6 +1099,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <span class={styles.sortIndicator}>
                       {sortField() === 'running' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
                     </span>
+                    <div 
+                      class={styles.resizeHandle} 
+                      onMouseDown={(e) => handleResizeStart(e, 'running')}
+                      onClick={(e) => e.stopPropagation()}
+                    />
                   </div>
                 </Show>
                 
@@ -1013,6 +1113,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <span class={styles.sortIndicator}>
                       {sortField() === 'log' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
                     </span>
+                    {/* Log is usually the last column, no handle needed unless we want to resize it against some future column */}
                   </div>
                 </Show>
               </div>
@@ -1030,6 +1131,13 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   return (
                     <div 
                       class={`${styles.tableRow} ${isSelected ? styles.selected : ''}`}
+                      style={{ 
+                        'grid-template-columns': `${columnWidths().selection}px ${visibleColumns().map((id, index) => {
+                          if (index === visibleColumns().length - 1) return '1fr';
+                          const width = columnWidths()[id];
+                          return `${width}px`;
+                        }).join(' ')}`
+                      }}
                       onClick={() => handleDeviceToggle(device)}
                     >
                       <div class={styles.tableCell}>

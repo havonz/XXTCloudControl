@@ -687,6 +687,8 @@
   min-height: 24px;
   border-right: 1px solid var(--border);
   font-size: 0.8rem;
+  position: relative; /* Add this for resize handle positioning */
+  user-select: none; /* Prevent text selection while resizing */
 }
 
 .headerCell:last-child {
@@ -696,11 +698,28 @@
 
 .tableRow {
   display: grid;
-  grid-template-columns: 60px 160px 200px 140px 80px 80px 100px 2fr;
+  /* grid-template-columns is set inline */
   border-bottom: 1px solid var(--border);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease;
   min-height: 28px;
+}
+
+.resizeHandle {
+  position: absolute;
+  right: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background 0.2s ease;
+}
+
+.resizeHandle:hover,
+.resizeHandleActive {
+  background: var(--primary);
+  opacity: 0.5;
 }
 
 .tableRow:hover {
