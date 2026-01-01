@@ -13,6 +13,7 @@ import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
 import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
 import ScriptConfigModal from './ScriptConfigModal';
+import { authFetch } from '../services/httpAuth';
 
 
 interface DeviceListProps {
@@ -204,7 +205,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // Load saved script from backend on mount
   const loadSavedScript = async () => {
     try {
-      const response = await fetch('/api/app-settings/selected-script');
+      const response = await authFetch('/api/app-settings/selected-script');
       if (response.ok) {
         const data = await response.json();
         if (data.selectedScript) {
@@ -219,7 +220,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // Save selected script to backend
   const saveSelectedScript = async (scriptName: string) => {
     try {
-      await fetch('/api/app-settings/selected-script', {
+      await authFetch('/api/app-settings/selected-script', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selectedScript: scriptName })
@@ -242,7 +243,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     setIsLoadingScripts(true);
     try {
       const serverUrl = window.location.origin;
-      const response = await fetch(`${serverUrl}/api/scripts/selectable`);
+      const response = await authFetch(`${serverUrl}/api/scripts/selectable`);
       const data = await response.json();
       
       if (data.scripts) {
@@ -278,7 +279,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           }
           
           try {
-            const response = await fetch('/api/scripts/send-and-start', {
+            const response = await authFetch('/api/scripts/send-and-start', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -314,7 +315,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           return;
         }
         
-        const response = await fetch('/api/scripts/send-and-start', {
+        const response = await authFetch('/api/scripts/send-and-start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

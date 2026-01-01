@@ -20,6 +20,7 @@ import {
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
 import styles from './ServerFileBrowser.module.css';
+import { authFetch, appendAuthQuery } from '../services/httpAuth';
 
 export interface ServerFileItem {
   name: string;
@@ -45,10 +46,22 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [isUploading, setIsUploading] = createSignal(false);
   const [showHidden, setShowHidden] = createSignal(false);
   const [isLocal, setIsLocal] = createSignal(false);
-  
+
+  const loadConfig = async () => {
+    try {
+      const response = await authFetch(`${props.serverBaseUrl}/api/config?format=json`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setIsLocal(!!data?.ui?.isLocal);
+    } catch {
+      setIsLocal(false);
+    }
+  };
+
   createEffect(() => {
     if (props.isOpen) {
-      setIsLocal(!!(window as any).XXTConfig?.ui?.isLocal);
+      setIsLocal(false);
+      loadConfig();
     }
   });
   
@@ -77,7 +90,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         path: currentPath()
       });
       
-      const response = await fetch(`${props.serverBaseUrl}/api/server-files/list?${params}`);
+      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/list?${params}`);
       const data = await response.json();
       
       if (data.error) {
@@ -183,7 +196,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   const handleDownload = (file: ServerFileItem) => {
     const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
-    const url = `${props.serverBaseUrl}/api/server-files/download/${currentCategory()}/${filePath}`;
+    const url = appendAuthQuery(
+      `${props.serverBaseUrl}/api/server-files/download/${currentCategory()}/${filePath}`
+    );
     window.open(url, '_blank');
   };
 
@@ -193,7 +208,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     
     try {
       const params = new URLSearchParams({ category: currentCategory(), path: filePath });
-      const response = await fetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
+      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
       const data = await response.json();
       if (data.error) await dialog.alert('删除失败: ' + data.error);
       else loadFiles();
@@ -211,7 +226,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const filePath = currentPath() ? `${currentPath()}/${name}` : name;
       try {
         const params = new URLSearchParams({ category: currentCategory(), path: filePath });
-        await fetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
+        await authFetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
       } catch (err) {
         console.error('Delete failed:', name, err);
       }
@@ -228,7 +243,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     if (!name?.trim()) return;
     
     try {
-      const response = await fetch(`${props.serverBaseUrl}/api/server-files/create`, {
+      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category: currentCategory(), path: currentPath(), name: name.trim(), type })
@@ -247,7 +262,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     if (!newName?.trim() || newName.trim() === file.name) return;
     
     try {
-      const response = await fetch(`${props.serverBaseUrl}/api/server-files/rename`, {
+      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/rename`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category: currentCategory(), path: currentPath(), oldName: file.name, newName: newName.trim() })
@@ -265,7 +280,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
     try {
       const params = new URLSearchParams({ category: currentCategory(), path: filePath });
-      const response = await fetch(`${props.serverBaseUrl}/api/server-files/read?${params}`);
+      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/read?${params}`);
       const data = await response.json();
       if (data.error) { await dialog.alert('读取失败: ' + data.error); return; }
       setEditorFileName(file.name);
@@ -280,7 +295,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     const filePath = currentPath() ? `${currentPath()}/${editorFileName()}` : editorFileName();
     setEditorSaving(true);
     try {
-      const response = await fetch(`${props.serverBaseUrl}/api/server-files/save`, {
+      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category: currentCategory(), path: filePath, content: editorContent() })
@@ -298,7 +313,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   // 图片预览
   const handlePreviewImage = (file: ServerFileItem) => {
     const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
-    const url = `${props.serverBaseUrl}/api/server-files/download/${currentCategory()}/${filePath}`;
+    const url = appendAuthQuery(
+      `${props.serverBaseUrl}/api/server-files/download/${currentCategory()}/${filePath}`
+    );
     setPreviewImageUrl(url);
     setShowImagePreview(true);
   };
@@ -316,7 +333,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   const handleOpenLocal = async () => {
     try {
-      const response = await fetch(`${props.serverBaseUrl}/api/server-files/open-local`, {
+      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/open-local`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category: currentCategory(), path: currentPath() })
@@ -336,7 +353,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         formData.append('file', file);
         formData.append('category', currentCategory());
         formData.append('path', currentPath());
-        const response = await fetch(`${props.serverBaseUrl}/api/server-files/upload`, { method: 'POST', body: formData });
+        const response = await authFetch(`${props.serverBaseUrl}/api/server-files/upload`, { method: 'POST', body: formData });
         const data = await response.json();
         if (data.error) await dialog.alert(`上传 ${file.name} 失败: ` + data.error);
       }

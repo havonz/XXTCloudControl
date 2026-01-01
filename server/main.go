@@ -218,23 +218,75 @@ func init() {
 	stopTicker = make(chan bool)
 }
 
-// 验证数据有效性
-func isDataValid(data Message) bool {
-	if data.TS == 0 || data.Sign == "" {
+func isSignatureValid(timestamp int64, sign string) bool {
+	if timestamp == 0 || sign == "" {
 		return false
 	}
 
 	currentTime := time.Now().Unix()
-	if data.TS < currentTime-10 || data.TS > currentTime+10 {
+	if timestamp < currentTime-10 || timestamp > currentTime+10 {
 		return false
 	}
 
-	// 计算签名 sign = hmacSHA256(passhash, 秒级时间戳转换成字符串)
 	h := hmac.New(sha256.New, passhash)
-	h.Write([]byte(strconv.FormatInt(data.TS, 10)))
+	h.Write([]byte(strconv.FormatInt(timestamp, 10)))
 	expectedSign := hex.EncodeToString(h.Sum(nil))
 
-	return expectedSign == data.Sign
+	return hmac.Equal([]byte(expectedSign), []byte(sign))
+}
+
+// 验证数据有效性
+func isDataValid(data Message) bool {
+	return isSignatureValid(data.TS, data.Sign)
+}
+
+func getRequestSignature(c *gin.Context) (int64, string, error) {
+	ts := c.GetHeader("X-XXT-TS")
+	sign := c.GetHeader("X-XXT-Sign")
+	if ts == "" || sign == "" {
+		ts = c.Query("ts")
+		sign = c.Query("sign")
+	}
+	if ts == "" || sign == "" {
+		return 0, "", fmt.Errorf("missing signature")
+	}
+	parsedTS, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid timestamp")
+	}
+	return parsedTS, sign, nil
+}
+
+func isRequestAuthorized(c *gin.Context) bool {
+	ts, sign, err := getRequestSignature(c)
+	if err != nil {
+		return false
+	}
+	return isSignatureValid(ts, sign)
+}
+
+func apiAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if !strings.HasPrefix(path, "/api/") {
+			c.Next()
+			return
+		}
+		if path == "/api/download-bind-script" || path == "/api/ws" {
+			c.Next()
+			return
+		}
+		if c.Request.Method == http.MethodOptions {
+			c.Next()
+			return
+		}
+		if !isRequestAuthorized(c) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }
 
 // 重置设备生命值为3
@@ -751,6 +803,7 @@ func main() {
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware())
+	r.Use(apiAuthMiddleware())
 
 	// WebSocket路由
 	r.GET("/api/ws", handleWebSocketConnection)
@@ -885,27 +938,41 @@ func isLocalRequest(c *gin.Context) bool {
 // 配置API处理函数（Gin风格）
 func configHandler(c *gin.Context) {
 	// 设置响应头
-	c.Header("Content-Type", "application/javascript")
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 
 	// 生成动态配置
-	configJS := fmt.Sprintf(`// 动态生成的配置文件
-window.XXTConfig = {
-    websocket: {
-        port: %d,
-        path: '/api/ws',
-        autoReconnect: true,
-        reconnectInterval: 3000
-    },
-    ui: {
-        screenCaptureScale: 30,
-        maxScreenshotWaitTime: 500,
-        fpsUpdateInterval: 1000,
-        isLocal: %t
-    }
-};
+	config := gin.H{
+		"websocket": gin.H{
+			"port":              serverConfig.Port,
+			"path":              "/api/ws",
+			"autoReconnect":     true,
+			"reconnectInterval": 3000,
+		},
+		"ui": gin.H{
+			"screenCaptureScale":    30,
+			"maxScreenshotWaitTime": 500,
+			"fpsUpdateInterval":     1000,
+			"isLocal":               isLocalRequest(c),
+		},
+	}
 
-console.log('统一服务器配置已加载 (端口: %d):', window.XXTConfig);`, serverConfig.Port, isLocalRequest(c), serverConfig.Port)
+	if c.Query("format") == "json" || strings.Contains(c.GetHeader("Accept"), "application/json") {
+		c.JSON(http.StatusOK, config)
+		return
+	}
+
+	c.Header("Content-Type", "application/javascript")
+
+	configBytes, err := json.Marshal(config)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build config"})
+		return
+	}
+
+	configJS := fmt.Sprintf(`// 动态生成的配置文件
+window.XXTConfig = %s;
+
+console.log('统一服务器配置已加载 (端口: %d):', window.XXTConfig);`, string(configBytes), serverConfig.Port)
 
 	c.String(http.StatusOK, configJS)
 }
@@ -982,7 +1049,7 @@ func corsMiddleware() gin.HandlerFunc {
 		// 设置CORS头
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-XXT-TS, X-XXT-Sign")
 
 		// 处理预检请求
 		if c.Request.Method == "OPTIONS" {

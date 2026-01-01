@@ -1,5 +1,6 @@
 import { createSignal } from 'solid-js';
 import { MainJson, ConfigItem, ScriptInfo } from '../utils/scriptConfig';
+import { authFetch } from '../services/httpAuth';
 
 export type ConfigContext = {
   kind: 'global';
@@ -22,7 +23,7 @@ export function useScriptConfigManager() {
   const openGlobalConfig = async (scriptName: string) => {
     try {
       // 1. Get main.json structure and current global config
-      const response = await fetch(`/api/scripts/config?name=${encodeURIComponent(scriptName)}`);
+      const response = await authFetch(`/api/scripts/config?name=${encodeURIComponent(scriptName)}`);
       if (!response.ok) throw new Error('Failed to load config');
       const mainJson: MainJson = await response.json();
 
@@ -41,12 +42,12 @@ export function useScriptConfigManager() {
   const openGroupConfig = async (groupId: string, groupName: string, scriptPath: string) => {
     try {
       // 1. Get main.json structure (script defaults)
-      const scriptResp = await fetch(`/api/scripts/config?name=${encodeURIComponent(scriptPath)}`);
+      const scriptResp = await authFetch(`/api/scripts/config?name=${encodeURIComponent(scriptPath)}`);
       if (!scriptResp.ok) throw new Error('Failed to load script structure');
       const mainJson: MainJson = await scriptResp.json();
 
       // 2. Get group-specific overrides
-      const groupResp = await fetch(`/api/groups/${groupId}/script-config?script=${encodeURIComponent(scriptPath)}`);
+      const groupResp = await authFetch(`/api/groups/${groupId}/script-config?script=${encodeURIComponent(scriptPath)}`);
       const groupConfig = groupResp.ok ? await groupResp.json() : {};
 
       setUiItems(mainJson.UI || []);
@@ -68,14 +69,14 @@ export function useScriptConfigManager() {
 
     try {
       if (ctx.kind === 'global') {
-        const response = await fetch('/api/scripts/config', {
+        const response = await authFetch('/api/scripts/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: ctx.scriptName, config: values })
         });
         if (!response.ok) throw new Error('Save failed');
       } else {
-        const response = await fetch(`/api/groups/${ctx.groupId}/script-config`, {
+        const response = await authFetch(`/api/groups/${ctx.groupId}/script-config`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scriptPath: ctx.scriptPath, config: values })
@@ -91,7 +92,7 @@ export function useScriptConfigManager() {
 
   const checkConfigurable = async (scriptName: string): Promise<boolean> => {
     try {
-      const response = await fetch(`/api/scripts/config-status?name=${encodeURIComponent(scriptName)}`);
+      const response = await authFetch(`/api/scripts/config-status?name=${encodeURIComponent(scriptName)}`);
       if (!response.ok) return false;
       const data = await response.json();
       return !!data.configurable;

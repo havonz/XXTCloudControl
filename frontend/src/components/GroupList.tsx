@@ -5,6 +5,7 @@ import styles from './GroupList.module.css';
 import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
 import { useGroupReorder } from '../hooks/useGroupReorder';
 import ScriptConfigModal from './ScriptConfigModal';
+import { authFetch } from '../services/httpAuth';
 
 interface GroupListProps {
   groupStore: GroupStoreState;
@@ -76,7 +77,7 @@ const GroupList: Component<GroupListProps> = (props) => {
 
   const fetchSelectableScripts = async () => {
     try {
-      const response = await fetch('/api/scripts/selectable');
+      const response = await authFetch('/api/scripts/selectable');
       const data = await response.json();
       return data.scripts || [];
     } catch (error) {

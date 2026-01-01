@@ -82,8 +82,9 @@ const App: Component = () => {
         setIsConnecting(false);
         
         if (success) {
+          // 先写入 AuthService，避免依赖 isAuthenticated 的 effect 先触发导致 HTTP 请求缺少签名
+          authService.setAuthenticated(true, { ...credentials, password: actualPassword });
           setIsAuthenticated(true);
-          authService.setAuthenticated(true, credentials);
           setLoginError('');
           
           // 设置服务器信息用于设备绑定
@@ -107,6 +108,7 @@ const App: Component = () => {
           }
         } else {
           setIsAuthenticated(false);
+          authService.setAuthenticated(false);
           setLoginError(error || '登录失败');
           if (wsService) {
             wsService.disconnect();

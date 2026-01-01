@@ -1,9 +1,10 @@
 import { createSignal, createMemo, Accessor, Setter } from 'solid-js';
 import type { GroupInfo } from '../types';
+import { authFetch } from './httpAuth';
 
 // API functions for group operations
 const api = async (url: string, options?: RequestInit) => {
-  const response = await fetch(url, {
+  const response = await authFetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
