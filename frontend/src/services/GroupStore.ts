@@ -50,7 +50,17 @@ export interface GroupStoreState {
   getPreferredGroupScript: () => { scriptPath: string; groupId: string } | null;
   // 返回需要选中的设备ID列表
   getDevicesForCheckedGroups: () => Set<string>;
+  // 获取按分组分配的设备列表（用于分组启动）
+  getGroupedDevicesForLaunch: (selectedDeviceIds: string[]) => GroupLaunchInfo[];
 }
+
+// 分组启动信息
+export type GroupLaunchInfo = {
+  groupId: string;
+  groupName: string;
+  scriptPath: string | undefined;
+  deviceIds: string[];
+};
 
 export function createGroupStore(): GroupStoreState {
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
@@ -116,6 +126,48 @@ export function createGroupStore(): GroupStoreState {
       }
     }
     return null;
+  };
+
+  // 获取按分组分配的设备列表（用于分组启动）
+  // 规则：
+  // 1. 如果选中“所有设备”，返回空数组（使用全局配置）
+  // 2. 按分组 sortOrder 排序，每个设备只分配给第一个包含它的被选中分组
+  // 3. 返回每个分组及其分配到的设备列表
+  const getGroupedDevicesForLaunch = (selectedDeviceIds: string[]): GroupLaunchInfo[] => {
+    const checked = checkedGroups();
+    if (checked.has('__all__')) return []; // 使用全局配置
+    
+    const selectedSet = new Set(selectedDeviceIds);
+    const assignedDevices = new Set<string>(); // 跟踪已分配设备
+    const result: GroupLaunchInfo[] = [];
+    
+    // 分组已按 sortOrder 排序
+    const groupList = groups();
+    
+    for (const group of groupList) {
+      if (!checked.has(group.id)) continue;
+      
+      // 收集属于该分组且未被分配的设备
+      const groupDevices: string[] = [];
+      for (const deviceId of group.deviceIds || []) {
+        if (deviceId && selectedSet.has(deviceId) && !assignedDevices.has(deviceId)) {
+          groupDevices.push(deviceId);
+          assignedDevices.add(deviceId);
+        }
+      }
+      
+      // 只有有设备成员才加入结果
+      if (groupDevices.length > 0) {
+        result.push({
+          groupId: group.id,
+          groupName: group.name,
+          scriptPath: group.scriptPath?.trim() || undefined,
+          deviceIds: groupDevices
+        });
+      }
+    }
+    
+    return result;
   };
 
   // Load groups from server
@@ -334,5 +386,6 @@ export function createGroupStore(): GroupStoreState {
     reorderGroups,
     getPreferredGroupScript,
     getDevicesForCheckedGroups,
+    getGroupedDevicesForLaunch,
   };
 }

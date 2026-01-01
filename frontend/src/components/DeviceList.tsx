@@ -34,6 +34,7 @@ interface DeviceListProps {
   serverPort: string;
   checkedGroups?: Accessor<Set<string>>; // 选中的分组ID列表
   getPreferredGroupScript?: () => { scriptPath: string; groupId: string } | null; // 获取分组绑定脚本
+  getGroupedDevicesForLaunch?: (selectedDeviceIds: string[]) => Array<{ groupId: string; groupName: string; scriptPath: string | undefined; deviceIds: string[] }>; // 获取按分组分配的设备列表
   sidebar?: JSX.Element;
 }
 
@@ -164,32 +165,81 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   };
 
   const handleSendAndStartScript = async () => {
-    // 如果选中了分组且分组有绑定脚本，优先使用分组绑定的脚本
-    const preferredScript = props.getPreferredGroupScript?.();
-    const effectiveScriptName = preferredScript?.scriptPath || serverScriptName();
-    
-    if (!effectiveScriptName || props.selectedDevices().length === 0) return;
+    if (props.selectedDevices().length === 0) return;
     
     setIsSendingScript(true);
     try {
-      const response = await fetch('/api/scripts/send-and-start', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          devices: props.selectedDevices().map((d: Device) => d.udid),
-          name: effectiveScriptName,
-          selectedGroups: props.checkedGroups ? Array.from(props.checkedGroups()) : ['__all__'],
-        }),
-      });
+      // 获取按分组分配的设备列表
+      const selectedDeviceIds = props.selectedDevices().map((d: Device) => d.udid);
+      const groupedDevices = props.getGroupedDevicesForLaunch?.(selectedDeviceIds) || [];
       
-      const result = await response.json();
-      if (result.success) {
-        showToastMessage('脚本已发送并启动');
+      if (groupedDevices.length > 0) {
+        // 按分组分批发送
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const group of groupedDevices) {
+          // 使用分组绑定的脚本，如果没有则使用全局选择的脚本
+          const scriptToRun = group.scriptPath || serverScriptName();
+          if (!scriptToRun) {
+            console.warn(`分组 ${group.groupName} 没有绑定脚本且未选择全局脚本，跳过`);
+            continue;
+          }
+          
+          try {
+            const response = await fetch('/api/scripts/send-and-start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                devices: group.deviceIds,
+                name: scriptToRun,
+                selectedGroups: [group.groupId],
+              }),
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+              successCount += group.deviceIds.length;
+            } else {
+              failCount += group.deviceIds.length;
+              console.error(`分组 ${group.groupName} 发送失败:`, result.error);
+            }
+          } catch (error) {
+            failCount += group.deviceIds.length;
+            console.error(`分组 ${group.groupName} 发送错误:`, error);
+          }
+        }
+        
+        if (failCount === 0) {
+          showToastMessage(`脚本已发送并启动 (${successCount} 台设备)`);
+        } else {
+          showToastMessage(`部分成功: ${successCount} 成功, ${failCount} 失败`);
+        }
       } else {
-        console.error('发送脚本失败:', result.error);
-        showToastMessage('发送脚本失败: ' + (result.error || '未知错误'));
+        // 没有分组（选中“所有设备”），使用全局配置
+        const effectiveScriptName = serverScriptName();
+        if (!effectiveScriptName) {
+          showToastMessage('请先选择脚本');
+          return;
+        }
+        
+        const response = await fetch('/api/scripts/send-and-start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            devices: selectedDeviceIds,
+            name: effectiveScriptName,
+            selectedGroups: ['__all__'],
+          }),
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+          showToastMessage('脚本已发送并启动');
+        } else {
+          console.error('发送脚本失败:', result.error);
+          showToastMessage('发送脚本失败: ' + (result.error || '未知错误'));
+        }
       }
     } catch (error) {
       console.error('发送脚本错误:', error);

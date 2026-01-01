@@ -472,6 +472,7 @@ const App: Component = () => {
               serverPort={serverPort()}
               checkedGroups={groupStore.checkedGroups}
               getPreferredGroupScript={groupStore.getPreferredGroupScript}
+              getGroupedDevicesForLaunch={groupStore.getGroupedDevicesForLaunch}
               sidebar={
                 <GroupList
                   groupStore={groupStore}
