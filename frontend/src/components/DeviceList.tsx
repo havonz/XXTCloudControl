@@ -1,4 +1,4 @@
-import { Component, createSignal, For, Accessor, Show, createEffect, createMemo, JSX, onMount } from 'solid-js';
+import { Component, createSignal, For, Accessor, Show, createEffect, createMemo, JSX, onMount, onCleanup } from 'solid-js';
 import { Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { useDialog } from './DialogContext';
@@ -62,6 +62,33 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   // More actions menu state
   const [showMoreActions, setShowMoreActions] = createSignal(false);
+  
+  // Refs for click-outside detection
+  let moreActionsRef: HTMLDivElement | undefined;
+  let columnSettingsRef: HTMLDivElement | undefined;
+  
+  // Click-outside handler to close dropdown menus
+  const handleClickOutside = (e: MouseEvent) => {
+    const target = e.target as Node;
+    
+    // Close "更多操作" menu if clicking outside
+    if (showMoreActions() && moreActionsRef && !moreActionsRef.contains(target)) {
+      setShowMoreActions(false);
+    }
+    
+    // Close "表头设置" menu if clicking outside
+    if (showColumnSettings() && columnSettingsRef && !columnSettingsRef.contains(target)) {
+      setShowColumnSettings(false);
+    }
+  };
+  
+  onMount(() => {
+    document.addEventListener('click', handleClickOutside);
+  });
+  
+  onCleanup(() => {
+    document.removeEventListener('click', handleClickOutside);
+  });
   
 
   
@@ -760,7 +787,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             脚本选择
           </button>
           
-          <div class={styles.moreActionsContainer}>
+          <div class={styles.moreActionsContainer} ref={moreActionsRef}>
             <button 
               class={styles.toolbarActionButton}
               onClick={() => setShowMoreActions(!showMoreActions())}
@@ -824,7 +851,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           {/* Management Toolbar moved here */}
           <div class={styles.managementToolbar}>
             <div class={styles.toolbarLeft}>
-              <div class={styles.columnSettingsContainer}>
+              <div class={styles.columnSettingsContainer} ref={columnSettingsRef}>
                 <button 
                   class={styles.toolbarButton}
                   onClick={() => setShowColumnSettings(!showColumnSettings())}
