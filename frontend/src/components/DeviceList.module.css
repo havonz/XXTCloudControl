@@ -728,7 +728,7 @@
 
 .tableRow.selected {
   background: var(--selected-bg);
-  border-color: #4CAF50;
+  border-color: var(--border);
 }
 
 .tableRow:last-child {

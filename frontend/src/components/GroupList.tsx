@@ -1,5 +1,6 @@
 import { Component, For, Show, createSignal } from 'solid-js';
 import { GroupStoreState } from '../services/GroupStore';
+import { Device } from '../services/WebSocketService';
 import { useDialog } from './DialogContext';
 import styles from './GroupList.module.css';
 import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
@@ -10,6 +11,7 @@ import { authFetch } from '../services/httpAuth';
 interface GroupListProps {
   groupStore: GroupStoreState;
   deviceCount: number;
+  allDevices?: Device[];
   onOpenNewGroupModal: () => void;
   onOpenAddToGroupModal: () => void;
   selectedDeviceCount: number;
@@ -31,10 +33,18 @@ const GroupList: Component<GroupListProps> = (props) => {
 
   // 包装 toggleGroupChecked，加上设备选中同步
   const handleToggleGroup = (groupId: string) => {
+    const isMultiSelect = props.groupStore.groupMultiSelect();
     props.groupStore.toggleGroupChecked(groupId);
+    
     // 分组选中后，通知父组件更新设备选中
     if (props.onDeviceSelectionChange) {
-      const devices = props.groupStore.getDevicesForCheckedGroups();
+      // In multi-select mode, toggling "所有设备" doesn't affect device selection
+      if (isMultiSelect && groupId === '__all__') {
+        return; // Skip device selection update
+      }
+      
+      const allDeviceIds = props.allDevices?.map(d => d.udid) || [];
+      const devices = props.groupStore.getDevicesForCheckedGroups(allDeviceIds);
       props.onDeviceSelectionChange(devices);
     }
   };

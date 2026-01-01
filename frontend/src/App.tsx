@@ -445,10 +445,11 @@ const App: Component = () => {
     }
   };
 
-  // Load groups when authenticated
+  // Load groups and group settings when authenticated
   createEffect(() => {
     if (isAuthenticated()) {
       groupStore.loadGroups();
+      groupStore.loadGroupSettings();
     }
   });
 
@@ -509,6 +510,7 @@ const App: Component = () => {
                 <GroupList
                   groupStore={groupStore}
                   deviceCount={devices().length}
+                  allDevices={devices()}
                   onOpenNewGroupModal={() => setShowNewGroupModal(true)}
                   onOpenAddToGroupModal={() => setShowAddToGroupModal(true)}
                   selectedDeviceCount={selectedDevices().length}

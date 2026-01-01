@@ -35,10 +35,11 @@ export interface GroupStoreState {
   dragOverListEnd: Accessor<boolean>;
   setDragOverListEnd: Setter<boolean>;
   groupSortLocked: Accessor<boolean>;
-  setGroupSortLocked: Setter<boolean>;
+  setGroupSortLocked: (value: boolean) => void;
   
   // Actions
   loadGroups: () => Promise<void>;
+  loadGroupSettings: () => Promise<void>;
   createGroup: (name: string) => Promise<boolean>;
   renameGroup: (groupId: string, name: string) => Promise<boolean>;
   deleteGroup: (groupId: string) => Promise<boolean>;
@@ -50,7 +51,7 @@ export interface GroupStoreState {
   // 获取选中分组的绑定脚本信息
   getPreferredGroupScript: () => { scriptPath: string; groupId: string } | null;
   // 返回需要选中的设备ID列表
-  getDevicesForCheckedGroups: () => Set<string>;
+  getDevicesForCheckedGroups: (allDeviceIds: string[]) => Set<string>;
   // 获取按分组分配的设备列表（用于分组启动）
   getGroupedDevicesForLaunch: (selectedDeviceIds: string[]) => GroupLaunchInfo[];
 }
@@ -95,19 +96,48 @@ export function createGroupStore(): GroupStoreState {
   });
 
   // Get devices that should be selected based on checked groups
-  const getDevicesForCheckedGroups = (): Set<string> => {
+  // Parameters:
+  // - allDeviceIds: list of all available device IDs
+  // - isMultiSelect: whether multi-select mode is enabled
+  // - changedGroupId: the group that was just toggled (optional, for incremental updates)
+  const getDevicesForCheckedGroups = (allDeviceIds: string[]): Set<string> => {
     const checked = checkedGroups();
-    if (checked.has('__all__')) return new Set<string>(); // Empty means "use existing selection"
-    
+    const isMultiSelect = groupMultiSelect();
     const result = new Set<string>();
-    const groupList = groups();
     
-    for (const gid of checked) {
-      if (gid === '__all__') continue;
-      const group = groupList.find(g => g.id === gid);
-      if (group?.deviceIds) {
-        for (const deviceId of group.deviceIds) {
-          if (deviceId) result.add(deviceId);
+    if (isMultiSelect) {
+      // Multi-select mode:
+      // - "所有设备" doesn't affect selection at all
+      // - Only specific groups affect selection
+      const groupList = groups();
+      
+      for (const gid of checked) {
+        if (gid === '__all__') continue; // Skip "所有设备" - it doesn't affect selection in multi-select mode
+        const group = groupList.find(g => g.id === gid);
+        if (group?.deviceIds) {
+          for (const deviceId of group.deviceIds) {
+            if (deviceId) result.add(deviceId);
+          }
+        }
+      }
+    } else {
+      // Single-select mode:
+      // - Selecting any group shows and selects ALL devices in that group
+      if (checked.has('__all__')) {
+        // "所有设备" is selected - select all devices
+        for (const id of allDeviceIds) {
+          result.add(id);
+        }
+      } else {
+        // A specific group is selected - select all its devices
+        const groupList = groups();
+        for (const gid of checked) {
+          const group = groupList.find(g => g.id === gid);
+          if (group?.deviceIds) {
+            for (const deviceId of group.deviceIds) {
+              if (deviceId) result.add(deviceId);
+            }
+          }
         }
       }
     }
@@ -289,16 +319,9 @@ export function createGroupStore(): GroupStoreState {
       } else {
         next.add(groupId);
       }
-      // If unchecking __all__, we should keep at least one group
+      // If unchecking all groups, default to __all__
       if (next.size === 0) next.add('__all__');
-      // If checking a specific group while __all__ is checked, remove __all__
-      if (groupId !== '__all__' && next.has('__all__') && next.size > 1) {
-        next.delete('__all__');
-      }
-      // If checking __all__, clear all specific group selections
-      if (groupId === '__all__') {
-        next = new Set(['__all__']);
-      }
+      // Allow __all__ to coexist with other groups in multi-select mode
     } else {
       // Single select mode
       if (groupId === '__all__') {
@@ -327,6 +350,42 @@ export function createGroupStore(): GroupStoreState {
       } else {
         setCheckedGroups(new Set(['__all__']));
       }
+    }
+    
+    // Save to backend
+    saveGroupSettings({ groupMultiSelect: value });
+  };
+
+  const setGroupSortLockedWithSave = (value: boolean) => {
+    setGroupSortLocked(value);
+    // Save to backend
+    saveGroupSettings({ groupSortLocked: value });
+  };
+
+  // Save group settings to backend
+  const saveGroupSettings = async (settings: { groupMultiSelect?: boolean; groupSortLocked?: boolean }) => {
+    try {
+      await api('/api/app-settings', {
+        method: 'POST',
+        body: JSON.stringify(settings),
+      });
+    } catch (error) {
+      console.error('Failed to save group settings:', error);
+    }
+  };
+
+  // Load group settings from backend
+  const loadGroupSettings = async () => {
+    try {
+      const data = await api('/api/app-settings');
+      if (typeof data.groupMultiSelect === 'boolean') {
+        setGroupMultiSelectVal(data.groupMultiSelect);
+      }
+      if (typeof data.groupSortLocked === 'boolean') {
+        setGroupSortLocked(data.groupSortLocked);
+      }
+    } catch (error) {
+      console.error('Failed to load group settings:', error);
     }
   };
 
@@ -375,8 +434,9 @@ export function createGroupStore(): GroupStoreState {
     dragOverListEnd,
     setDragOverListEnd,
     groupSortLocked,
-    setGroupSortLocked,
+    setGroupSortLocked: setGroupSortLockedWithSave,
     loadGroups,
+    loadGroupSettings,
     createGroup,
     renameGroup,
     deleteGroup,

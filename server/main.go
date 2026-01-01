@@ -843,9 +843,9 @@ func main() {
 	r.GET("/api/scripts/config", scriptConfigGetHandler)
 	r.POST("/api/scripts/config", scriptConfigSaveHandler)
 
-	// 应用设置API
-	r.GET("/api/app-settings/selected-script", getSelectedScriptHandler)
-	r.POST("/api/app-settings/selected-script", setSelectedScriptHandler)
+	// 应用设置API（统一接口）
+	r.GET("/api/app-settings", getAppSettingsHandler)
+	r.POST("/api/app-settings", setAppSettingsHandler)
 
 	// 静态文件服务 - 使用NoRoute避免路由冲突
 	r.NoRoute(staticFileHandler)
@@ -1248,7 +1248,9 @@ var (
 
 // 应用设置结构体
 type AppSettings struct {
-	SelectedScript string `json:"selectedScript"`
+	SelectedScript   string `json:"selectedScript"`
+	GroupMultiSelect bool   `json:"groupMultiSelect"`
+	GroupSortLocked  bool   `json:"groupSortLocked"`
 }
 
 // 获取应用设置存储路径
@@ -1285,18 +1287,20 @@ func saveAppSettings() error {
 	return os.WriteFile(filePath, data, 0644)
 }
 
-// GET /api/app-settings/selected-script
-func getSelectedScriptHandler(c *gin.Context) {
+// GET /api/app-settings - 获取所有应用设置
+func getAppSettingsHandler(c *gin.Context) {
 	appSettingsMu.RLock()
 	defer appSettingsMu.RUnlock()
 
-	c.JSON(http.StatusOK, gin.H{"selectedScript": appSettings.SelectedScript})
+	c.JSON(http.StatusOK, appSettings)
 }
 
-// POST /api/app-settings/selected-script
-func setSelectedScriptHandler(c *gin.Context) {
+// POST /api/app-settings - 更新应用设置（部分更新）
+func setAppSettingsHandler(c *gin.Context) {
 	var req struct {
-		SelectedScript string `json:"selectedScript"`
+		SelectedScript   *string `json:"selectedScript"`
+		GroupMultiSelect *bool   `json:"groupMultiSelect"`
+		GroupSortLocked  *bool   `json:"groupSortLocked"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1305,7 +1309,15 @@ func setSelectedScriptHandler(c *gin.Context) {
 	}
 
 	appSettingsMu.Lock()
-	appSettings.SelectedScript = req.SelectedScript
+	if req.SelectedScript != nil {
+		appSettings.SelectedScript = *req.SelectedScript
+	}
+	if req.GroupMultiSelect != nil {
+		appSettings.GroupMultiSelect = *req.GroupMultiSelect
+	}
+	if req.GroupSortLocked != nil {
+		appSettings.GroupSortLocked = *req.GroupSortLocked
+	}
 	appSettingsMu.Unlock()
 
 	if err := saveAppSettings(); err != nil {

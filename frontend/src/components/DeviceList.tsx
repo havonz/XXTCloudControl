@@ -205,7 +205,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // Load saved script from backend on mount
   const loadSavedScript = async () => {
     try {
-      const response = await authFetch('/api/app-settings/selected-script');
+      const response = await authFetch('/api/app-settings');
       if (response.ok) {
         const data = await response.json();
         if (data.selectedScript) {
@@ -220,7 +220,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // Save selected script to backend
   const saveSelectedScript = async (scriptName: string) => {
     try {
-      await authFetch('/api/app-settings/selected-script', {
+      await authFetch('/api/app-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selectedScript: scriptName })
