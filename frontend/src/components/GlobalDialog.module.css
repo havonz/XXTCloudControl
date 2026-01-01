@@ -64,8 +64,10 @@
   transition: all 0.2s ease;
 }
 
-.input:focus {
+.input:focus,
+.input:focus-visible {
   border-color: var(--primary);
+  outline: none;
 }
 
 .footer {

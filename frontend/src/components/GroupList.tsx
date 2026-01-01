@@ -74,6 +74,17 @@ const GroupList: Component<GroupListProps> = (props) => {
     await dialog.alert('请先在设备列表中选择要移除的设备，然后使用"从分组移除"功能');
   };
 
+  const fetchSelectableScripts = async () => {
+    try {
+      const response = await fetch('/api/scripts/selectable');
+      const data = await response.json();
+      return data.scripts || [];
+    } catch (error) {
+      console.error('获取可选脚本失败:', error);
+      return [];
+    }
+  };
+
   const handleBindScript = async () => {
     const menu = contextMenu();
     if (!menu) return;
@@ -82,8 +93,20 @@ const GroupList: Component<GroupListProps> = (props) => {
     const group = props.groupStore.groups().find(g => g.id === menu.groupId);
     if (!group) return;
 
-    const scriptPath = await dialog.prompt(`为分组 "${group.name}" 绑定脚本:`, group.scriptPath || '');
-    if (scriptPath !== null) {
+    const scripts = await fetchSelectableScripts();
+    if (scripts.length === 0) {
+      await dialog.alert('服务器上没有可用的脚本，请先上传脚本。');
+      return;
+    }
+
+    const scriptPath = await dialog.select(
+      `为分组 "${group.name}" 绑定脚本:`,
+      scripts,
+      group.scriptPath || '',
+      '绑定脚本'
+    );
+
+    if (scriptPath !== null && scriptPath !== undefined) {
       await props.groupStore.bindScriptToGroup(menu.groupId, scriptPath.trim());
     }
   };

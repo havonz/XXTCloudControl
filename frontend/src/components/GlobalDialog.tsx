@@ -1,17 +1,24 @@
-import { Component, createSignal, onMount, Show } from 'solid-js';
+import { Component, createSignal, onMount, Show, For, createMemo } from 'solid-js';
+import { Select, createListCollection } from '@ark-ui/solid';
+import { Portal } from 'solid-js/web';
 import styles from './GlobalDialog.module.css';
 
 interface GlobalDialogProps {
-  type: 'alert' | 'confirm' | 'prompt';
+  type: 'alert' | 'confirm' | 'prompt' | 'select';
   title?: string;
   message: string;
   defaultValue?: string;
+  options?: string[];
   onClose: (value: any) => void;
 }
 
 export const GlobalDialog: Component<GlobalDialogProps> = (props) => {
   const [inputValue, setInputValue] = createSignal(props.defaultValue || '');
   let inputRef: HTMLInputElement | undefined;
+
+  const collection = createMemo(() => 
+    createListCollection({ items: props.options || [] })
+  );
 
   onMount(() => {
     if (props.type === 'prompt' && inputRef) {
@@ -21,7 +28,7 @@ export const GlobalDialog: Component<GlobalDialogProps> = (props) => {
   });
 
   const handleConfirm = () => {
-    if (props.type === 'prompt') {
+    if (props.type === 'prompt' || props.type === 'select') {
       props.onClose(inputValue());
     } else if (props.type === 'confirm') {
       props.onClose(true);
@@ -31,7 +38,7 @@ export const GlobalDialog: Component<GlobalDialogProps> = (props) => {
   };
 
   const handleCancel = () => {
-    if (props.type === 'prompt') {
+    if (props.type === 'prompt' || props.type === 'select') {
       props.onClose(null);
     } else if (props.type === 'confirm') {
       props.onClose(false);
@@ -64,6 +71,40 @@ export const GlobalDialog: Component<GlobalDialogProps> = (props) => {
                 onInput={(e) => setInputValue(e.currentTarget.value)}
                 autofocus
               />
+            </div>
+          </Show>
+          <Show when={props.type === 'select'}>
+            <div class={styles.inputWrapper}>
+              <Select.Root
+                collection={collection()}
+                value={inputValue() ? [inputValue()] : []}
+                onValueChange={(e) => setInputValue(e.value[0] || '')}
+              >
+                <Select.Control>
+                  <Select.Trigger class="cbx-select">
+                    <Select.ValueText placeholder="-- 请选择 --" />
+                    <span class="dropdown-arrow">▼</span>
+                  </Select.Trigger>
+                </Select.Control>
+                <Portal>
+                  <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
+                    <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
+                      <Select.ItemGroup>
+                        <For each={props.options}>
+                          {(item) => (
+                            <Select.Item item={item} class="cbx-item">
+                              <div class="cbx-item-content">
+                                <Select.ItemIndicator>✓</Select.ItemIndicator>
+                                <Select.ItemText>{item}</Select.ItemText>
+                              </div>
+                            </Select.Item>
+                          )}
+                        </For>
+                      </Select.ItemGroup>
+                    </Select.Content>
+                  </Select.Positioner>
+                </Portal>
+              </Select.Root>
             </div>
           </Show>
         </div>
