@@ -504,7 +504,7 @@ curl -L -o out.bin \
 }
 ```
 
-#### 选择脚本
+#### 选中脚本
 ```json
 {
   "ts": 1700000000,
@@ -532,7 +532,7 @@ curl -L -o out.bin \
     "devices": ["udid1", "udid2"],
     "type": "script/run",
     "body": {
-      "name": "脚本名称.lua"
+      "name": "脚本名称.lua" // 这里的 name 如果为 "" 表示启动设备端已经选中的脚本
     }
   }
 }

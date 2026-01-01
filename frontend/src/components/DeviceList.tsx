@@ -173,11 +173,18 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [selectableScripts, setSelectableScripts] = createSignal<string[]>([]);
   const [isLoadingScripts, setIsLoadingScripts] = createSignal(false);
   const [isSendingScript, setIsSendingScript] = createSignal(false);
-  const [serverScriptName, setServerScriptName] = createSignal(''); // 独立的服务器脚本选择
+  // Placeholder for device-selected script option
+  const DEVICE_SELECTED_PLACEHOLDER = '<设备端已选中>';
+  const [serverScriptName, setServerScriptName] = createSignal(DEVICE_SELECTED_PLACEHOLDER); // 默认选择设备端已选中
+  
+  // Script items for display in dropdowns
+  const selectableScriptsWithPlaceholder = createMemo(() => 
+    [DEVICE_SELECTED_PLACEHOLDER, ...selectableScripts()]
+  );
   
   // Collection for Select component (reactive)
   const selectableScriptsCollection = createMemo(() => 
-    createListCollection({ items: selectableScripts() })
+    createListCollection({ items: selectableScriptsWithPlaceholder() })
   );
 
   // Script config manager
@@ -210,6 +217,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         const data = await response.json();
         if (data.selectedScript) {
           setServerScriptName(data.selectedScript);
+        } else {
+          setServerScriptName(DEVICE_SELECTED_PLACEHOLDER);
         }
       }
     } catch (error) {
@@ -261,6 +270,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     
     setIsSendingScript(true);
     try {
+      // Helper: Convert placeholder values to actual API values
+      const resolveScriptName = (name: string | undefined): string => {
+        if (!name) return '';
+        // Match both the constant and any string containing the device-selected text
+        if (name === DEVICE_SELECTED_PLACEHOLDER || name.includes('设备端已选中')) {
+          return ''; // Empty string means device-selected mode
+        }
+        return name;
+      };
+
       // 获取按分组分配的设备列表
       const selectedDeviceIds = props.selectedDevices().map((d: Device) => d.udid);
       const groupedDevices = props.getGroupedDevicesForLaunch?.(selectedDeviceIds) || [];
@@ -272,8 +291,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         
         for (const group of groupedDevices) {
           // 使用分组绑定的脚本，如果没有则使用全局选择的脚本
-          const scriptToRun = group.scriptPath || serverScriptName();
-          if (!scriptToRun) {
+          const rawScriptName = group.scriptPath || serverScriptName();
+          const scriptToRun = resolveScriptName(rawScriptName);
+          
+          // Skip only if: no script at all (empty raw) AND global is also empty/unset
+          if (!rawScriptName && !serverScriptName()) {
             console.warn(`分组 ${group.groupName} 没有绑定脚本且未选择全局脚本，跳过`);
             continue;
           }
@@ -308,9 +330,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           showToastMessage(`部分成功: ${successCount} 成功, ${failCount} 失败`);
         }
       } else {
-        // 没有分组（选中“所有设备”），使用全局配置
-        const effectiveScriptName = serverScriptName();
-        if (!effectiveScriptName) {
+        // 没有分组（选中"所有设备"），使用全局配置
+        const effectiveScriptName = resolveScriptName(serverScriptName());
+        
+        // Only block if nothing is selected at all
+        if (effectiveScriptName === '' && serverScriptName() !== DEVICE_SELECTED_PLACEHOLDER) {
           showToastMessage('请先选择脚本');
           return;
         }
@@ -340,6 +364,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       setIsSendingScript(false);
     }
   };
+
 
   // Copy to clipboard function
   const copyToClipboard = async (text: string, type: string) => {
@@ -805,16 +830,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               <Portal>
                 <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
                   <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
-                    <Select.ItemGroup>
-                      <For each={selectableScripts()}>{(script) => (
-                        <Select.Item item={script} class="cbx-item">
-                          <div class="cbx-item-content">
-                            <Select.ItemIndicator>✓</Select.ItemIndicator>
-                            <Select.ItemText>{script}</Select.ItemText>
-                          </div>
-                        </Select.Item>
-                      )}</For>
-                    </Select.ItemGroup>
+                      <Select.ItemGroup>
+                        <For each={selectableScriptsWithPlaceholder()}>{(script) => (
+                          <Select.Item item={script} class="cbx-item">
+                            <div class="cbx-item-content">
+                              <Select.ItemIndicator>✓</Select.ItemIndicator>
+                              <Select.ItemText>{script}</Select.ItemText>
+                            </div>
+                          </Select.Item>
+                        )}</For>
+                      </Select.ItemGroup>
                     </Select.Content>
                   </Select.Positioner>
                 </Portal>
@@ -841,7 +866,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             <div class={styles.scriptActionButtons}>
               <button 
                 class={styles.toolbarActionButton}
-                disabled={!serverScriptName() || props.selectedDevices().length === 0 || isSendingScript()}
+                disabled={props.selectedDevices().length === 0 || isSendingScript()}
                 onClick={handleSendAndStartScript}
               >
                 {isSendingScript() ? '启动中...' : '启动脚本'}
@@ -861,7 +886,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             class={styles.toolbarActionButton}
             disabled={props.selectedDevices().length === 0}
           >
-            脚本选择
+            选中脚本
           </button>
           
           <div class={styles.moreActionsContainer} ref={moreActionsRef}>

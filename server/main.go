@@ -2307,8 +2307,27 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		return
 	}
 
-	if len(req.Devices) == 0 || req.Name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "devices and name are required"})
+	if len(req.Devices) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "devices are required"})
+		return
+	}
+
+	// Device-selected mode: empty name means run the script already selected on device
+	if req.Name == "" {
+		mu.Lock()
+		defer mu.Unlock()
+
+		for _, udid := range req.Devices {
+			if conn, exists := deviceLinks[udid]; exists {
+				runMsg := Message{
+					Type: "script/run",
+					Body: gin.H{"name": ""},
+				}
+				go sendMessage(conn, runMsg)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "device_selected": true})
 		return
 	}
 

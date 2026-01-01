@@ -54,14 +54,13 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
     <div class={styles.overlay} onClick={handleCancel}>
       <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div class={styles.header}>
-          <h3 class={styles.title}>选择脚本</h3>
+          <h3 class={styles.title}>批量让设备选中脚本</h3>
         </div>
-        
+
         <div class={styles.body}>
-          <p class={styles.description}>将为 {props.selectedDeviceCount} 台设备选择脚本</p>
+          <p class={styles.description}>将批量为 {props.selectedDeviceCount} 台设备选中脚本</p>
           
           <div class={styles.inputGroup}>
-            <label for="scriptName" class={styles.label}>脚本名称：</label>
             <div class={styles.inputRow}>
               <input
                 id="scriptName"
@@ -81,6 +80,7 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
               </button>
             </div>
           </div>
+          <p class={styles.description}>该操作不会将脚本传输到设备上，它仅仅是让设备选中指定名称的脚本作为主运行脚本。</p>
         </div>
         
         <div class={styles.footer}>

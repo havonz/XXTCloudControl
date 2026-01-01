@@ -104,21 +104,36 @@ const GroupList: Component<GroupListProps> = (props) => {
     const group = props.groupStore.groups().find(g => g.id === menu.groupId);
     if (!group) return;
 
-    const scripts = await fetchSelectableScripts();
-    if (scripts.length === 0) {
-      await dialog.alert('服务器上没有可用的脚本，请先上传脚本。');
-      return;
+    // Placeholder options for group binding
+    const NO_BINDING_PLACEHOLDER = '<不绑定：同全局选择>';
+    const DEVICE_SELECTED_PLACEHOLDER = '<设备端已选中>';
+    
+    const serverScripts = await fetchSelectableScripts();
+    // Prepend placeholder options
+    const scripts = [NO_BINDING_PLACEHOLDER, DEVICE_SELECTED_PLACEHOLDER, ...serverScripts];
+    
+    // Map stored value back to display value for default selection
+    let defaultValue = group.scriptPath || '';
+    if (defaultValue === '') {
+      defaultValue = NO_BINDING_PLACEHOLDER;
     }
 
-    const scriptPath = await dialog.select(
+    const selectedValue = await dialog.select(
       `为分组 "${group.name}" 绑定脚本:`,
       scripts,
-      group.scriptPath || '',
+      defaultValue,
       '绑定脚本'
     );
 
-    if (scriptPath !== null && scriptPath !== undefined) {
-      await props.groupStore.bindScriptToGroup(menu.groupId, scriptPath.trim());
+    if (selectedValue !== null && selectedValue !== undefined) {
+      // Convert placeholder to stored value
+      let scriptPath = selectedValue.trim();
+      if (scriptPath === NO_BINDING_PLACEHOLDER) {
+        scriptPath = ''; // Empty means follow global selection
+      }
+      // DEVICE_SELECTED_PLACEHOLDER stays as-is for display, backend will handle it
+      
+      await props.groupStore.bindScriptToGroup(menu.groupId, scriptPath);
     }
   };
 
@@ -265,7 +280,7 @@ const GroupList: Component<GroupListProps> = (props) => {
                   <span class={styles.groupName}>{group.name}</span>
                   <span class={styles.groupSubInfo}>{group.deviceIds?.length || 0} 台设备</span>
                   <span class={styles.groupSubInfo}>
-                    绑定脚本: {group.scriptPath || '未绑定'}
+                    绑定脚本: {group.scriptPath === '<设备端已选中>' ? '<设备端已选中>' : (group.scriptPath || '-')}
                   </span>
                 </div>
               </div>
