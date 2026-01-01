@@ -18,6 +18,7 @@ export {
   FaSolidImage as IconImage,
   FaSolidFloppyDisk as IconFloppyDisk,
   FaSolidPen as IconPen,
+  FaSolidICursor as IconICursor,
   FaSolidPlay as IconPlay,
   FaSolidPlus as IconPlus,
   FaSolidFileCirclePlus as IconFileCirclePlus,

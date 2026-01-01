@@ -396,7 +396,7 @@
 }
 
 .actionsColumn {
-  width: 100px;
+  width: 160px;
   display: flex;
   gap: 4px;
   justify-content: flex-end;
@@ -539,6 +539,129 @@
   color: #fff;
   font-size: 1rem;
   font-weight: 500;
+}
+
+/* 编辑器弹窗 */
+.editorOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.editorModal {
+  background: var(--panel);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 800px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+}
+
+.editorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 12px 12px 0 0;
+}
+
+.editorHeader h3 {
+  margin: 0;
+  font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editorTextarea {
+  flex: 1;
+  min-height: 400px;
+  margin: 1rem 1.5rem;
+  padding: 12px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.editorTextarea:focus {
+  border-color: rgba(76, 175, 80, 0.5);
+}
+
+.editorFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.cancelBtn,
+.confirmBtn {
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cancelBtn {
+  background: var(--panel-2);
+  border: 2px solid var(--border);
+  color: var(--text);
+}
+
+.cancelBtn:hover {
+  background: var(--hover-bg);
+}
+
+.cancelBtn:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
+.confirmBtn {
+  background: var(--btn-primary-bg);
+  border: 2px solid var(--primary);
+  color: var(--primary);
+}
+
+.confirmBtn:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
+.confirmBtn:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
+}
+
+.confirmBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 @media (max-width: 600px) {

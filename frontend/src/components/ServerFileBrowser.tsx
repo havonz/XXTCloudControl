@@ -13,6 +13,7 @@ import {
   IconDownload,
   IconTrash,
   IconPen,
+  IconICursor,
   IconEye,
   IconHouse,
   IconXmark,
@@ -222,7 +223,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   // 重命名
   const handleRename = async (file: ServerFileItem) => {
-    const newName = await dialog.prompt('重命名', '请输入新名称', file.name);
+    const newName = await dialog.prompt('请输入新名称', file.name, '重命名');
     if (!newName?.trim() || newName.trim() === file.name) return;
     
     try {
@@ -518,7 +519,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                       <div class={`${styles.tableCell} ${styles.actionsColumn}`}>
                         <Show when={file.type === 'file' && isTextFile(file.name)}>
                           <button class={styles.actionBtn} onClick={() => handleEditFile(file)} title="编辑">
-                            <IconPen size={14} />
+                            <IconICursor size={14} />
                           </button>
                         </Show>
                         <Show when={file.type === 'file' && isImageFile(file.name)}>

@@ -470,6 +470,61 @@ export class WebSocketService {
     }
   }
 
+  // 移动/重命名文件
+  async moveFile(deviceUdid: string, fromPath: string, toPath: string): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
+      console.error('WebSocket未连接或未认证');
+      return;
+    }
+
+    try {
+      const message = AuthService.getInstance().createControlMessage(
+        this.password,
+        'control/command',
+        {
+          devices: [deviceUdid],
+          type: 'file/move',
+          body: {
+            from: fromPath.trim(),
+            to: toPath.trim()
+          }
+        }
+      );
+      
+      this.send(message);
+
+    } catch (error) {
+      console.error('移动文件失败:', error);
+    }
+  }
+
+  // 读取文本文件内容
+  async readFile(deviceUdid: string, path: string): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
+      console.error('WebSocket未连接或未认证');
+      return;
+    }
+
+    try {
+      const message = AuthService.getInstance().createControlMessage(
+        this.password,
+        'control/command',
+        {
+          devices: [deviceUdid],
+          type: 'file/get',
+          body: {
+            path: path.trim()
+          }
+        }
+      );
+      
+      this.send(message);
+
+    } catch (error) {
+      console.error('读取文件失败:', error);
+    }
+  }
+
   // 读取剪贴板
   async readClipboard(deviceUdids: string[]): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {

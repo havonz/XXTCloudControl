@@ -252,6 +252,40 @@ go run . -set-password 12345678
 }
 ```
 
+#### 拷贝文件
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
+    "type": "file/copy",
+    "body": {
+      "from": "/scripts/xxx.lua",
+      "to": "/scripts/yyy.lua"
+    }
+  }
+}
+```
+
+#### 移动文件
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/command",
+  "body": {
+    "devices": ["udid1"],
+    "type": "file/move",
+    "body": {
+      "from": "/scripts/xxx.lua",
+      "to": "/scripts/yyy.lua"
+    }
+  }
+}
+```
+
 #### 删除文件
 ```json
 {

@@ -13,6 +13,8 @@ import {
   IconBoxesStacked,
   IconChartColumn,
   IconUpload,
+  IconPen,
+  IconICursor,
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
 import styles from './DeviceFileBrowser.module.css';
@@ -33,8 +35,11 @@ export interface DeviceFileBrowserProps {
   onCreateDirectory: (deviceUdid: string, path: string) => void;
   onUploadFile: (deviceUdid: string, path: string, file: File) => void;
   onDownloadFile: (deviceUdid: string, path: string) => void;
+  onMoveFile: (deviceUdid: string, fromPath: string, toPath: string) => void;
+  onReadFile: (deviceUdid: string, path: string) => void;
   files: FileItem[];
   isLoading: boolean;
+  fileContent?: { path: string; content: string } | null;
 }
 
 export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
@@ -46,6 +51,21 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isUploading, setIsUploading] = createSignal(false);
   let dragCounter = 0;
+
+  // 编辑器弹窗
+  const [showEditorModal, setShowEditorModal] = createSignal(false);
+  const [editorFileName, setEditorFileName] = createSignal('');
+  const [editorFilePath, setEditorFilePath] = createSignal('');
+  const [editorContent, setEditorContent] = createSignal('');
+  const [editorSaving, setEditorSaving] = createSignal(false);
+
+  // 监听文件内容更新
+  createEffect(() => {
+    const content = props.fileContent;
+    if (content && showEditorModal() && editorFilePath() === content.path) {
+      setEditorContent(content.content);
+    }
+  });
 
   // 当组件打开时，加载默认目录
   createEffect(() => {
@@ -115,6 +135,69 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       ? `/${file.name}` 
       : `${currentPath()}/${file.name}`;
     props.onDownloadFile(props.deviceUdid, fullPath);
+  };
+
+  // 判断是否为文本文件
+  const isTextFile = (name: string) => {
+    const ext = name.split('.').pop()?.toLowerCase();
+    return ['txt', 'lua', 'json', 'md', 'log', 'xml', 'html', 'css', 'js', 'ts', 'conf', 'ini', 'sh', 'py'].includes(ext || '');
+  };
+
+  // 重命名文件
+  const handleRenameFile = async (file: FileItem) => {
+    const newName = await dialog.prompt('请输入新名称', file.name, '重命名');
+    if (!newName?.trim() || newName.trim() === file.name) return;
+
+    const fromPath = currentPath() === '/' 
+      ? `/${file.name}` 
+      : `${currentPath()}/${file.name}`;
+    const toPath = currentPath() === '/' 
+      ? `/${newName.trim()}` 
+      : `${currentPath()}/${newName.trim()}`;
+
+    props.onMoveFile(props.deviceUdid, fromPath, toPath);
+
+    // 刷新文件列表
+    setTimeout(() => {
+      props.onListFiles(props.deviceUdid, currentPath());
+    }, 500);
+  };
+
+  // 编辑文件
+  const handleEditFile = (file: FileItem) => {
+    const fullPath = currentPath() === '/' 
+      ? `/${file.name}` 
+      : `${currentPath()}/${file.name}`;
+    
+    setEditorFileName(file.name);
+    setEditorFilePath(fullPath);
+    setEditorContent('加载中...');
+    setShowEditorModal(true);
+    
+    // 请求文件内容
+    props.onReadFile(props.deviceUdid, fullPath);
+  };
+
+  // 保存文件
+  const handleSaveFile = async () => {
+    const path = editorFilePath();
+    if (!path) return;
+
+    setEditorSaving(true);
+    
+    const content = editorContent();
+    
+    // 创建一个带内容的虚拟文件进行上传
+    const blob = new Blob([content], { type: 'text/plain' });
+    const file = new File([blob], editorFileName(), { type: 'text/plain' });
+    
+    props.onUploadFile(props.deviceUdid, path, file);
+    
+    setTimeout(() => {
+      setEditorSaving(false);
+      setShowEditorModal(false);
+      props.onListFiles(props.deviceUdid, currentPath());
+    }, 800);
   };
 
   const handleCreateFolder = async () => {
@@ -223,6 +306,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   };
 
   return (
+    <>
     <Show when={props.isOpen}>
       <div class={styles.overlay} onClick={props.onClose}>
         <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -421,6 +505,22 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                     </div>
                     <div class={`${styles.tableCell} ${styles.actionsColumn}`}>
                       <Show when={!isSelectMode()}>
+                        <Show when={file.type === 'file' && isTextFile(file.name)}>
+                          <button 
+                            class={styles.actionBtn}
+                            onClick={() => handleEditFile(file)}
+                            title="编辑"
+                          >
+                            <IconICursor size={14} />
+                          </button>
+                        </Show>
+                        <button 
+                          class={styles.actionBtn}
+                          onClick={() => handleRenameFile(file)}
+                          title="重命名"
+                        >
+                          <IconPen size={14} />
+                        </button>
                         <Show when={file.type === 'file'}>
                           <button 
                             class={styles.actionBtn}
@@ -451,5 +551,31 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
         </div>
       </div>
     </Show>
+
+    {/* 编辑器弹窗 */}
+    <Show when={showEditorModal()}>
+      <div class={styles.editorOverlay} onClick={() => setShowEditorModal(false)}>
+        <div class={styles.editorModal} onClick={(e) => e.stopPropagation()}>
+          <div class={styles.editorHeader}>
+            <h3>编辑: {editorFileName()}</h3>
+            <button class={styles.closeButton} onClick={() => setShowEditorModal(false)}>
+              <IconXmark size={16} />
+            </button>
+          </div>
+          <textarea 
+            class={styles.editorTextarea} 
+            value={editorContent()} 
+            onInput={(e) => setEditorContent(e.currentTarget.value)} 
+          />
+          <div class={styles.editorFooter}>
+            <button class={styles.cancelBtn} onClick={() => setShowEditorModal(false)}>取消</button>
+            <button class={styles.confirmBtn} onClick={handleSaveFile} disabled={editorSaving()}>
+              {editorSaving() ? '保存中...' : '保存'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Show>
+    </>
   );
 }

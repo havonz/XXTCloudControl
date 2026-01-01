@@ -31,6 +31,8 @@ const App: Component = () => {
   const [fileList, setFileList] = createSignal<any[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = createSignal(false);
   const [pendingDownload, setPendingDownload] = createSignal<{fileName: string, deviceUdid: string} | null>(null);
+  const [pendingReadFile, setPendingReadFile] = createSignal<{path: string, deviceUdid: string} | null>(null);
+  const [fileContent, setFileContent] = createSignal<{path: string, content: string} | null>(null);
   
   // Group management state
   const groupStore = createGroupStore();
@@ -142,14 +144,28 @@ const App: Component = () => {
         } else if (message.type === 'file/get') {
 
           if (message.error) {
-            console.error('文件下载失败:', message.error);
-            setPendingDownload(null); // 清除待下载信息
-          } else if (message.body && typeof message.body === 'string' && pendingDownload()) {
-            // 使用保存的文件名和后端返回的Base64数据
+            console.error('文件操作失败:', message.error);
+            setPendingDownload(null);
+            setPendingReadFile(null);
+          } else if (message.body && typeof message.body === 'string') {
+            // 检查是否是读取操作（编辑）
+            const readInfo = pendingReadFile();
+            if (readInfo && message.udid === readInfo.deviceUdid) {
+              // 解码 Base64 内容
+              try {
+                const decodedContent = decodeURIComponent(escape(atob(message.body)));
+                setFileContent({ path: readInfo.path, content: decodedContent });
+              } catch (e) {
+                // 如果解码失败，直接使用原始内容
+                setFileContent({ path: readInfo.path, content: atob(message.body) });
+              }
+              setPendingReadFile(null);
+            }
+            // 检查是否是下载操作
             const downloadInfo = pendingDownload();
             if (downloadInfo && message.udid === downloadInfo.deviceUdid) {
               handleFileDownload(downloadInfo.fileName, message.body);
-              setPendingDownload(null); // 清除待下载信息
+              setPendingDownload(null);
             }
           }
         } else if (message.type === 'pasteboard/read') {
@@ -413,6 +429,19 @@ const App: Component = () => {
     }
   };
 
+  const handleMoveFile = (deviceUdid: string, fromPath: string, toPath: string) => {
+    if (wsService) {
+      wsService.moveFile(deviceUdid, fromPath, toPath);
+    }
+  };
+
+  const handleReadFile = (deviceUdid: string, path: string) => {
+    if (wsService) {
+      setPendingReadFile({ path, deviceUdid });
+      wsService.readFile(deviceUdid, path);
+    }
+  };
+
   // Load groups when authenticated
   createEffect(() => {
     if (isAuthenticated()) {
@@ -518,8 +547,11 @@ const App: Component = () => {
         onCreateDirectory={handleCreateDirectory}
         onUploadFile={handleUploadSingleFile}
         onDownloadFile={handleDownloadFile}
+        onMoveFile={handleMoveFile}
+        onReadFile={handleReadFile}
         files={fileList()}
         isLoading={isLoadingFiles()}
+        fileContent={fileContent()}
       />
     </div>
   );
