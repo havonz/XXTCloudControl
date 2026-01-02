@@ -1024,7 +1024,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             </Show>
             <Show when={!props.isLoading && filteredDevices().length === 0}>
               <div class={styles.emptyState}>
-                <p>该分组暂无设备</p>
+                <p>该分组暂无已连接设备</p>
               </div>
             </Show>
             <Show when={filteredDevices().length > 0}>
