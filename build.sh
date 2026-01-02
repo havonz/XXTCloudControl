@@ -75,7 +75,7 @@ for platform in "${platforms[@]}"; do
 
     # 编译WebSocket服务器（注入构建信息）
     echo "  - Building WebSocket server..."
-    if (cd "$SERVER_DIR" && env GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "$LDFLAGS" -o "$BUILD_DIR/$websocket_output" main.go); then
+    if (cd "$SERVER_DIR" && env GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "$LDFLAGS" -o "$BUILD_DIR/$websocket_output" .); then
         echo "  Successfully built for $GOOS/$GOARCH"
         built_outputs+=("$BUILD_DIR/$websocket_output")
     else
@@ -91,8 +91,8 @@ fi
 
 echo "Packaging frontend + backend..."
 PACKAGE_DIR="$BUILD_DIR/.package"
-PACKAGE_ROOT="$PACKAGE_DIR/xxtcloudcontrol"
-ZIP_NAME="xxtcloudcontrol-$BUILD_TIME.zip"
+PACKAGE_ROOT="$PACKAGE_DIR/XXTCloudControl"
+ZIP_NAME="XXTCloudControl-$BUILD_TIME.zip"
 ZIP_PATH="$BUILD_DIR/$ZIP_NAME"
 
 rm -rf "$PACKAGE_DIR"
@@ -104,7 +104,7 @@ for output in "${built_outputs[@]}"; do
     cp "$output" "$PACKAGE_ROOT/"
 done
 
-(cd "$PACKAGE_DIR" && zip -r "$ZIP_PATH" "xxtcloudcontrol" >/dev/null)
+(cd "$PACKAGE_DIR" && zip -r "$ZIP_PATH" "XXTCloudControl" >/dev/null)
 rm -rf "$PACKAGE_DIR"
 
 echo "Build completed!"
