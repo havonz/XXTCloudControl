@@ -190,7 +190,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			return
 		}
 		filesToSend = append(filesToSend, FileData{
-			Path: filepath.Join("lua", "scripts", req.Name),
+			Path: "lua/scripts/" + req.Name,
 			Data: base64.StdEncoding.EncodeToString(content),
 		})
 	} else if isPiled {
@@ -204,7 +204,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				return err
 			}
 			filesToSend = append(filesToSend, FileData{
-				Path: relPath,
+				Path: strings.ReplaceAll(relPath, "\\", "/"),
 				Data: base64.StdEncoding.EncodeToString(content),
 			})
 			return nil
@@ -224,7 +224,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				return err
 			}
 			filesToSend = append(filesToSend, FileData{
-				Path: filepath.Join("lua", "scripts", req.Name, relPath),
+				Path: "lua/scripts/" + req.Name + "/" + strings.ReplaceAll(relPath, "\\", "/"),
 				Data: base64.StdEncoding.EncodeToString(content),
 			})
 			return nil
