@@ -279,9 +279,14 @@ func handleDisconnection(conn *SafeConn) {
 	if udid, exists := deviceLinksMap[conn]; exists {
 		fmt.Printf("Device %s disconnected\n", udid)
 
+		delete(deviceLinksMap, conn)
+
+		if currentConn, ok := deviceLinks[udid]; ok && currentConn != conn {
+			return
+		}
+
 		delete(deviceTable, udid)
 		delete(deviceLinks, udid)
-		delete(deviceLinksMap, conn)
 		delete(deviceLife, udid)
 
 		if len(controllers) > 0 {
