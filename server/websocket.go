@@ -227,6 +227,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 		deviceLinks[udid] = conn
 		deviceLinksMap[conn] = udid
 		deviceTable[udid] = data.Body
+		deviceLife[udid] = DefaultDeviceLife
 
 		if len(controllers) > 0 {
 			data.UDID = udid
