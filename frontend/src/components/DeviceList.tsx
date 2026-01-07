@@ -1,5 +1,5 @@
 import { Component, createSignal, For, Accessor, Show, createEffect, createMemo, JSX, onMount, onCleanup } from 'solid-js';
-import { Device } from '../services/AuthService';
+import { AuthService, Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { useDialog } from './DialogContext';
 import RealTimeControl from './RealTimeControl';
@@ -42,6 +42,7 @@ interface DeviceListProps {
 
 const DeviceList: Component<DeviceListProps> = (props) => {
   const dialog = useDialog();
+  const authService = AuthService.getInstance();
   const [forceUpdate, setForceUpdate] = createSignal(0);
   
   // Column visibility state
@@ -1468,7 +1469,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         <ServerFileBrowser
           isOpen={showServerFileBrowser()}
           onClose={() => setShowServerFileBrowser(false)}
-          serverBaseUrl={`http://${props.serverHost}:${props.serverPort}`}
+          serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
         />
         
         {/* Toast Notification */}

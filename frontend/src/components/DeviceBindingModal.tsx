@@ -1,5 +1,6 @@
 import { createSignal, createMemo, Show, createEffect, onMount, onCleanup } from 'solid-js';
 import QRCode from 'qrcode';
+import { AuthService } from '../services/AuthService';
 import styles from './DeviceBindingModal.module.css';
 
 interface DeviceBindingModalProps {
@@ -10,25 +11,30 @@ interface DeviceBindingModalProps {
 }
 
 const DeviceBindingModal = (props: DeviceBindingModalProps) => {
+  const authService = AuthService.getInstance();
+
   // 二维码数据URL状态
   const [qrCodeDataUrl, setQrCodeDataUrl] = createSignal('');
   
+  const hostOnly = createMemo(() => authService.getServerHost(props.serverHost));
+  const baseUrl = createMemo(() => authService.getHttpBaseUrl(props.serverHost, props.serverPort));
+
   // 生成二维码内容
   const qrCodeContent = createMemo(() => {
-    const host = props.serverHost;
+    const host = hostOnly();
     const port = props.serverPort;
     const fileName = `加入或退出云控[${host}].lua`;
     const encodedFileName = encodeURIComponent(fileName);
-    const downloadUrl = encodeURIComponent(`http://${host}:${port}/api/download-bind-script?host=${host}&port=${port}`);
+    const downloadUrl = encodeURIComponent(`${baseUrl()}/api/download-bind-script?host=${host}&port=${port}`);
     
     return `xxt://download/?path=${encodedFileName}&url=${downloadUrl}`;
   });
 
   // 生成下载链接
   const downloadUrl = createMemo(() => {
-    const host = props.serverHost;
+    const host = hostOnly();
     const port = props.serverPort;
-    return `http://${host}:${port}/api/download-bind-script?host=${host}&port=${port}`;
+    return `${baseUrl()}/api/download-bind-script?host=${host}&port=${port}`;
   });
 
   // 使用前端库生成二维码

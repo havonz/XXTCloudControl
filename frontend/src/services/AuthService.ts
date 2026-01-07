@@ -216,9 +216,28 @@ export class AuthService {
    * 获取 WebSocket URL
    */
   getWebSocketUrl(server: string, port: string): string {
-    // 确保服务器地址格式正确
-    let cleanServer = server.replace(/^https?:\/\//, '').replace(/^ws:\/\//, '').replace(/^wss:\/\//, '');
-    return `ws://${cleanServer}:${port}/api/ws`;
+    const schemeHint = this.getSchemeHint(server);
+    const wsScheme = schemeHint
+      ? (schemeHint === 'https' ? 'wss' : 'ws')
+      : (this.getDefaultHttpScheme() === 'https' ? 'wss' : 'ws');
+    const host = this.stripProtocolAndPath(server);
+    return `${wsScheme}://${host}:${port}/api/ws`;
+  }
+
+  /**
+   * 获取 HTTP Base URL
+   */
+  getHttpBaseUrl(server: string, port: string): string {
+    const scheme = this.getSchemeHint(server) || this.getDefaultHttpScheme();
+    const host = this.stripProtocolAndPath(server);
+    return `${scheme}://${host}:${port}`;
+  }
+
+  /**
+   * 清理服务器地址（去掉协议与路径）
+   */
+  getServerHost(server: string): string {
+    return this.stripProtocolAndPath(server);
   }
 
   /**
@@ -276,5 +295,33 @@ export class AuthService {
    */
   respring() {
     this.setAuthenticated(false);
+  }
+
+  private getDefaultHttpScheme(): 'http' | 'https' {
+    return window.location.protocol === 'https:' ? 'https' : 'http';
+  }
+
+  private getSchemeHint(server: string): 'http' | 'https' | null {
+    const trimmed = server.trim();
+    if (/^https:\/\//i.test(trimmed)) return 'https';
+    if (/^http:\/\//i.test(trimmed)) return 'http';
+    if (/^wss:\/\//i.test(trimmed)) return 'https';
+    if (/^ws:\/\//i.test(trimmed)) return 'http';
+    return null;
+  }
+
+  private stripProtocolAndPath(server: string): string {
+    const trimmed = server.trim();
+    if (!trimmed) return trimmed;
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) {
+      try {
+        const url = new URL(trimmed);
+        return url.hostname || trimmed;
+      } catch {
+        // fall through
+      }
+    }
+    const withoutProtocol = trimmed.replace(/^(https?:\/\/|wss?:\/\/)/i, '');
+    return withoutProtocol.replace(/\/.*$/, '');
   }
 }

@@ -119,11 +119,11 @@ export default function RealTimeControl(props: RealTimeControlProps) {
       };
       
       // 注册消息监听器
-      props.webSocketService.onMessage(handleMessage);
+      const unsubscribe = props.webSocketService.onMessage(handleMessage);
       
       // 清理函数
       onCleanup(() => {
-        // WebSocketService 的消息监听器会在组件销毁时自动清理
+        unsubscribe();
       });
     }
   });

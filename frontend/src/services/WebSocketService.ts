@@ -785,8 +785,11 @@ export class WebSocketService {
     this.statusCallbacks.push(callback);
   }
 
-  onMessage(callback: (message: any) => void): void {
+  onMessage(callback: (message: any) => void): () => void {
     this.messageCallbacks.push(callback);
+    return () => {
+      this.messageCallbacks = this.messageCallbacks.filter(cb => cb !== callback);
+    };
   }
 
   onDeviceUpdate(callback: (devices: Device[]) => void): void {
