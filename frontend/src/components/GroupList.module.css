@@ -53,7 +53,7 @@
 .addButton:hover,
 .settingsButton:hover {
   background: var(--primary);
-  color: white;
+  color: var(--text-on-gradient);
   border-color: var(--primary);
 }
 
@@ -186,7 +186,7 @@
   border: 1px solid var(--primary);
   border-radius: 8px;
   background: var(--primary);
-  color: white;
+  color: var(--text-on-gradient);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -247,7 +247,7 @@
 }
 
 .contextMenu .dangerButton {
-  color: #ef4444;
+  color: var(--danger);
 }
 
 .contextMenu .dangerButton:hover {

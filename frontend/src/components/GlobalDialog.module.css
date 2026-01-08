@@ -101,7 +101,7 @@
 
 .confirmBtn:hover {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
 }
 
 .confirmBtn:active {

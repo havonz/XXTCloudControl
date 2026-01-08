@@ -274,7 +274,7 @@
 
 .uploadBtn:hover:not(:disabled) {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
 }
 
 .uploadBtn:active:not(:disabled) {

@@ -6,6 +6,18 @@ export interface ScannedFile {
 export async function scanEntries(items: DataTransferItemList): Promise<ScannedFile[]> {
   const scannedFiles: ScannedFile[] = [];
 
+  const readAllEntries = async (dirReader: any): Promise<any[]> => {
+    const entries: any[] = [];
+    while (true) {
+      const batch = await new Promise<any[]>((resolve, reject) => {
+        dirReader.readEntries(resolve, reject);
+      });
+      if (!batch.length) break;
+      entries.push(...batch);
+    }
+    return entries;
+  };
+
   const readEntry = async (entry: any, path: string = "") => {
     if (entry.isFile) {
       const file = await new Promise<File>((resolve, reject) => {
@@ -17,9 +29,7 @@ export async function scanEntries(items: DataTransferItemList): Promise<ScannedF
       });
     } else if (entry.isDirectory) {
       const dirReader = entry.createReader();
-      const entries = await new Promise<any[]>((resolve, reject) => {
-        dirReader.readEntries(resolve, reject);
-      });
+      const entries = await readAllEntries(dirReader);
       for (const childEntry of entries) {
         await readEntry(childEntry, path ? `${path}/${entry.name}` : entry.name);
       }

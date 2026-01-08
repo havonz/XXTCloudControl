@@ -94,7 +94,7 @@
 .loginButton {
   padding: 0.75rem 2rem;
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
   border: none;
   border-radius: 8px;
   font-size: 1rem;
@@ -128,9 +128,10 @@
 .spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top: 2px solid white;
+  border: 2px solid var(--text-on-gradient);
+  border-top: 2px solid var(--text-on-gradient);
   border-radius: 50%;
+  opacity: 0.7;
   animation: spin 1s linear infinite;
 }
 
@@ -170,7 +171,7 @@
 
 .clearPasswordButton:hover:not(:disabled) {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: translateY(-1px);
   box-shadow: var(--shadow);
 }
@@ -204,7 +205,7 @@
 
 .storedValueButton:hover:not(:disabled) {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: translateY(-1px);
   box-shadow: var(--shadow);
 }

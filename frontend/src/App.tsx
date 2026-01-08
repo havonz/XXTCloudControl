@@ -13,6 +13,10 @@ import { IconMoon, IconSun } from './icons';
 import styles from './App.module.css';
 import { ScannedFile } from './utils/fileUpload';
 
+type PendingFileGet =
+  | { kind: 'download'; deviceUdid: string; fileName: string; path: string }
+  | { kind: 'read'; deviceUdid: string; path: string };
+
 const App: Component = () => {
   const { theme, toggleTheme } = useTheme();
   const [isAuthenticated, setIsAuthenticated] = createSignal(false);
@@ -31,8 +35,6 @@ const App: Component = () => {
   const [fileBrowserDevice, setFileBrowserDevice] = createSignal<{udid: string, name: string} | null>(null);
   const [fileList, setFileList] = createSignal<any[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = createSignal(false);
-  const [pendingDownload, setPendingDownload] = createSignal<{fileName: string, deviceUdid: string} | null>(null);
-  const [pendingReadFile, setPendingReadFile] = createSignal<{path: string, deviceUdid: string} | null>(null);
   const [fileContent, setFileContent] = createSignal<{path: string, content: string} | null>(null);
   
   // Group management state
@@ -48,7 +50,24 @@ const App: Component = () => {
   });
   
   let wsService: WebSocketService | null = null;
+  const pendingFileGets = new Map<string, PendingFileGet[]>();
   const authService = AuthService.getInstance();
+
+  const enqueuePendingFileGet = (entry: PendingFileGet) => {
+    const list = pendingFileGets.get(entry.deviceUdid) || [];
+    list.push(entry);
+    pendingFileGets.set(entry.deviceUdid, list);
+  };
+
+  const dequeuePendingFileGet = (deviceUdid: string): PendingFileGet | undefined => {
+    const list = pendingFileGets.get(deviceUdid);
+    if (!list || list.length === 0) return undefined;
+    const entry = list.shift();
+    if (list.length === 0) {
+      pendingFileGets.delete(deviceUdid);
+    }
+    return entry;
+  };
 
   onCleanup(() => {
     if (wsService) {
@@ -148,27 +167,28 @@ const App: Component = () => {
 
           if (message.error) {
             console.error('文件操作失败:', message.error);
-            setPendingDownload(null);
-            setPendingReadFile(null);
+            if (message.udid) {
+              dequeuePendingFileGet(message.udid);
+            }
           } else if (message.body && typeof message.body === 'string') {
-            // 检查是否是读取操作（编辑）
-            const readInfo = pendingReadFile();
-            if (readInfo && message.udid === readInfo.deviceUdid) {
+            if (!message.udid) {
+              return;
+            }
+            const pending = dequeuePendingFileGet(message.udid);
+            if (!pending) {
+              return;
+            }
+            if (pending.kind === 'read') {
               // 解码 Base64 内容
               try {
                 const decodedContent = decodeURIComponent(escape(atob(message.body)));
-                setFileContent({ path: readInfo.path, content: decodedContent });
+                setFileContent({ path: pending.path, content: decodedContent });
               } catch (e) {
                 // 如果解码失败，直接使用原始内容
-                setFileContent({ path: readInfo.path, content: atob(message.body) });
+                setFileContent({ path: pending.path, content: atob(message.body) });
               }
-              setPendingReadFile(null);
-            }
-            // 检查是否是下载操作
-            const downloadInfo = pendingDownload();
-            if (downloadInfo && message.udid === downloadInfo.deviceUdid) {
-              handleFileDownload(downloadInfo.fileName, message.body);
-              setPendingDownload(null);
+            } else if (pending.kind === 'download') {
+              handleFileDownload(pending.fileName, message.body);
             }
           }
         } else if (message.type === 'pasteboard/read') {
@@ -201,6 +221,7 @@ const App: Component = () => {
       wsService.disconnect();
       wsService = null;
     }
+    pendingFileGets.clear();
     
     setIsAuthenticated(false);
     setDevices([]);
@@ -345,8 +366,7 @@ const App: Component = () => {
     if (wsService) {
       // 从路径中提取文件名
       const fileName = path.split('/').pop() || 'unknown';
-      // 保存待下载文件信息
-      setPendingDownload({ fileName, deviceUdid: udid });
+      enqueuePendingFileGet({ kind: 'download', deviceUdid: udid, fileName, path });
       wsService.downloadFile(udid, path);
 
     } else {
@@ -440,7 +460,7 @@ const App: Component = () => {
 
   const handleReadFile = (deviceUdid: string, path: string) => {
     if (wsService) {
-      setPendingReadFile({ path, deviceUdid });
+      enqueuePendingFileGet({ kind: 'read', deviceUdid, path });
       wsService.readFile(deviceUdid, path);
     }
   };

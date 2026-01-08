@@ -83,7 +83,7 @@
   width: 200px;
   height: 200px;
   border-radius: 8px;
-  background: white;
+  background: var(--panel);
   padding: 8px;
   box-shadow: var(--shadow-sm);
 }
@@ -137,7 +137,7 @@
 
 .downloadButton:hover {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: translateY(-1px);
 }
 

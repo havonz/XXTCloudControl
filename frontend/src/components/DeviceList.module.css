@@ -56,7 +56,7 @@
 
 .refreshButton:hover:not(:disabled) {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: translateY(-1px);
 }
 
@@ -78,7 +78,7 @@
 
 .primaryButton {
   background: var(--primary);
-  color: white;
+  color: var(--text-on-gradient);
   border: none;
   border-radius: 8px;
   padding: 0.6rem 1.2rem;
@@ -120,7 +120,7 @@
 
 .sendStartButton {
   background: var(--primary);
-  color: white;
+  color: var(--text-on-gradient);
   border: none;
   border-radius: 8px;
   padding: 0 1rem;
@@ -155,7 +155,7 @@
 
 .respringButton:hover {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: translateY(-1px);
 }
 
@@ -876,10 +876,10 @@
 }
 
 .checkmark {
-  background: #4CAF50 !important;
-  border: 2px solid #4CAF50 !important;
+  background: var(--success) !important;
+  border: 2px solid var(--success) !important;
   border-radius: 4px;
-  color: white !important;
+  color: var(--text-on-gradient) !important;
   font-size: 1rem;
   font-weight: bold;
   text-align: center;
@@ -926,13 +926,13 @@
 .selectAllCheckbox.checked {
   background: var(--primary);
   border-color: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
 }
 
 .selectAllCheckbox.indeterminate {
   background: var(--warning);
   border-color: var(--warning);
-  color: #fff;
+  color: var(--text-on-gradient);
 }
 
 /* Device row checkbox */
@@ -952,7 +952,7 @@
 .deviceCheckbox.checked {
   background: var(--primary);
   border-color: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
 }
 
 .runningStatus {
@@ -971,15 +971,15 @@
 }
 
 .runningStatus.running {
-  background: rgba(76, 175, 80, 0.3);
-  color: #4CAF50;
-  border: 1px solid rgba(76, 175, 80, 0.5);
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid var(--success);
 }
 
 .runningStatus.stopped {
-  background: rgba(158, 158, 158, 0.3);
-  color: #9E9E9E;
-  border: 1px solid rgba(158, 158, 158, 0.5);
+  background: var(--panel-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
 }
 
 .loadingState, .emptyState {
@@ -1083,12 +1083,12 @@
 
 .sortableHeader:hover {
   background: var(--hover-bg);
-  color: #4CAF50;
+  color: var(--primary);
 }
 
 .sortIndicator {
   font-size: 0.8rem;
-  color: #4CAF50;
+  color: var(--primary);
   font-weight: bold;
   margin-left: 4px;
 }
@@ -1131,7 +1131,7 @@
 
 .selectedDeviceInfo h3 {
   margin: 0 0 1rem 0;
-  color: #4CAF50;
+  color: var(--success);
 }
 
 .selectedDeviceItem {
@@ -1142,7 +1142,7 @@
   padding: 0.75rem 1rem;
   margin-bottom: 0.5rem;
   border-radius: 8px;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text);
 }
 
 .selectedDeviceItem span {
@@ -1167,7 +1167,7 @@
 
 .removeButton:hover {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: scale(1.1);
 }
 
@@ -1191,7 +1191,7 @@
 }
 
 .clearAllButton:hover {
-  background: rgba(255, 152, 0, 1);
+  background: var(--warning);
   transform: translateY(-1px);
 }
 
@@ -1340,7 +1340,7 @@
 
 .confirmUploadButton:hover:not(:disabled) {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: translateY(-1px);
 }
 
@@ -1437,7 +1437,7 @@
 
 .readButton:hover:not(:disabled) {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: translateY(-1px);
 }
 
@@ -1462,7 +1462,7 @@
 
 .writeButton:hover:not(:disabled) {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: translateY(-1px);
 }
 
@@ -1544,7 +1544,7 @@
 
 .confirmButton:hover {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: translateY(-1px);
 }
 

@@ -148,7 +148,7 @@
 
 .actionButton:hover:not(:disabled) {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
   transform: translateY(-1px);
 }
 

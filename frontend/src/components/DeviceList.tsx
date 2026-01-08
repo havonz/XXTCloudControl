@@ -193,11 +193,26 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [isConfigurable, setIsConfigurable] = createSignal(false);
 
   // Handle configuration status check when script selection changes
-  createEffect(async () => {
+  createEffect(() => {
     const scriptName = serverScriptName();
-    if (scriptName) {
-      const configurable = await scriptConfigManager.checkConfigurable(scriptName);
-      setIsConfigurable(configurable);
+    let cancelled = false;
+
+    onCleanup(() => {
+      cancelled = true;
+    });
+
+    if (scriptName && scriptName !== DEVICE_SELECTED_PLACEHOLDER) {
+      scriptConfigManager.checkConfigurable(scriptName)
+        .then((configurable) => {
+          if (!cancelled && serverScriptName() === scriptName) {
+            setIsConfigurable(configurable);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setIsConfigurable(false);
+          }
+        });
     } else {
       setIsConfigurable(false);
     }
@@ -576,9 +591,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   };
 
   const getBatteryColor = (battery: number) => {
-    if (battery > 50) return '#4CAF50';
-    if (battery > 20) return '#FF9800';
-    return '#F44336';
+    if (battery > 50) return 'var(--success)';
+    if (battery > 20) return 'var(--warning)';
+    return 'var(--danger)';
   };
 
 

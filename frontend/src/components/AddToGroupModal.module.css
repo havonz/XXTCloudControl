@@ -114,7 +114,7 @@
 .submitButton {
   border: 1px solid var(--primary);
   background: var(--primary);
-  color: white;
+  color: var(--text-on-gradient);
 }
 
 .submitButton:hover:not(:disabled) {

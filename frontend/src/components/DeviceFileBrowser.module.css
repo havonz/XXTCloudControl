@@ -247,7 +247,7 @@
 
 .deleteAction:hover:not(:disabled) {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-on-gradient);
 }
 
 .deleteAction:active:not(:disabled) {
@@ -310,7 +310,7 @@
 
 .confirmButton:hover {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
 }
 
 .confirmButton:active {
@@ -326,7 +326,7 @@
 
 .cancelButton:hover {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-on-gradient);
 }
 
 .cancelButton:active {
@@ -513,7 +513,7 @@
   padding: 16px 32px;
   background: var(--success);
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-gradient);
   font-size: 1rem;
   font-weight: 500;
 }
@@ -536,7 +536,7 @@
   padding: 16px 32px;
   background: var(--primary);
   border-radius: 8px;
-  color: #fff;
+  color: var(--text-on-gradient);
   font-size: 1rem;
   font-weight: 500;
 }
@@ -651,7 +651,7 @@
 
 .confirmBtn:hover {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-gradient);
 }
 
 .confirmBtn:active {

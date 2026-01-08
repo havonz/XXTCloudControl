@@ -19,6 +19,13 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
   const hostOnly = createMemo(() => authService.getServerHost(props.serverHost));
   const baseUrl = createMemo(() => authService.getHttpBaseUrl(props.serverHost, props.serverPort));
 
+  const resolveThemeColor = (primaryVar: string, fallbackVar: string) => {
+    const styles = getComputedStyle(document.documentElement);
+    const primary = styles.getPropertyValue(primaryVar).trim();
+    if (primary) return primary;
+    return styles.getPropertyValue(fallbackVar).trim();
+  };
+
   // 生成二维码内容
   const qrCodeContent = createMemo(() => {
     const host = hostOnly();
@@ -40,12 +47,14 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
   // 使用前端库生成二维码
   createEffect(() => {
     if (props.isOpen && qrCodeContent()) {
+      const qrDark = resolveThemeColor('--text', '--text-on-gradient');
+      const qrLight = resolveThemeColor('--panel', '--bg');
       QRCode.toDataURL(qrCodeContent(), {
         width: 200,
         margin: 2,
         color: {
-          dark: '#000000',
-          light: '#FFFFFF'
+          dark: qrDark,
+          light: qrLight
         }
       }).then((dataUrl) => {
         setQrCodeDataUrl(dataUrl);
