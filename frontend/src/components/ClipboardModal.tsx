@@ -1,4 +1,6 @@
-import { createSignal, Show, createEffect, onMount, onCleanup } from 'solid-js';
+import { createSignal, Show, createEffect, onMount, onCleanup, For, createMemo } from 'solid-js';
+import { Select, createListCollection } from '@ark-ui/solid';
+import { Portal } from 'solid-js/web';
 import { useDialog } from './DialogContext';
 import styles from './ClipboardModal.module.css';
 
@@ -17,6 +19,15 @@ export default function ClipboardModal(props: ClipboardModalProps) {
   const [clipboardContent, setClipboardContent] = createSignal('');
   const [clipboardUti, setClipboardUti] = createSignal('public.plain-text');
   const [isReadingClipboard, setIsReadingClipboard] = createSignal(false);
+  
+  // UTI options for Ark-UI Select
+  const utiOptions = [
+    { value: 'public.plain-text', label: '纯文本' },
+    { value: 'public.png', label: 'PNG图片' },
+  ];
+  const utiOptionsCollection = createMemo(() => 
+    createListCollection({ items: utiOptions.map(o => o.value) })
+  );
 
   // 自动填充剪贴板内容的方法
   const autoFillClipboardContent = (content: string, uti: string = 'public.plain-text') => {
@@ -106,14 +117,37 @@ export default function ClipboardModal(props: ClipboardModalProps) {
           <div class={styles.modalContent}>
             <div class={styles.inputGroup}>
               <label class={styles.inputLabel}>数据类型:</label>
-              <select 
-                class={styles.selectInput}
-                value={clipboardUti()}
-                onChange={(e) => setClipboardUti(e.target.value)}
+              <Select.Root
+                collection={utiOptionsCollection()}
+                value={[clipboardUti()]}
+                onValueChange={(e) => {
+                  const val = e.value[0] ?? 'public.plain-text';
+                  setClipboardUti(val);
+                }}
               >
-                <option value="public.plain-text">纯文本</option>
-                <option value="public.png">PNG图片</option>
-              </select>
+                <Select.Control>
+                  <Select.Trigger class="cbx-select" style={{ 'min-width': '120px' }}>
+                    <span>{utiOptions.find(o => o.value === clipboardUti())?.label || '纯文本'}</span>
+                    <span class="dropdown-arrow">▼</span>
+                  </Select.Trigger>
+                </Select.Control>
+                <Portal>
+                  <Select.Positioner style={{ 'z-index': 10400, width: 'var(--reference-width)' }}>
+                    <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
+                      <Select.ItemGroup>
+                        <For each={utiOptions}>{(option) => (
+                          <Select.Item item={option.value} class="cbx-item">
+                            <div class="cbx-item-content">
+                              <Select.ItemIndicator>✓</Select.ItemIndicator>
+                              <Select.ItemText>{option.label}</Select.ItemText>
+                            </div>
+                          </Select.Item>
+                        )}</For>
+                      </Select.ItemGroup>
+                    </Select.Content>
+                  </Select.Positioner>
+                </Portal>
+              </Select.Root>
             </div>
             
             <div class={styles.inputGroup}>

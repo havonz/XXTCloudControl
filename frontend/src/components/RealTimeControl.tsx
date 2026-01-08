@@ -1,4 +1,6 @@
-import { createSignal, For, Show, onCleanup, createEffect, onMount } from 'solid-js';
+import { createSignal, For, Show, onCleanup, createEffect, onMount, createMemo } from 'solid-js';
+import { Select, createListCollection } from '@ark-ui/solid';
+import { Portal } from 'solid-js/web';
 import styles from './RealTimeControl.module.css';
 import ClipboardModal from './ClipboardModal';
 import type { Device } from '../services/AuthService';
@@ -20,6 +22,32 @@ export default function RealTimeControl(props: RealTimeControlProps) {
   const [currentScreenshot, setCurrentScreenshot] = createSignal<string>('');
   const [screenshotScale, setScreenshotScale] = createSignal(30);
   const [frameRate, setFrameRate] = createSignal(5); // 默认5帧/秒
+  
+  // Options for Ark-UI Select components
+  const scaleOptions = [
+    { value: 20, label: '20% (最小)' },
+    { value: 30, label: '30% (推荐)' },
+    { value: 50, label: '50%' },
+    { value: 70, label: '70%' },
+    { value: 100, label: '100% (原始大小)' },
+  ];
+  const scaleOptionsCollection = createMemo(() => 
+    createListCollection({ items: scaleOptions.map(o => String(o.value)) })
+  );
+  
+  const frameRateOptions = [
+    { value: 1, label: '1 帧/秒 (最慢)' },
+    { value: 2, label: '2 帧/秒' },
+    { value: 3, label: '3 帧/秒' },
+    { value: 5, label: '5 帧/秒 (推荐)' },
+    { value: 10, label: '10 帧/秒' },
+    { value: 15, label: '15 帧/秒' },
+    { value: 20, label: '20 帧/秒' },
+    { value: 25, label: '25 帧/秒 (最快)' },
+  ];
+  const frameRateOptionsCollection = createMemo(() => 
+    createListCollection({ items: frameRateOptions.map(o => String(o.value)) })
+  );
   const [isCapturingScreen, setIsCapturingScreen] = createSignal(false);
   const [syncControl, setSyncControl] = createSignal(false); // 同步控制开关
   const [showClipboardModal, setShowClipboardModal] = createSignal(false); // 剪贴板模态框状态
@@ -607,36 +635,73 @@ export default function RealTimeControl(props: RealTimeControlProps) {
               {/* 缩放控制 */}
               <div class={styles.scaleControl}>
                 <label class={styles.inputLabel}>缩放比例:</label>
-                <select 
-                  class={styles.selectInput}
-                  value={screenshotScale()}
-                  onChange={(e) => handleScaleChange(parseInt(e.target.value))}
+                <Select.Root
+                  collection={scaleOptionsCollection()}
+                  value={[String(screenshotScale())]}
+                  onValueChange={(e) => {
+                    const val = parseInt(e.value[0] ?? '30');
+                    handleScaleChange(val);
+                  }}
                 >
-                  <option value={20}>20% (最小)</option>
-                  <option value={30}>30% (推荐)</option>
-                  <option value={50}>50%</option>
-                  <option value={70}>70%</option>
-                  <option value={100}>100% (原始大小)</option>
-                </select>
+                  <Select.Control>
+                    <Select.Trigger class="cbx-select" style={{ 'min-width': '140px' }}>
+                      <span>{scaleOptions.find(o => o.value === screenshotScale())?.label || '30% (推荐)'}</span>
+                      <span class="dropdown-arrow">▼</span>
+                    </Select.Trigger>
+                  </Select.Control>
+                  <Portal>
+                    <Select.Positioner style={{ 'z-index': 10300, width: 'var(--reference-width)' }}>
+                      <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
+                        <Select.ItemGroup>
+                          <For each={scaleOptions}>{(option) => (
+                            <Select.Item item={String(option.value)} class="cbx-item">
+                              <div class="cbx-item-content">
+                                <Select.ItemIndicator>✓</Select.ItemIndicator>
+                                <Select.ItemText>{option.label}</Select.ItemText>
+                              </div>
+                            </Select.Item>
+                          )}</For>
+                        </Select.ItemGroup>
+                      </Select.Content>
+                    </Select.Positioner>
+                  </Portal>
+                </Select.Root>
               </div>
               
               {/* 帧率控制 */}
               <div class={styles.scaleControl}>
                 <label class={styles.inputLabel}>刷新帧率:</label>
-                <select 
-                  class={styles.selectInput}
-                  value={frameRate()}
-                  onChange={(e) => handleFrameRateChange(parseInt(e.target.value))}
+                <Select.Root
+                  collection={frameRateOptionsCollection()}
+                  value={[String(frameRate())]}
+                  onValueChange={(e) => {
+                    const val = parseInt(e.value[0] ?? '5');
+                    handleFrameRateChange(val);
+                  }}
                 >
-                  <option value={1}>1 帧/秒 (最慢)</option>
-                  <option value={2}>2 帧/秒</option>
-                  <option value={3}>3 帧/秒</option>
-                  <option value={5}>5 帧/秒 (推荐)</option>
-                  <option value={10}>10 帧/秒</option>
-                  <option value={15}>15 帧/秒</option>
-                  <option value={20}>20 帧/秒</option>
-                  <option value={25}>25 帧/秒 (最快)</option>
-                </select>
+                  <Select.Control>
+                    <Select.Trigger class="cbx-select" style={{ 'min-width': '140px' }}>
+                      <span>{frameRateOptions.find(o => o.value === frameRate())?.label || '5 帧/秒 (推荐)'}</span>
+                      <span class="dropdown-arrow">▼</span>
+                    </Select.Trigger>
+                  </Select.Control>
+                  <Portal>
+                    <Select.Positioner style={{ 'z-index': 10300, width: 'var(--reference-width)' }}>
+                      <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
+                        <Select.ItemGroup>
+                          <For each={frameRateOptions}>{(option) => (
+                            <Select.Item item={String(option.value)} class="cbx-item">
+                              <div class="cbx-item-content">
+                                <Select.ItemIndicator>✓</Select.ItemIndicator>
+                                <Select.ItemText>{option.label}</Select.ItemText>
+                              </div>
+                            </Select.Item>
+                          )}</For>
+                        </Select.ItemGroup>
+                      </Select.Content>
+                    </Select.Positioner>
+                  </Portal>
+                </Select.Root>
               </div>
               
               {/* 同步控制 */}
