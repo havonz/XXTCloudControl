@@ -316,12 +316,26 @@ export class AuthService {
     if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) {
       try {
         const url = new URL(trimmed);
-        return url.hostname || trimmed;
+        if (!url.hostname) return trimmed;
+        return url.hostname.includes(':') ? `[${url.hostname}]` : url.hostname;
       } catch {
         // fall through
       }
     }
     const withoutProtocol = trimmed.replace(/^(https?:\/\/|wss?:\/\/)/i, '');
-    return withoutProtocol.replace(/\/.*$/, '');
+    const withoutPath = withoutProtocol.replace(/[/?#].*$/, '');
+    // IPv6 in brackets: [::1]:46980
+    if (withoutPath.startsWith('[')) {
+      const endIndex = withoutPath.indexOf(']');
+      if (endIndex !== -1) {
+        return withoutPath.slice(0, endIndex + 1);
+      }
+      return withoutPath;
+    }
+    const hostPortMatch = withoutPath.match(/^(.+):(\d{1,5})$/);
+    if (hostPortMatch && hostPortMatch[1].indexOf(':') === -1) {
+      return hostPortMatch[1];
+    }
+    return withoutPath;
   }
 }

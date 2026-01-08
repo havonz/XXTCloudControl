@@ -5,6 +5,7 @@
 /* Light Theme (default) */
 :root,
 :root[data-theme="light"] {
+  color-scheme: light;
   /* Background colors */
   --bg: #ffffff;
   --bg-gradient: #ffffff;
@@ -118,6 +119,7 @@
 
 /* Dark Theme */
 :root[data-theme="dark"] {
+  color-scheme: dark;
   /* Background colors */
   --bg: #0b1020;
   --bg-gradient: #0b1020;
@@ -239,6 +241,17 @@ body {
   background: var(--bg);
   color: var(--text);
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+input[type="number"] {
+  color-scheme: inherit;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  background: var(--input-bg);
+  border-left: 1px solid var(--input-border);
+  opacity: 1;
 }
 
 #root {

@@ -79,6 +79,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
   // 触控相关状态
   const [isTouching, setIsTouching] = createSignal(false);
   let screenImageRef: HTMLImageElement | undefined;
+  let lastTouchPoint: { x: number; y: number } | null = null;
 
   // 当组件打开时，默认选择第一个设备
   const handleOpen = () => {
@@ -108,6 +109,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     // 重置状态
     pendingRequests = 0;
     isInBackoffMode = false;
+    lastTouchPoint = null;
     if (screenshotUnsubscribe) {
       screenshotUnsubscribe();
       screenshotUnsubscribe = null;
@@ -212,6 +214,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
       clearTimeout(backoffTimeout);
       backoffTimeout = undefined;
     }
+    lastTouchPoint = null;
     
     // 设置新的控制设备
     setSelectedControlDevice(deviceUdid);
@@ -361,6 +364,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     // 重置流量控制状态
     pendingRequests = 0;
     isInBackoffMode = false;
+    lastTouchPoint = null;
     
     // 重置触控状态
     setIsTouching(false);
@@ -465,6 +469,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     const coords = convertToDeviceCoordinates(event, screenImageRef);
     if (coords) {
       setIsTouching(true);
+      lastTouchPoint = coords;
       // 根据同步控制状态发送到对应设备
       const targetDevices = getTargetDevices();
       props.webSocketService!.touchDownMultiple(targetDevices, coords.x, coords.y);
@@ -479,6 +484,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
 
     const coords = convertToDeviceCoordinates(event, screenImageRef);
     if (coords) {
+      lastTouchPoint = coords;
       // 根据同步控制状态发送到对应设备
       const targetDevices = getTargetDevices();
       props.webSocketService!.touchMoveMultiple(targetDevices, coords.x, coords.y);
@@ -491,7 +497,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     if (!isTouching()) return;
     
     if (props.webSocketService && screenImageRef) {
-      const coords = convertToDeviceCoordinates(event, screenImageRef);
+      const coords = convertToDeviceCoordinates(event, screenImageRef) || lastTouchPoint;
       if (coords) {
         // 根据同步控制状态发送到对应设备
         const targetDevices = getTargetDevices();
@@ -500,6 +506,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
       }
     }
     setIsTouching(false);
+    lastTouchPoint = null;
   };
 
   // 鼠标右键事件（模拟Home键）
@@ -525,6 +532,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     if (isTouching() && props.webSocketService && screenImageRef) {
       const coords = convertToDeviceCoordinates(event, screenImageRef);
       if (coords) {
+        lastTouchPoint = coords;
         // 根据同步控制状态发送到对应设备
         const targetDevices = getTargetDevices();
         props.webSocketService!.touchMoveMultiple(targetDevices, coords.x, coords.y);
@@ -535,7 +543,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
   const handleGlobalMouseUp = (event: MouseEvent) => {
     if (isTouching()) {
       if (props.webSocketService && screenImageRef) {
-        const coords = convertToDeviceCoordinates(event, screenImageRef);
+        const coords = convertToDeviceCoordinates(event, screenImageRef) || lastTouchPoint;
         if (coords) {
           // 根据同步控制状态发送到对应设备
           const targetDevices = getTargetDevices();
@@ -543,6 +551,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
         }
       }
       setIsTouching(false);
+      lastTouchPoint = null;
     }
   };
 
@@ -557,9 +566,14 @@ export default function RealTimeControl(props: RealTimeControlProps) {
         document.removeEventListener('mouseup', handleGlobalMouseUp);
         // 清理触控状态
         if (isTouching() && selectedControlDevice() && props.webSocketService) {
-          props.webSocketService.touchUp(selectedControlDevice(), 0, 0);
+          if (lastTouchPoint) {
+            props.webSocketService.touchUp(selectedControlDevice(), lastTouchPoint.x, lastTouchPoint.y);
+          } else {
+            props.webSocketService.touchUp(selectedControlDevice(), 0, 0);
+          }
         }
         setIsTouching(false);
+        lastTouchPoint = null;
       });
     }
   });
@@ -600,6 +614,24 @@ export default function RealTimeControl(props: RealTimeControlProps) {
       stopScreenCapture();
       setSelectedControlDevice('');
       setCurrentScreenshot('');
+    }
+  });
+
+  createEffect(() => {
+    if (!props.isOpen) return;
+    const devices = props.selectedDevices();
+    const current = selectedControlDevice();
+    const stillSelected = current && devices.some(d => d.udid === current);
+    if (!stillSelected) {
+      stopScreenCapture();
+      const nextDevice = devices[0];
+      if (nextDevice) {
+        setSelectedControlDevice(nextDevice.udid);
+        startScreenCapture(nextDevice.udid);
+      } else {
+        setSelectedControlDevice('');
+        setCurrentScreenshot('');
+      }
     }
   });
 

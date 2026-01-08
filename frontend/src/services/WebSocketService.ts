@@ -14,6 +14,8 @@ export class WebSocketService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectInterval = 3000;
+  private reconnectTimer: number | null = null;
+  private shouldReconnect = true;
   private statusCallbacks: ((status: ConnectionStatus) => void)[] = [];
   private messageCallbacks: ((message: any) => void)[] = [];
   private deviceCallbacks: ((devices: Device[]) => void)[] = [];
@@ -35,6 +37,11 @@ export class WebSocketService {
       return;
     }
 
+    this.shouldReconnect = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.notifyStatusChange('connecting');
     
     try {
@@ -124,6 +131,11 @@ export class WebSocketService {
   }
 
   disconnect(): void {
+    this.shouldReconnect = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close(1000, 'User disconnected');
       this.ws = null;
@@ -800,10 +812,14 @@ export class WebSocketService {
   }
 
   private scheduleReconnect(): void {
+    if (!this.shouldReconnect) return;
     this.reconnectAttempts++;
     console.log(`尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-    
-    setTimeout(() => {
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
+    this.reconnectTimer = window.setTimeout(() => {
       if (this.reconnectAttempts <= this.maxReconnectAttempts) {
         this.connect();
       }

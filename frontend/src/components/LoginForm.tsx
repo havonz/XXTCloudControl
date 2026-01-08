@@ -1,5 +1,7 @@
 import { Component, createSignal } from 'solid-js';
 import { AuthService, LoginCredentials } from '../services/AuthService';
+import { useTheme } from './ThemeContext';
+import { IconMoon, IconSun } from '../icons';
 import styles from './LoginForm.module.css';
 
 interface LoginFormProps {
@@ -8,7 +10,44 @@ interface LoginFormProps {
   error?: string;
 }
 
+const isValidPort = (port: string): boolean => {
+  const portNum = Number(port);
+  return Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
+};
+
+const parseServerPort = (value: string): { server: string; port: string } | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('//') || /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) {
+    try {
+      const isProtocolRelative = trimmed.startsWith('//');
+      const url = new URL(isProtocolRelative ? `http:${trimmed}` : trimmed);
+      if (url.port && isValidPort(url.port)) {
+        const host = url.hostname.includes(':') ? `[${url.hostname}]` : url.hostname;
+        const server = isProtocolRelative ? host : `${url.protocol}//${host}`;
+        return { server, port: url.port };
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  const ipv6Match = trimmed.match(/^\[([0-9a-fA-F:]+)\]:(\d{1,5})(?:[/?#].*)?$/);
+  if (ipv6Match && isValidPort(ipv6Match[2])) {
+    return { server: `[${ipv6Match[1]}]`, port: ipv6Match[2] };
+  }
+
+  const simpleMatch = trimmed.match(/^([^:/?#]+):(\d{1,5})(?:[/?#].*)?$/);
+  if (simpleMatch && isValidPort(simpleMatch[2])) {
+    return { server: simpleMatch[1], port: simpleMatch[2] };
+  }
+
+  return null;
+};
+
 const LoginForm: Component<LoginFormProps> = (props) => {
+  const { theme, toggleTheme } = useTheme();
   // 使用当前页面的主机地址作为默认服务器地址
   const [server, setServer] = createSignal(window.location.hostname || 'localhost');
   const [port, setPort] = createSignal('46980');
@@ -19,6 +58,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
   const [showPortInput, setShowPortInput] = createSignal(true);
   const [showPasswordInput, setShowPasswordInput] = createSignal(true);
   const [validationError, setValidationError] = createSignal('');
+  let portInputRef: HTMLInputElement | undefined;
 
   const authService = AuthService.getInstance();
   
@@ -87,6 +127,80 @@ const LoginForm: Component<LoginFormProps> = (props) => {
   checkStoredPassword();
   checkStoredServerInfo();
 
+  const focusPortInput = (defer = false) => {
+    if (!showPortInput() || defer || !portInputRef) {
+      togglePortInput();
+      queueMicrotask(() => {
+        requestAnimationFrame(() => {
+          portInputRef?.focus();
+          portInputRef?.select();
+        });
+      });
+      return;
+    }
+    portInputRef?.focus();
+    portInputRef?.select();
+  };
+
+  const handleServerTrailingColon = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed.endsWith(':')) return false;
+
+    const withoutColon = trimmed.slice(0, -1);
+    if (!withoutColon) return false;
+
+    if (withoutColon.startsWith('//')) {
+      try {
+        const url = new URL(`http:${withoutColon}`);
+        const host = url.hostname.includes(':') ? `[${url.hostname}]` : url.hostname;
+        setServer(host);
+        focusPortInput();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(withoutColon)) {
+      try {
+        const url = new URL(withoutColon);
+        const host = url.hostname.includes(':') ? `[${url.hostname}]` : url.hostname;
+        setServer(`${url.protocol}//${host}`);
+        focusPortInput();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    if (withoutColon.startsWith('[') && withoutColon.includes(']')) {
+      setServer(withoutColon);
+      focusPortInput();
+      return true;
+    }
+
+    setServer(withoutColon);
+    focusPortInput();
+    return true;
+  };
+
+  const handleServerInput = (value: string) => {
+    if (handleServerTrailingColon(value)) return;
+    const parsed = parseServerPort(value);
+    if (parsed) {
+      setServer(parsed.server);
+      const shouldDeferFocus = !showPortInput();
+      if (!showPortInput()) {
+        localStorage.removeItem('xxt_port');
+        setShowPortInput(true);
+      }
+      setPort(parsed.port);
+      focusPortInput(shouldDeferFocus);
+      return;
+    }
+    setServer(value);
+  };
+
   const handleSubmit = (e: Event) => {
     e.preventDefault();
     
@@ -152,6 +266,14 @@ const LoginForm: Component<LoginFormProps> = (props) => {
     <div class={styles.loginContainer}>
       <div class={styles.loginCard}>
         <div class={styles.loginHeader}>
+          <button
+            onClick={toggleTheme}
+            class={styles.themeToggle}
+            title={theme() === 'light' ? '切换到暗色模式' : '切换到亮色模式'}
+            type="button"
+          >
+            {theme() === 'light' ? <IconMoon size={18} /> : <IconSun size={18} />}
+          </button>
           <h1>XXTCloudControl</h1>
           <p>连接到您的云控制服务器</p>
         </div>
@@ -164,7 +286,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
                 id="server"
                 type="text"
                 value={server()}
-                onInput={(e) => setServer(e.currentTarget.value)}
+                onInput={(e) => handleServerInput(e.currentTarget.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="例如: 192.168.1.100 或 example.com"
                 class={styles.input}
@@ -192,12 +314,14 @@ const LoginForm: Component<LoginFormProps> = (props) => {
                 value={port()}
                 onInput={(e) => setPort(e.currentTarget.value)}
                 onKeyPress={handleKeyPress}
+                onFocus={(e) => e.currentTarget.select()}
                 placeholder="46980"
                 min="1"
                 max="65535"
                 class={styles.input}
                 disabled={props.isConnecting}
                 required
+                ref={(el) => portInputRef = el}
               />
             ) : (
               <button
