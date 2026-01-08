@@ -1,6 +1,7 @@
 # XXTCloudControl
 
-用于 XXTouch 1.3.8+ 的云控服务端（WebSocket + 静态前端）与管理面板。
+用于 XXTouch 1.3.8+ 的云控服务端（WebSocket + 静态前端）与管理面板。  
+设备端接口实现源码在设备上的 `/var/mobile/Media/1ferver/bin/open-cloud-control-client.lua` 供参考。  
 
 ## 项目结构
 
@@ -18,7 +19,6 @@
 - 设备批量控制：脚本、触控、按键、重启/注销
 - 文件管理：上传/下载/列出/删除/创建目录
 - 剪贴板读写、截图
-- HMAC-SHA256 签名校验
 
 ## 快速开始
 
