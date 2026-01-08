@@ -457,8 +457,7 @@ export class WebSocketService {
           devices: [udid],
           type: 'file/get',
           body: {
-            path: path.trim(),
-            directory: true
+            path: path.trim()
           }
         }
       );

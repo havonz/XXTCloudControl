@@ -37,12 +37,12 @@ const LoginForm: Component<LoginFormProps> = (props) => {
     const storedPort = localStorage.getItem('xxt_port');
     
     if (storedServer) {
-
+      setServer(storedServer);
       setShowServerInput(false);
     }
     
     if (storedPort) {
-
+      setPort(storedPort);
       setShowPortInput(false);
     }
   };

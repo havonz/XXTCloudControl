@@ -12,6 +12,7 @@ import { useTheme } from './components/ThemeContext';
 import { IconMoon, IconSun } from './icons';
 import styles from './App.module.css';
 import { ScannedFile } from './utils/fileUpload';
+import { setApiBaseUrl } from './services/httpAuth';
 
 type PendingFileGet =
   | { kind: 'download'; deviceUdid: string; fileName: string; path: string }
@@ -110,6 +111,7 @@ const App: Component = () => {
           // 设置服务器信息用于设备绑定
           setServerHost(credentials.server.trim());
           setServerPort(credentials.port.trim());
+          setApiBaseUrl(authService.getHttpBaseUrl(credentials.server.trim(), credentials.port.trim()));
           
           // 只在成功登录后保存服务器信息和密码hash
           // 保存服务器信息

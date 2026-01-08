@@ -5,6 +5,22 @@ type AuthPayload = {
   sign: string;
 };
 
+let apiBaseUrl = '';
+
+export const setApiBaseUrl = (baseUrl: string) => {
+  apiBaseUrl = baseUrl.trim().replace(/\/+$/, '');
+};
+
+const isAbsoluteUrl = (url: string): boolean => {
+  return /^https?:\/\//i.test(url) || url.startsWith('//');
+};
+
+const resolveUrl = (url: string): string => {
+  if (isAbsoluteUrl(url) || !apiBaseUrl) return url;
+  if (url.startsWith('/')) return `${apiBaseUrl}${url}`;
+  return `${apiBaseUrl}/${url}`;
+};
+
 const getAuthPayload = (): AuthPayload | null => {
   const authService = AuthService.getInstance();
   const credentials = authService.getCurrentCredentials();
@@ -28,15 +44,15 @@ export const withAuthHeaders = (headers?: HeadersInit): Headers => {
 
 export const authFetch = (url: string, options: RequestInit = {}) => {
   const headers = withAuthHeaders(options.headers);
-  return fetch(url, { ...options, headers });
+  return fetch(resolveUrl(url), { ...options, headers });
 };
 
 export const appendAuthQuery = (url: string): string => {
   const payload = getAuthPayload();
   if (!payload) {
-    return url;
+    return resolveUrl(url);
   }
-  const finalUrl = new URL(url, window.location.origin);
+  const finalUrl = new URL(resolveUrl(url), window.location.origin);
   finalUrl.searchParams.set('ts', String(payload.ts));
   finalUrl.searchParams.set('sign', payload.sign);
   return finalUrl.toString();

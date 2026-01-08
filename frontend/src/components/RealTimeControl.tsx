@@ -52,7 +52,8 @@ export default function RealTimeControl(props: RealTimeControlProps) {
   const [syncControl, setSyncControl] = createSignal(false); // 同步控制开关
   const [showClipboardModal, setShowClipboardModal] = createSignal(false); // 剪贴板模态框状态
   let screenshotInterval: number | undefined;
-  let messageHandlerAdded = false;
+  let screenshotUnsubscribe: (() => void) | null = null;
+  let screenshotService: WebSocketService | null = null;
   
   // 流量控制相关变量
   let pendingRequests = 0; // 待回复的请求数量
@@ -107,6 +108,11 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     // 重置状态
     pendingRequests = 0;
     isInBackoffMode = false;
+    if (screenshotUnsubscribe) {
+      screenshotUnsubscribe();
+      screenshotUnsubscribe = null;
+      screenshotService = null;
+    }
   };
 
   // 处理关闭模态框
@@ -214,50 +220,51 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     startScreenCapture(deviceUdid);
   };
 
-  // 设置全局消息处理器（只设置一次）
-  const setupMessageHandler = () => {
-    if (!messageHandlerAdded && props.webSocketService) {
-      const handleScreenshotMessage = (message: any) => {
-        // 处理截图消息
-        if (message.type === 'screen/snapshot') {
-          const currentSelectedDevice = selectedControlDevice();
-          
-          // 如果消息来自当前选中的设备
-          if (message.udid === currentSelectedDevice && isCapturingScreen() && props.isOpen) {
-            // 收到回复，减少待回复请求计数
-            if (pendingRequests > 0) {
-              pendingRequests--;
-              // console.log(`收到当前设备截图回复 (${message.udid})，待回复请求: ${pendingRequests}`);
-            }
-            
-            if (message.error) {
-              console.error('屏幕截图失败:', message.error);
-            } else if (message.body) {
-              // console.log('更新截图显示，设备:', message.udid);
-              updateScreenshot(`data:image/png;base64,${message.body}`);
-            }
-            
-            // 如果处于退避模式且待回复请求已降到阈值以下，可以考虑恢复正常请求
-            if (isInBackoffMode && pendingRequests <= getMaxPendingRequests()) {
-              console.log('退避模式中，待回复请求已降低，等待退避时间结束');
-            }
-          } else {
-            // 丢弃不是当前选中设备的截图消息
-            console.log(`丢弃非当前设备的截图消息: ${message.udid} (当前选中: ${currentSelectedDevice})`);
-            
-            // 如果这是一个滞留的请求回复，也需要减少计数以保持状态一致
-            if (pendingRequests > 0) {
-              pendingRequests--;
-              console.log(`丢弃滞留截图回复，待回复请求: ${pendingRequests}`);
-            }
-          }
-        }
-      };
+  const handleScreenshotMessage = (message: any) => {
+    // 处理截图消息
+    if (message.type === 'screen/snapshot') {
+      const currentSelectedDevice = selectedControlDevice();
       
-      props.webSocketService.onMessage(handleScreenshotMessage);
-      messageHandlerAdded = true;
-      console.log('已设置截图消息处理器');
+      // 如果消息来自当前选中的设备
+      if (message.udid === currentSelectedDevice && isCapturingScreen() && props.isOpen) {
+        // 收到回复，减少待回复请求计数
+        if (pendingRequests > 0) {
+          pendingRequests--;
+          // console.log(`收到当前设备截图回复 (${message.udid})，待回复请求: ${pendingRequests}`);
+        }
+        
+        if (message.error) {
+          console.error('屏幕截图失败:', message.error);
+        } else if (message.body) {
+          // console.log('更新截图显示，设备:', message.udid);
+          updateScreenshot(`data:image/png;base64,${message.body}`);
+        }
+        
+        // 如果处于退避模式且待回复请求已降到阈值以下，可以考虑恢复正常请求
+        if (isInBackoffMode && pendingRequests <= getMaxPendingRequests()) {
+          console.log('退避模式中，待回复请求已降低，等待退避时间结束');
+        }
+      } else {
+        // 丢弃不是当前选中设备的截图消息
+        console.log(`丢弃非当前设备的截图消息: ${message.udid} (当前选中: ${currentSelectedDevice})`);
+        
+        // 如果这是一个滞留的请求回复，也需要减少计数以保持状态一致
+        if (pendingRequests > 0) {
+          pendingRequests--;
+          console.log(`丢弃滞留截图回复，待回复请求: ${pendingRequests}`);
+        }
+      }
     }
+  };
+
+  const ensureScreenshotHandler = () => {
+    if (!props.webSocketService) return;
+    if (screenshotService === props.webSocketService && screenshotUnsubscribe) return;
+    if (screenshotUnsubscribe) {
+      screenshotUnsubscribe();
+    }
+    screenshotService = props.webSocketService;
+    screenshotUnsubscribe = props.webSocketService.onMessage(handleScreenshotMessage);
   };
 
   // 开始截图
@@ -268,7 +275,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     setIsCapturingScreen(true);
     
     // 确保消息处理器已设置
-    setupMessageHandler();
+    ensureScreenshotHandler();
     
     // 重置流量控制状态
     pendingRequests = 0;
@@ -596,9 +603,28 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     }
   });
 
+  createEffect(() => {
+    if (!props.isOpen) {
+      if (screenshotUnsubscribe) {
+        screenshotUnsubscribe();
+        screenshotUnsubscribe = null;
+        screenshotService = null;
+      }
+      return;
+    }
+    if (isCapturingScreen()) {
+      ensureScreenshotHandler();
+    }
+  });
+
   // 组件卸载时清理
   onCleanup(() => {
     stopScreenCapture();
+    if (screenshotUnsubscribe) {
+      screenshotUnsubscribe();
+      screenshotUnsubscribe = null;
+      screenshotService = null;
+    }
     window.removeEventListener('keydown', handleKeyDown);
   });
 

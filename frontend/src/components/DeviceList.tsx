@@ -267,8 +267,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     
     setIsLoadingScripts(true);
     try {
-      const serverUrl = window.location.origin;
-      const response = await authFetch(`${serverUrl}/api/scripts/selectable`);
+      const response = await authFetch('/api/scripts/selectable');
       const data = await response.json();
       
       if (data.scripts) {
