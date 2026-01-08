@@ -60,11 +60,15 @@
   
   /* Modal overlay */
   --overlay: rgba(0, 0, 0, 0.5);
+  --overlay-strong: rgba(0, 0, 0, 0.6);
+  --overlay-stronger: rgba(0, 0, 0, 0.8);
+  --overlay-strongest: rgba(0, 0, 0, 0.9);
   
   /* Input styles */
   --input-bg: #ffffff;
   --input-border: #e6e6e6;
   --input-focus-border: #52a7e0;
+  --input-focus-bg: rgba(0, 0, 0, 0.03);
   --input-placeholder: #a1a1a1;
   
   /* Button colors */
@@ -76,6 +80,24 @@
   --btn-primary-bg: rgba(82, 167, 224, 0.28);
   --btn-primary-border: #52a7e0;
   --btn-primary-text: #52a7e0;
+
+  /* Emphasis & focus */
+  --focus-ring: 0 0 0 3px rgba(82, 167, 224, 0.1);
+  --primary-light: rgba(82, 167, 224, 0.15);
+  --success-bg-strong: rgba(22, 163, 74, 0.2);
+  --success-bg-stronger: rgba(22, 163, 74, 0.4);
+  --success-bg-strongest: rgba(22, 163, 74, 0.6);
+  --success-border-muted: rgba(22, 163, 74, 0.4);
+  --success-border: rgba(22, 163, 74, 0.6);
+  --success-border-strong: rgba(22, 163, 74, 0.8);
+  --danger-bg-strong: rgba(220, 38, 38, 0.2);
+  --danger-bg-stronger: rgba(220, 38, 38, 0.4);
+  --info-bg-strong: rgba(59, 130, 246, 0.2);
+  --text-on-gradient-muted: var(--text-secondary);
+  --text-on-gradient-disabled: var(--text-muted);
+  --panel-glass-disabled: rgba(0, 0, 0, 0.05);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 18px 48px rgba(0, 0, 0, 0.35);
   
   /* FormRunner toggle segments */
   --fr-inactive-border: #d0d5dd;
@@ -151,11 +173,15 @@
   
   /* Modal overlay */
   --overlay: rgba(0, 0, 0, 0.7);
+  --overlay-strong: rgba(0, 0, 0, 0.8);
+  --overlay-stronger: rgba(0, 0, 0, 0.9);
+  --overlay-strongest: rgba(0, 0, 0, 0.95);
   
   /* Input styles */
   --input-bg: rgba(255, 255, 255, 0.05);
   --input-border: #1f2a4a;
   --input-focus-border: #4f8cff;
+  --input-focus-bg: rgba(255, 255, 255, 0.15);
   --input-placeholder: #64748b;
   
   /* Button colors */
@@ -167,6 +193,24 @@
   --btn-primary-bg: rgba(79, 140, 255, 0.28);
   --btn-primary-border: #4f8cff;
   --btn-primary-text: #4f8cff;
+
+  /* Emphasis & focus */
+  --focus-ring: 0 0 0 3px rgba(79, 140, 255, 0.2);
+  --primary-light: rgba(79, 140, 255, 0.2);
+  --success-bg-strong: rgba(34, 197, 94, 0.25);
+  --success-bg-stronger: rgba(34, 197, 94, 0.45);
+  --success-bg-strongest: rgba(34, 197, 94, 0.6);
+  --success-border-muted: rgba(34, 197, 94, 0.4);
+  --success-border: rgba(34, 197, 94, 0.6);
+  --success-border-strong: rgba(34, 197, 94, 0.8);
+  --danger-bg-strong: rgba(239, 68, 68, 0.2);
+  --danger-bg-stronger: rgba(239, 68, 68, 0.4);
+  --info-bg-strong: rgba(59, 130, 246, 0.25);
+  --text-on-gradient-muted: var(--text-secondary);
+  --text-on-gradient-disabled: var(--text-muted);
+  --panel-glass-disabled: rgba(255, 255, 255, 0.05);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 18px 48px rgba(0, 0, 0, 0.5);
   
   /* FormRunner toggle segments */
   --fr-inactive-border: #2a3350;

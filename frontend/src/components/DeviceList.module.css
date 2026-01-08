@@ -87,13 +87,13 @@
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .primaryButton:hover:not(:disabled) {
   background: var(--primary-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow);
 }
 
 .primaryButton:active:not(:disabled) {
@@ -148,7 +148,7 @@
 }
 
 .respringButton {
-  background: rgba(220, 38, 38, 0.28);
+  background: var(--danger-bg-strong);
   border-color: var(--danger);
   color: var(--danger);
 }
@@ -185,7 +185,7 @@
 .searchInput:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
+  box-shadow: var(--focus-ring);
 }
 
 .deviceCount {
@@ -444,7 +444,7 @@
 
 .scriptSelect:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
+  box-shadow: var(--focus-ring);
 }
 
 .iconButton {
@@ -493,7 +493,7 @@
 .scriptInput:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
+  box-shadow: var(--focus-ring);
 }
 
 /* Button Groups */
@@ -537,7 +537,7 @@
 
 .compactButton:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-sm);
 }
 
 .compactButton:disabled {
@@ -569,7 +569,7 @@
 
 .dropZone.dragOver {
   border-color: var(--success);
-  background: rgba(82, 184, 105, 0.1);
+  background: var(--success-bg);
 }
 
 .dropText {
@@ -607,7 +607,7 @@
 }
 
 .removeFileButton {
-  background: rgba(220, 38, 38, 0.2);
+  background: var(--danger-bg-strong);
   color: var(--danger);
   border: none;
   border-radius: 50%;
@@ -622,7 +622,7 @@
 }
 
 .removeFileButton:hover {
-  background: rgba(244, 67, 54, 1);
+  background: var(--danger);
   transform: scale(1.1);
 }
 
@@ -967,7 +967,7 @@
 
 .runningStatus:hover {
   transform: scale(1.05);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow);
 }
 
 .runningStatus.running {
@@ -1015,7 +1015,7 @@
 
 .emptyState p {
   font-size: 1.2rem;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-on-gradient-muted);
   margin-bottom: 1rem;
 }
 
@@ -1151,7 +1151,7 @@
 }
 
 .removeButton {
-  background: rgba(220, 38, 38, 0.2);
+  background: var(--danger-bg-strong);
   color: var(--danger);
   border: none;
   border-radius: 50%;
@@ -1381,7 +1381,7 @@
 
 .selectInput:focus {
   outline: none;
-  border-color: rgba(255, 255, 255, 0.6);
+  border-color: var(--border-on-gradient);
   background: var(--btn-glass-bg);
 }
 
@@ -1400,17 +1400,17 @@
 
 .textareaInput:focus {
   outline: none;
-  border-color: rgba(255, 255, 255, 0.6);
+  border-color: var(--border-on-gradient);
   background: var(--btn-glass-bg);
 }
 
 .textareaInput::placeholder {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-on-gradient-muted);
 }
 
 .textareaInput:disabled {
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.5);
+  background: var(--panel-glass-disabled);
+  color: var(--text-on-gradient-disabled);
   cursor: not-allowed;
 }
 
@@ -1468,7 +1468,7 @@
 
 .writeButton:disabled {
   background: var(--panel-glass);
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-on-gradient-disabled);
   cursor: not-allowed;
 }
 
@@ -1515,7 +1515,7 @@
 .warningText {
   color: var(--warning) !important;
   font-size: 0.85rem !important;
-  background: rgba(250, 173, 20, 0.1);
+  background: var(--warning-bg);
   padding: 0.5rem;
   border-radius: 4px;
   border-left: 3px solid var(--warning);
@@ -1531,7 +1531,7 @@
 }
 
 .confirmButton {
-  background: rgba(220, 38, 38, 0.2);
+  background: var(--danger-bg-strong);
   color: var(--danger);
   border: 2px solid var(--danger);
   padding: 0.5rem 1rem;

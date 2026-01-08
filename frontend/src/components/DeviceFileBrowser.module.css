@@ -147,8 +147,8 @@
 }
 
 .actionButton.activeAction {
-  background: rgba(76, 175, 80, 0.6);
-  border-color: rgba(76, 175, 80, 0.8);
+  background: var(--success-bg-strongest);
+  border-color: var(--success-border-strong);
 }
 
 .showHiddenLabel {
@@ -212,8 +212,8 @@
   align-items: center;
   gap: 12px;
   padding: 8px 1.5rem;
-  background: rgba(76, 175, 80, 0.15);
-  border-bottom: 1px solid rgba(76, 175, 80, 0.3);
+  background: var(--success-bg);
+  border-bottom: 1px solid var(--success-border-muted);
   font-size: 0.85rem;
   color: var(--text);
 }
@@ -234,7 +234,7 @@
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
-  background: rgba(220, 38, 38, 0.2);
+  background: var(--danger-bg-strong);
   border: none;
   border-radius: 4px;
   color: var(--danger);
@@ -319,7 +319,7 @@
 }
 
 .cancelButton {
-  background: rgba(220, 38, 38, 0.2);
+  background: var(--danger-bg-strong);
   color: var(--danger);
   border-color: var(--danger);
 }
@@ -434,7 +434,7 @@
 }
 
 .actionBtn:hover {
-  background: rgba(88, 101, 242, 0.2);
+  background: var(--info-bg-strong);
 }
 
 .actionBtn:active {
@@ -447,7 +447,7 @@
 }
 
 .deleteBtn:hover {
-  background: rgba(220, 38, 38, 0.2);
+  background: var(--danger-bg-strong);
 }
 
 .deleteBtn:active {
@@ -488,8 +488,8 @@
 
 /* 拖拽上传样式 */
 .fileList.dragOver {
-  border: 2px dashed rgba(76, 175, 80, 0.6);
-  background: rgba(76, 175, 80, 0.1);
+  border: 2px dashed var(--success-border);
+  background: var(--success-bg);
 }
 
 .dropOverlay {
@@ -498,7 +498,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(76, 175, 80, 0.2);
+  background: var(--success-bg-strong);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -524,7 +524,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -548,7 +548,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: var(--overlay-stronger);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -603,7 +603,7 @@
 }
 
 .editorTextarea:focus {
-  border-color: rgba(76, 175, 80, 0.5);
+  border-color: var(--success-border);
 }
 
 .editorFooter {

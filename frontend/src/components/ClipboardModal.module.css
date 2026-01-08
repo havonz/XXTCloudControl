@@ -80,7 +80,7 @@
 .selectInput:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
+  box-shadow: var(--focus-ring);
 }
 
 .selectInput option {
@@ -105,7 +105,7 @@
 .textareaInput:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
+  box-shadow: var(--focus-ring);
 }
 
 .textareaInput::placeholder {

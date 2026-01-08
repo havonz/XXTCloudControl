@@ -4,7 +4,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -18,7 +18,7 @@
   padding: 20px;
   min-width: 320px;
   max-width: 400px;
-  box-shadow: var(--shadow), 0 16px 48px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow), var(--shadow-xl);
 }
 
 .title {

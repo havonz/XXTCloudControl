@@ -154,7 +154,7 @@
 
 .dropZone.dragOver {
   border-color: var(--primary);
-  background: rgba(88, 101, 242, 0.1);
+  background: var(--info-bg);
 }
 
 .dropIcon {
@@ -225,7 +225,7 @@
 }
 
 .removeBtn:hover {
-  background: rgba(220, 38, 38, 0.1);
+  background: var(--danger-bg);
 }
 
 .removeBtn:active {

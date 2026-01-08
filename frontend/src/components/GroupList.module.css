@@ -112,7 +112,7 @@
 }
 
 .groupItem.checked {
-  background: var(--primary-light, rgba(var(--primary-rgb), 0.15));
+  background: var(--primary-light);
   border-color: var(--primary);
 }
 
@@ -218,7 +218,7 @@
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: var(--shadow), 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow), var(--shadow-pop);
   min-width: 160px;
   padding: 4px;
 }
@@ -251,5 +251,5 @@
 }
 
 .contextMenu .dangerButton:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--danger-bg);
 }

@@ -85,7 +85,7 @@
 .textInput:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
+  box-shadow: var(--focus-ring);
 }
 
 .textInput::placeholder {
@@ -115,7 +115,7 @@
 .textArea:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
+  box-shadow: var(--focus-ring);
 }
 
 .textArea::placeholder {
