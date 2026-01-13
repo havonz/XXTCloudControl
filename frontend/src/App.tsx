@@ -1,4 +1,4 @@
-import { Component, createSignal, onCleanup, createMemo, createEffect } from 'solid-js';
+import { Component, createSignal, onCleanup, createMemo, createEffect, Show } from 'solid-js';
 import { WebSocketService, Device } from './services/WebSocketService';
 import { AuthService, LoginCredentials } from './services/AuthService';
 import { createGroupStore } from './services/GroupStore';
@@ -13,6 +13,8 @@ import { IconMoon, IconSun } from './icons';
 import styles from './App.module.css';
 import { ScannedFile } from './utils/fileUpload';
 import { setApiBaseUrl } from './services/httpAuth';
+
+const VERSION_CACHE_KEY = 'xxt_server_version';
 
 type PendingFileGet =
   | { kind: 'download'; deviceUdid: string; fileName: string; path: string }
@@ -30,6 +32,11 @@ const App: Component = () => {
   // Server information for device binding
   const [serverHost, setServerHost] = createSignal('');
   const [serverPort, setServerPort] = createSignal('');
+  const [serverVersion, setServerVersion] = createSignal('');
+  
+  // Version update toast state
+  const [showVersionUpdateToast, setShowVersionUpdateToast] = createSignal(false);
+  const [versionUpdateMessage, setVersionUpdateMessage] = createSignal('');
   
   // File browser state
   const [fileBrowserOpen, setFileBrowserOpen] = createSignal(false);
@@ -472,6 +479,41 @@ const App: Component = () => {
     if (isAuthenticated()) {
       groupStore.loadGroups();
       groupStore.loadGroupSettings();
+      
+      // Fetch server version and check for updates
+      const fetchVersion = async () => {
+        try {
+          const proto = window.location.protocol === 'https:' ? 'https' : 'http';
+          const baseUrl = `${proto}://${serverHost()}:${serverPort()}`;
+          const response = await fetch(`${baseUrl}/api/config?format=json`);
+          if (response.ok) {
+            const config = await response.json();
+            if (config.version) {
+              const cachedVersion = localStorage.getItem(VERSION_CACHE_KEY);
+              
+              // If cached version exists and differs from server version, trigger refresh
+              if (cachedVersion && cachedVersion !== config.version) {
+                setVersionUpdateMessage(`检测到新版本 ${config.version}，3秒后自动刷新...`);
+                setShowVersionUpdateToast(true);
+                
+                // Clear cached version and refresh after 3 seconds
+                setTimeout(() => {
+                  localStorage.removeItem(VERSION_CACHE_KEY);
+                  window.location.reload();
+                }, 3000);
+              } else {
+                // Cache the current version
+                localStorage.setItem(VERSION_CACHE_KEY, config.version);
+              }
+              
+              setServerVersion(config.version);
+            }
+          }
+        } catch (e) {
+          // Ignore network errors
+        }
+      };
+      fetchVersion();
     }
   });
 
@@ -484,6 +526,13 @@ const App: Component = () => {
 
   return (
     <div class={styles.App}>
+      {/* Version Update Toast */}
+      <Show when={showVersionUpdateToast()}>
+        <div class="version-update-toast">
+          {versionUpdateMessage()}
+        </div>
+      </Show>
+      
       {!isAuthenticated() ? (
         <LoginForm 
           onLogin={handleLogin}
@@ -496,6 +545,9 @@ const App: Component = () => {
             <div class={styles.headerLeft}>
               <img src="/favicon-48.png" alt="Logo" class={styles.logo} />
               <h1 class={styles.appTitle}>XXT 云控制器</h1>
+              {serverVersion() && (
+                <span class={styles.versionBadge}>{serverVersion()}</span>
+              )}
             </div>
             <div class={styles.headerRight}>
               <button

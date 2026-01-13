@@ -48,7 +48,7 @@ func apiAuthMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if path == "/api/download-bind-script" || path == "/api/ws" {
+		if path == "/api/download-bind-script" || path == "/api/ws" || path == "/api/config" {
 			c.Next()
 			return
 		}
@@ -95,6 +95,7 @@ func configHandler(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 
 	config := gin.H{
+		"version": Version,
 		"websocket": gin.H{
 			"port":              serverConfig.Port,
 			"path":              "/api/ws",

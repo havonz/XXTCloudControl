@@ -484,3 +484,39 @@ code {
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   line-height: 1;
 }
+
+/* Version Update Toast */
+.version-update-toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--warning);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: var(--shadow-lg);
+  z-index: 9999;
+  animation: versionToastSlideIn 0.3s ease-out;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.version-update-toast::before {
+  content: '⚡';
+  font-size: 16px;
+}
+
+@keyframes versionToastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}

@@ -1,4 +1,4 @@
-import { Component, createSignal } from 'solid-js';
+import { Component, createSignal, createEffect, onCleanup } from 'solid-js';
 import { AuthService, LoginCredentials } from '../services/AuthService';
 import { useTheme } from './ThemeContext';
 import { IconMoon, IconSun } from '../icons';
@@ -53,6 +53,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
   const [port, setPort] = createSignal('46980');
   const [password, setPassword] = createSignal('');
   const [hasStoredPassword, setHasStoredPassword] = createSignal(false);
+  const [serverVersion, setServerVersion] = createSignal('');
 
   const [showServerInput, setShowServerInput] = createSignal(true);
   const [showPortInput, setShowPortInput] = createSignal(true);
@@ -126,6 +127,52 @@ const LoginForm: Component<LoginFormProps> = (props) => {
   // 组件初始化时检查存储的信息
   checkStoredPassword();
   checkStoredServerInfo();
+
+  // 获取服务器版本
+  let versionFetchController: AbortController | null = null;
+  createEffect(() => {
+    const currentServer = server().trim();
+    const currentPort = port().trim();
+    
+    // 清除之前的版本信息
+    setServerVersion('');
+    
+    // 取消之前的请求
+    if (versionFetchController) {
+      versionFetchController.abort();
+    }
+    
+    if (!currentServer || !currentPort || !isValidPort(currentPort)) {
+      return;
+    }
+    
+    // 使用防抖来避免频繁请求
+    const timerId = setTimeout(async () => {
+      versionFetchController = new AbortController();
+      try {
+        const proto = window.location.protocol === 'https:' ? 'https' : 'http';
+        const baseUrl = `${proto}://${currentServer}:${currentPort}`;
+        const response = await fetch(`${baseUrl}/api/config?format=json`, {
+          signal: versionFetchController.signal
+        });
+        if (response.ok) {
+          const config = await response.json();
+          if (config.version) {
+            setServerVersion(config.version);
+          }
+        }
+      } catch (e) {
+        // 忽略网络错误或中止的请求
+      }
+    }, 500);
+    
+    onCleanup(() => {
+      clearTimeout(timerId);
+      if (versionFetchController) {
+        versionFetchController.abort();
+      }
+    });
+  });
 
   const focusPortInput = (defer = false) => {
     if (!showPortInput() || defer || !portInputRef) {
@@ -384,6 +431,9 @@ const LoginForm: Component<LoginFormProps> = (props) => {
         </form>
 
         <div class={styles.loginFooter}>
+          {serverVersion() && (
+            <span class={styles.versionBadge}>服务器版本: {serverVersion()}</span>
+          )}
         </div>
       </div>
     </div>

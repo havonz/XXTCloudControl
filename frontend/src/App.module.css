@@ -38,6 +38,17 @@
   color: var(--text);
 }
 
+.versionBadge {
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
 .headerRight {
   display: flex;
   align-items: center;
