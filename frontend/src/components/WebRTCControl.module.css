@@ -1,0 +1,311 @@
+/* WebRTC 控制组件样式 */
+
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+}
+
+.webrtcModal {
+  background: var(--primary-bg);
+  border-radius: 12px;
+  width: 95%;
+  max-width: 1400px;
+  height: 90%;
+  max-height: 900px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: var(--secondary-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-color);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.connectionBadge {
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.connectionBadge.connected {
+  background: rgba(52, 199, 89, 0.2);
+  color: #34c759;
+}
+
+.connectionBadge.connecting {
+  background: rgba(255, 204, 0, 0.2);
+  color: #ffcc00;
+}
+
+.connectionBadge.disconnected {
+  background: rgba(255, 59, 48, 0.2);
+  color: #ff3b30;
+}
+
+.closeButton {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: rgba(255, 59, 48, 0.1);
+  color: #ff3b30;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: all 0.2s;
+}
+
+.closeButton:hover {
+  background: rgba(255, 59, 48, 0.2);
+  transform: scale(1.05);
+}
+
+.webrtcContent {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 左侧控制面板 */
+.controlPanel {
+  width: 220px;
+  background: var(--secondary-bg);
+  border-right: 1px solid var(--border-color);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.controlPanel h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* 设置项 */
+.settingGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settingLabel {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.settingValue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settingSlider {
+  flex: 1;
+  height: 4px;
+  background: var(--border-color);
+  border-radius: 2px;
+  appearance: none;
+  outline: none;
+}
+
+.settingSlider::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.settingSlider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.settingNumber {
+  width: 50px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-color);
+  background: var(--primary-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px;
+}
+
+/* 设备信息 */
+.deviceInfo {
+  background: var(--primary-bg);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.deviceName {
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 4px;
+}
+
+.deviceUdid {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: monospace;
+  word-break: break-all;
+}
+
+/* 操作按钮 */
+.actionButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.actionButton {
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.startButton {
+  background: rgba(52, 199, 89, 0.2);
+  color: #34c759;
+}
+
+.startButton:hover:not(:disabled) {
+  background: rgba(52, 199, 89, 0.3);
+}
+
+.stopButton {
+  background: rgba(255, 59, 48, 0.2);
+  color: #ff3b30;
+}
+
+.stopButton:hover:not(:disabled) {
+  background: rgba(255, 59, 48, 0.3);
+}
+
+.actionButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 右侧视频区域 */
+.videoPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  position: relative;
+}
+
+.videoContainer {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.videoElement {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  cursor: crosshair;
+  background: #000;
+}
+
+.videoPlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 14px;
+}
+
+.placeholderIcon {
+  font-size: 48px;
+  opacity: 0.5;
+}
+
+/* 统计信息栏 */
+.statsBar {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.8);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.statItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 触控提示 */
+.touchHint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.7);
+  color: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  font-size: 12px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.videoContainer:hover .touchHint {
+  opacity: 1;
+}

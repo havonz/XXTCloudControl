@@ -111,6 +111,18 @@ type Command struct {
 	Body interface{} `json:"body,omitempty"`
 }
 
+// HTTPProxyRequest represents an HTTP proxy request to be forwarded to a device
+type HTTPProxyRequest struct {
+	Devices   []string               `json:"devices"`
+	RequestID string                 `json:"requestId"`
+	Method    string                 `json:"method"`
+	Path      string                 `json:"path"`
+	Query     map[string]interface{} `json:"query,omitempty"`
+	Headers   map[string]string      `json:"headers,omitempty"`
+	Body      string                 `json:"body,omitempty"` // base64 encoded
+	Port      int                    `json:"port,omitempty"` // target HTTP port (default: 46952)
+}
+
 // ServerFileItem represents a file or directory in the server file browser
 type ServerFileItem struct {
 	Name    string `json:"name"`

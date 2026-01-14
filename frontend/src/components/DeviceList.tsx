@@ -3,6 +3,7 @@ import { AuthService, Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { useDialog } from './DialogContext';
 import RealTimeControl from './RealTimeControl';
+import WebRTCControl from './WebRTCControl';
 import styles from './DeviceList.module.css';
 import DeviceBindingModal from './DeviceBindingModal';
 import DictionaryModal from './DictionaryModal';
@@ -161,6 +162,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // Real-time control modal state
   const [showRealTimeModal, setShowRealTimeModal] = createSignal(false);
   const [currentScreenshot, setCurrentScreenshot] = createSignal<string>('');
+  
+  // WebRTC control modal state
+  const [showWebRTCModal, setShowWebRTCModal] = createSignal(false);
+  const [webrtcDevice, setWebrtcDevice] = createSignal<Device | null>(null);
   
   // Toast notification state
   const [toastMessage, setToastMessage] = createSignal('');
@@ -702,6 +707,22 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     setCurrentScreenshot('');
   };
   
+  // WebRTC 实时控制
+  const handleOpenWebRTCControl = () => {
+    if (props.selectedDevices().length === 0) {
+      showToastMessage('请先选择设备');
+      return;
+    }
+    // 取第一个选中的设备用于WebRTC控制
+    setWebrtcDevice(props.selectedDevices()[0]);
+    setShowWebRTCModal(true);
+  };
+
+  const handleCloseWebRTCControl = () => {
+    setShowWebRTCModal(false);
+    setWebrtcDevice(null);
+  };
+  
   const handleDeviceBinding = () => {
     setShowDeviceBindingModal(true);
   };
@@ -932,6 +953,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   disabled={props.selectedDevices().length === 0}
                 >
                   实时控制
+                </button>
+                <button 
+                  class={styles.menuItem}
+                  onClick={() => {
+                    handleOpenWebRTCControl();
+                    setShowMoreActions(false);
+                  }}
+                  disabled={props.selectedDevices().length === 0}
+                >
+                  WebRTC控制
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1419,6 +1450,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           onReadClipboard={props.onReadClipboard}
           onWriteClipboard={props.onWriteClipboard}
         />
+        
+        {/* WebRTC 实时控制弹窗 */}
+        <Show when={showWebRTCModal()}>
+          <WebRTCControl
+            isOpen={showWebRTCModal()}
+            onClose={handleCloseWebRTCControl}
+            device={webrtcDevice()}
+            webSocketService={props.webSocketService}
+            password={localStorage.getItem('xxt_password_hash') ? `__STORED_PASSHASH__${localStorage.getItem('xxt_password_hash')}` : ''}
+          />
+        </Show>
         
         {/* 字典设置弹窗 */}
         <DictionaryModal

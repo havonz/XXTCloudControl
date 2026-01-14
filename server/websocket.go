@@ -208,6 +208,93 @@ func handleMessage(conn *SafeConn, data Message) error {
 			}
 		}
 
+	case "control/xxtouch":
+		// 通用 HTTP 代理：将 HTTP 请求转发到目标设备
+		if !isDataValid(data) {
+			conn.Close()
+			return nil
+		}
+		controllers[conn] = true
+
+		var httpReq HTTPProxyRequest
+		bodyBytes, _ := json.Marshal(data.Body)
+		if err := json.Unmarshal(bodyBytes, &httpReq); err != nil {
+			log.Printf("[xxtouch] Failed to parse request: %v", err)
+			return err
+		}
+
+		log.Printf("[xxtouch] Received control/xxtouch for devices: %v, path: %s", httpReq.Devices, httpReq.Path)
+
+		// 构建发送给设备的消息
+		httpMsg := Message{
+			Type: "xxtouch/request",
+			Body: map[string]interface{}{
+				"requestId": httpReq.RequestID,
+				"method":    httpReq.Method,
+				"path":      httpReq.Path,
+				"query":     httpReq.Query,
+				"headers":   httpReq.Headers,
+				"body":      httpReq.Body,
+			},
+		}
+
+		for _, udid := range httpReq.Devices {
+			if deviceConn, exists := deviceLinks[udid]; exists {
+				log.Printf("[xxtouch] Sending xxtouch/request to device %s", udid)
+				go func(dc *SafeConn, u string) {
+					if err := sendMessage(dc, httpMsg); err != nil {
+						log.Printf("[xxtouch] Failed to send to device %s: %v", u, err)
+					}
+				}(deviceConn, udid)
+			} else {
+				log.Printf("[xxtouch] Device %s not found in deviceLinks", udid)
+			}
+		}
+
+	case "control/http":
+		// HTTP 代理：将 HTTP 请求转发到目标设备（使用 http.request）
+		if !isDataValid(data) {
+			conn.Close()
+			return nil
+		}
+		controllers[conn] = true
+
+		var httpReq HTTPProxyRequest
+		bodyBytes, _ := json.Marshal(data.Body)
+		if err := json.Unmarshal(bodyBytes, &httpReq); err != nil {
+			log.Printf("[http] Failed to parse request: %v", err)
+			return err
+		}
+
+		log.Printf("[http] Received control/http for devices: %v, path: %s", httpReq.Devices, httpReq.Path)
+
+		// 构建发送给设备的消息
+		httpMsg := Message{
+			Type: "http/request",
+			Body: map[string]interface{}{
+				"requestId": httpReq.RequestID,
+				"method":    httpReq.Method,
+				"path":      httpReq.Path,
+				"query":     httpReq.Query,
+				"headers":   httpReq.Headers,
+				"body":      httpReq.Body,
+				"port":      httpReq.Port,
+			},
+		}
+
+		for _, udid := range httpReq.Devices {
+			if deviceConn, exists := deviceLinks[udid]; exists {
+				log.Printf("[http] Sending http/request to device %s", udid)
+				go func(dc *SafeConn, u string) {
+					if err := sendMessage(dc, httpMsg); err != nil {
+						log.Printf("[http] Failed to send to device %s: %v", u, err)
+					}
+				}(deviceConn, udid)
+			} else {
+				log.Printf("[http] Device %s not found in deviceLinks", udid)
+			}
+		}
+
 	case "app/state":
 		bodyMap, ok := data.Body.(map[string]interface{})
 		if !ok {
@@ -241,6 +328,11 @@ func handleMessage(conn *SafeConn, data Message) error {
 	default:
 		if len(controllers) > 0 {
 			if udid, exists := deviceLinksMap[conn]; exists {
+				// 记录转发的消息类型
+				if data.Type == "xxtouch/response" || data.Type == "xxtouch/request" ||
+					data.Type == "http/response" || data.Type == "http/request" {
+					log.Printf("[%s] Forwarding %s from device %s to %d controllers", data.Type, data.Type, udid, len(controllers))
+				}
 				data.UDID = udid
 				for controllerConn := range controllers {
 					go func(cc *SafeConn, msg Message) {
