@@ -69,6 +69,8 @@ export class WebRTCService {
   private unsubscribe: (() => void) | null = null;
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
+  private isPolling = false;
+  private pendingCandidates: RTCIceCandidateInit[] = [];
 
   constructor(wsService: WebSocketService, deviceUdid: string, password: string, events: WebRTCServiceEvents = {}) {
     this.wsService = wsService;
@@ -252,12 +254,32 @@ export class WebRTCService {
 
         this.peerConnection.onconnectionstatechange = () => {
           const state = this.peerConnection?.connectionState;
-          console.log('Connection state:', state);
+          console.log('[WebRTC] Connection state:', state);
           if (state === 'connected') {
             this.events.onConnected?.();
           } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
             this.events.onDisconnected?.();
           }
+        };
+
+        this.peerConnection.oniceconnectionstatechange = () => {
+          const iceState = this.peerConnection?.iceConnectionState;
+          console.log('[WebRTC] ICE connection state:', iceState);
+          if (iceState === 'failed') {
+            console.error('[WebRTC] ICE connection failed - TURN server may be unreachable');
+          }
+        };
+
+        this.peerConnection.onicegatheringstatechange = () => {
+          console.log('[WebRTC] ICE gathering state:', this.peerConnection?.iceGatheringState);
+        };
+
+        this.peerConnection.onicecandidateerror = (event) => {
+          console.error('[WebRTC] ICE candidate error:', {
+            errorCode: event.errorCode,
+            errorText: event.errorText,
+            url: event.url
+          });
         };
 
         this.peerConnection.ondatachannel = (event) => {
@@ -271,12 +293,26 @@ export class WebRTCService {
           sdp: response.sdp
         });
 
+        // 处理缓存的 ICE candidates
+        for (const candidate of this.pendingCandidates) {
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            console.log('[WebRTC] Added pending ICE candidate');
+          } catch (e) {
+            console.error('[WebRTC] Failed to add pending ICE candidate:', e);
+          }
+        }
+        this.pendingCandidates = [];
+
         // 创建 answer
         const answer = await this.peerConnection.createAnswer();
         await this.peerConnection.setLocalDescription(answer);
 
         // 发送 answer 到设备
         await this.sendAnswer(answer.sdp!);
+
+        // 开始轮询设备端的 ICE candidates
+        this.startPolling();
       }
     } catch (error: any) {
       this.events.onError?.(error.message || String(error));
@@ -299,6 +335,101 @@ export class WebRTCService {
     sdpMLineIndex: number;
   }): Promise<void> {
     await this.sendRequest('POST', '/api/webrtc/ice', candidate);
+  }
+
+  /**
+   * 开始轮询设备端的 ICE candidates
+   */
+  private startPolling(): void {
+    if (this.isPolling) return;
+    this.isPolling = true;
+    this.pollForCandidates();
+  }
+
+  /**
+   * 停止轮询
+   */
+  private stopPolling(): void {
+    this.isPolling = false;
+  }
+
+  /**
+   * 轮询设备端的 ICE candidates
+   */
+  private async pollForCandidates(): Promise<void> {
+    if (!this.isPolling || !this.peerConnection) {
+      return;
+    }
+
+    try {
+      // 异步HTTP客户端已在Lua端实现，不再需要短超时
+      const messages = await this.sendRequest('GET', '/api/webrtc/poll') as any[];
+      
+      if (Array.isArray(messages)) {
+        for (const msg of messages) {
+          await this.handlePollMessage(msg);
+        }
+      }
+
+      // 继续轮询
+      if (this.isPolling && this.peerConnection && this.peerConnection.connectionState !== 'closed') {
+        // 使用 setTimeout 而不是立即递归，避免堆栈溢出
+        setTimeout(() => this.pollForCandidates(), 100);
+      }
+    } catch (error) {
+      console.error('[WebRTC] Polling error:', error);
+      // 错误后稍等重试
+      if (this.isPolling && this.peerConnection) {
+        setTimeout(() => this.pollForCandidates(), 1000);
+      }
+    }
+  }
+
+  /**
+   * 处理轮询消息
+   */
+  private async handlePollMessage(msg: any): Promise<void> {
+    if (!msg || !msg.type) return;
+
+    switch (msg.type) {
+      case 'ice':
+        // 收到设备端的 ICE candidate
+        const candidateInit: RTCIceCandidateInit = {
+          candidate: msg.candidate,
+          sdpMid: msg.sdpMid,
+          sdpMLineIndex: msg.sdpMLineIndex
+        };
+        console.log('[WebRTC] Received device ICE candidate:', msg.candidate?.substring(0, 50) + '...');
+        
+        if (this.peerConnection?.remoteDescription) {
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidateInit));
+            console.log('[WebRTC] Added device ICE candidate');
+          } catch (e) {
+            console.error('[WebRTC] Failed to add ICE candidate:', e);
+          }
+        } else {
+          // 如果远程描述还没设置，先缓存
+          this.pendingCandidates.push(candidateInit);
+        }
+        break;
+
+      case 'connected':
+        console.log('[WebRTC] Device signaling connected');
+        break;
+
+      case 'disconnected':
+      case 'disconnect':
+        console.log('[WebRTC] Device signaling disconnected');
+        this.stopPolling();
+        break;
+
+      case 'kicked':
+        console.warn('[WebRTC] Kicked by another connection');
+        this.stopPolling();
+        this.events.onError?.('Connection kicked by another user');
+        break;
+    }
   }
 
   /**
@@ -388,6 +519,10 @@ export class WebRTCService {
    * 清理资源
    */
   cleanup() {
+    // 停止轮询
+    this.stopPolling();
+    this.pendingCandidates = [];
+
     if (this.dataChannel) {
       this.dataChannel.close();
       this.dataChannel = null;
