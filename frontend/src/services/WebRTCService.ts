@@ -341,8 +341,12 @@ export class WebRTCService {
         // 使用 setTimeout 而不是立即递归，避免堆栈溢出
         setTimeout(() => this.pollForCandidates(), 100);
       }
-    } catch (error) {
-      console.error('[WebRTC] Polling error:', error);
+    } catch (error: any) {
+      // 如果不是因为服务销毁导致的错误，记录到控制台
+      if (this.isPolling && error?.message !== 'Service destroyed') {
+        console.error('[WebRTC] Polling error:', error);
+      }
+      
       // 错误后稍等重试
       if (this.isPolling && this.peerConnection) {
         setTimeout(() => this.pollForCandidates(), 1000);

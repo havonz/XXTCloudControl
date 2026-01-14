@@ -453,9 +453,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
     const deviceX = ratioX * device.system.scrw;
     const deviceY = ratioY * device.system.scrh;
 
-    // console.log(`容器位置: (${clickX.toFixed(1)}, ${clickY.toFixed(1)}) 图像区域: ${imageStartX.toFixed(1)},${imageStartY.toFixed(1)} ${displayedImageWidth.toFixed(1)}x${displayedImageHeight.toFixed(1)} 相对位置: (${relativeX.toFixed(1)}, ${relativeY.toFixed(1)}) 比例: (${ratioX.toFixed(3)}, ${ratioY.toFixed(3)}) 设备坐标: (${deviceX.toFixed(1)}, ${deviceY.toFixed(1)})`);
-    
-    return { x: deviceX, y: deviceY };
+    return { x: deviceX, y: deviceY, nx: ratioX, ny: ratioY };
   };
 
   // 鼠标按下事件（仅处理左键）
@@ -472,8 +470,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
       lastTouchPoint = coords;
       // 根据同步控制状态发送到对应设备
       const targetDevices = getTargetDevices();
-      props.webSocketService!.touchDownMultiple(targetDevices, coords.x, coords.y);
-      // console.log(`触摸按下发送到 ${targetDevices.length} 台设备: ${targetDevices.join(', ')}`);
+      props.webSocketService!.touchDownMultipleNormalized(targetDevices, coords.nx, coords.ny);
     }
   };
 
@@ -487,7 +484,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
       lastTouchPoint = coords;
       // 根据同步控制状态发送到对应设备
       const targetDevices = getTargetDevices();
-      props.webSocketService!.touchMoveMultiple(targetDevices, coords.x, coords.y);
+      props.webSocketService!.touchMoveMultipleNormalized(targetDevices, coords.nx, coords.ny);
     }
   };
 
@@ -501,8 +498,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
       if (coords) {
         // 根据同步控制状态发送到对应设备
         const targetDevices = getTargetDevices();
-        props.webSocketService!.touchUpMultiple(targetDevices, coords.x, coords.y);
-        // console.log(`触摸抬起发送到 ${targetDevices.length} 台设备: ${targetDevices.join(', ')}`);
+        props.webSocketService!.touchUpMultipleNormalized(targetDevices);
       }
     }
     setIsTouching(false);
@@ -535,7 +531,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
         lastTouchPoint = coords;
         // 根据同步控制状态发送到对应设备
         const targetDevices = getTargetDevices();
-        props.webSocketService!.touchMoveMultiple(targetDevices, coords.x, coords.y);
+        props.webSocketService!.touchMoveMultipleNormalized(targetDevices, coords.nx, coords.ny);
       }
     }
   };
@@ -547,7 +543,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
         if (coords) {
           // 根据同步控制状态发送到对应设备
           const targetDevices = getTargetDevices();
-          props.webSocketService!.touchUpMultiple(targetDevices, coords.x, coords.y);
+          props.webSocketService!.touchUpMultipleNormalized(targetDevices);
         }
       }
       setIsTouching(false);

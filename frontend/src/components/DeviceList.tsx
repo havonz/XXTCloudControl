@@ -165,7 +165,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   // WebRTC control modal state
   const [showWebRTCModal, setShowWebRTCModal] = createSignal(false);
-  const [webrtcDevice, setWebrtcDevice] = createSignal<Device | null>(null);
   
   // Toast notification state
   const [toastMessage, setToastMessage] = createSignal('');
@@ -713,14 +712,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       showToastMessage('请先选择设备');
       return;
     }
-    // 取第一个选中的设备用于WebRTC控制
-    setWebrtcDevice(props.selectedDevices()[0]);
     setShowWebRTCModal(true);
   };
 
   const handleCloseWebRTCControl = () => {
     setShowWebRTCModal(false);
-    setWebrtcDevice(null);
   };
   
   const handleDeviceBinding = () => {
@@ -1456,7 +1452,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           <WebRTCControl
             isOpen={showWebRTCModal()}
             onClose={handleCloseWebRTCControl}
-            device={webrtcDevice()}
+            selectedDevices={() => props.selectedDevices()}
             webSocketService={props.webSocketService}
             password={localStorage.getItem('xxt_password_hash') ? `__STORED_PASSHASH__${localStorage.getItem('xxt_password_hash')}` : ''}
           />

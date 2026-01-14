@@ -926,6 +926,37 @@ export class WebSocketService {
     return this.sendTouchCommand(deviceUdids, 'touch/up', x, y);
   }
 
+  // 触控按下（多设备 - 使用归一化坐标）
+  async touchDownMultipleNormalized(deviceUdids: string[], nx: number, ny: number): Promise<void> {
+    for (const udid of deviceUdids) {
+      const device = this.devices.find(d => d.udid === udid);
+      if (device?.system?.scrw && device?.system?.scrh) {
+        const x = Math.floor(nx * device.system.scrw);
+        const y = Math.floor(ny * device.system.scrh);
+        this.touchDown(udid, x, y);
+      }
+    }
+  }
+
+  // 触控移动（多设备 - 使用归一化坐标）
+  async touchMoveMultipleNormalized(deviceUdids: string[], nx: number, ny: number): Promise<void> {
+    for (const udid of deviceUdids) {
+      const device = this.devices.find(d => d.udid === udid);
+      if (device?.system?.scrw && device?.system?.scrh) {
+        const x = Math.floor(nx * device.system.scrw);
+        const y = Math.floor(ny * device.system.scrh);
+        this.touchMove(udid, x, y);
+      }
+    }
+  }
+
+  // 触控抬起（多设备 - 使用归一化坐标）
+  async touchUpMultipleNormalized(deviceUdids: string[]): Promise<void> {
+    for (const udid of deviceUdids) {
+      this.touchUp(udid, 0, 0); // touch/up 不需要坐标，传 0 即可
+    }
+  }
+
   // 发送按键命令（支持多设备）
   async sendKeyCommand(deviceUdids: string[], keyType: 'key/down' | 'key/up', keyCode: string): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
