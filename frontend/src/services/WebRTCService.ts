@@ -82,34 +82,21 @@ export class WebRTCService {
 
   private setupMessageHandler() {
     this.unsubscribe = this.wsService.onMessage((message) => {
-      // 调试：显示所有收到的消息
-      if (message.type?.includes('http') || message.type?.includes('webrtc')) {
-        console.log('[WebRTC] Received message:', message.type, message);
-      }
       
       // 处理 http/response 消息
       if (message.type === 'http/response') {
-        console.log('[WebRTC] http/response received:', {
-          udid: message.udid,
-          expectedUdid: this.deviceUdid,
-          body: message.body
-        });
-        
         // 检查 UDID 匹配
         if (message.udid !== this.deviceUdid) {
-          console.log('[WebRTC] UDID mismatch, ignoring');
           return;
         }
         
         const body = message.body;
         if (!body || !body.requestId) {
-          console.log('[WebRTC] No body or requestId');
           return;
         }
 
         const pending = this.pendingRequests.get(body.requestId);
         if (pending) {
-          console.log('[WebRTC] Found pending request:', body.requestId);
           clearTimeout(pending.timeout);
           this.pendingRequests.delete(body.requestId);
 
@@ -118,23 +105,17 @@ export class WebRTCService {
           if (body.body) {
             try {
               const decoded = decodeBody(body.body);
-              console.log('[WebRTC] Decoded body:', decoded);
               responseBody = JSON.parse(decoded);
-            } catch (e) {
-              console.log('[WebRTC] Body decode/parse error:', e);
+            } catch {
               responseBody = body.body;
             }
           }
 
           if (body.statusCode >= 200 && body.statusCode < 300) {
-            console.log('[WebRTC] Request success:', responseBody);
             pending.resolve(responseBody);
           } else {
-            console.log('[WebRTC] Request error:', body.statusCode, responseBody);
             pending.reject(responseBody?.error || `HTTP ${body.statusCode}`);
           }
-        } else {
-          console.log('[WebRTC] No pending request for:', body.requestId);
         }
       }
     });
@@ -154,7 +135,6 @@ export class WebRTCService {
 
     return new Promise((resolve, reject) => {
       const timeout = window.setTimeout(() => {
-        console.log('[WebRTC] Request timeout:', requestId, path);
         this.pendingRequests.delete(requestId);
         reject(new Error('Request timeout'));
       }, 30000);
@@ -175,14 +155,6 @@ export class WebRTCService {
         }
       );
 
-      console.log('[WebRTC] Sending request:', {
-        requestId,
-        method,
-        path,
-        query,
-        deviceUdid: this.deviceUdid
-      });
-      
       this.wsService.send(message);
     });
   }
@@ -244,17 +216,14 @@ export class WebRTCService {
           if (track.kind === 'video') {
             let stream = streams[0];
             if (!stream) {
-              console.warn('[WebRTC] No stream found in ontrack, creating a new MediaStream');
               stream = new MediaStream([track]);
             }
-            console.log('[WebRTC] Notifying onTrack with stream:', stream.id);
             (this.events as any).onTrack?.(stream);
           }
         };
 
         this.peerConnection.onconnectionstatechange = () => {
           const state = this.peerConnection?.connectionState;
-          console.log('[WebRTC] Connection state:', state);
           if (state === 'connected') {
             this.events.onConnected?.();
           } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
@@ -264,15 +233,12 @@ export class WebRTCService {
 
         this.peerConnection.oniceconnectionstatechange = () => {
           const iceState = this.peerConnection?.iceConnectionState;
-          console.log('[WebRTC] ICE connection state:', iceState);
           if (iceState === 'failed') {
-            console.error('[WebRTC] ICE connection failed - TURN server may be unreachable');
+            console.error('[WebRTC] ICE connection failed');
           }
         };
 
-        this.peerConnection.onicegatheringstatechange = () => {
-          console.log('[WebRTC] ICE gathering state:', this.peerConnection?.iceGatheringState);
-        };
+        this.peerConnection.onicegatheringstatechange = () => {};
 
         this.peerConnection.onicecandidateerror = (event) => {
           console.error('[WebRTC] ICE candidate error:', {
@@ -297,7 +263,6 @@ export class WebRTCService {
         for (const candidate of this.pendingCandidates) {
           try {
             await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-            console.log('[WebRTC] Added pending ICE candidate');
           } catch (e) {
             console.error('[WebRTC] Failed to add pending ICE candidate:', e);
           }
@@ -399,12 +364,10 @@ export class WebRTCService {
           sdpMid: msg.sdpMid,
           sdpMLineIndex: msg.sdpMLineIndex
         };
-        console.log('[WebRTC] Received device ICE candidate:', msg.candidate?.substring(0, 50) + '...');
         
         if (this.peerConnection?.remoteDescription) {
           try {
             await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidateInit));
-            console.log('[WebRTC] Added device ICE candidate');
           } catch (e) {
             console.error('[WebRTC] Failed to add ICE candidate:', e);
           }
@@ -415,12 +378,10 @@ export class WebRTCService {
         break;
 
       case 'connected':
-        console.log('[WebRTC] Device signaling connected');
         break;
 
       case 'disconnected':
       case 'disconnect':
-        console.log('[WebRTC] Device signaling disconnected');
         this.stopPolling();
         break;
 
@@ -471,7 +432,6 @@ export class WebRTCService {
         x: Number(x.toFixed(4)),
         y: Number(y.toFixed(4))
       };
-      console.log('[WebRTC] Sending touch command:', command);
       this.dataChannel.send(JSON.stringify(command));
     }
   }
@@ -487,7 +447,6 @@ export class WebRTCService {
         key,
         action
       };
-      console.log('[WebRTC] Sending key command:', command);
       this.dataChannel.send(JSON.stringify(command));
     }
   }
@@ -495,13 +454,9 @@ export class WebRTCService {
   private setupDataChannel() {
     if (!this.dataChannel) return;
 
-    this.dataChannel.onopen = () => {
-      console.log('DataChannel opened');
-    };
+    this.dataChannel.onopen = () => {};
 
-    this.dataChannel.onclose = () => {
-      console.log('DataChannel closed');
-    };
+    this.dataChannel.onclose = () => {};
 
     this.dataChannel.onerror = (error) => {
       console.error('DataChannel error:', error);
