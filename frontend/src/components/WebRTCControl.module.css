@@ -1,4 +1,4 @@
-/* WebRTC 控制组件样式 */
+/* WebRTC 控制组件样式 - 与 RealTimeControl 保持一致的主题样式 */
 
 .modalOverlay {
   position: fixed;
@@ -6,7 +6,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay-strong);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15,7 +15,7 @@
 }
 
 .webrtcModal {
-  background: var(--primary-bg);
+  background: var(--panel);
   border-radius: 12px;
   width: 95%;
   max-width: 1400px;
@@ -23,7 +23,9 @@
   max-height: 900px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  border: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -31,61 +33,65 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 24px;
-  background: var(--secondary-bg);
-  border-bottom: 1px solid var(--border-color);
+  padding: 1.5rem;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
 }
 
 .modalHeader h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 1.3rem;
   font-weight: 600;
-  color: var(--text-color);
+  color: var(--text);
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
 .connectionBadge {
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: 12px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .connectionBadge.connected {
-  background: rgba(52, 199, 89, 0.2);
-  color: #34c759;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .connectionBadge.connecting {
-  background: rgba(255, 204, 0, 0.2);
-  color: #ffcc00;
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 
 .connectionBadge.disconnected {
-  background: rgba(255, 59, 48, 0.2);
-  color: #ff3b30;
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .closeButton {
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: rgba(255, 59, 48, 0.1);
-  color: #ff3b30;
+  padding: 0.75rem 1.5rem;
+  border: 2px solid var(--border);
   border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  transition: all 0.2s;
+  font-size: 0.9rem;
+  font-weight: 700;
+  transition: all 0.2s ease;
 }
 
 .closeButton:hover {
-  background: rgba(255, 59, 48, 0.2);
-  transform: scale(1.05);
+  background: var(--hover-bg);
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.closeButton:active {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .webrtcContent {
@@ -96,34 +102,32 @@
 
 /* 左侧控制面板 */
 .controlPanel {
-  width: 220px;
-  background: var(--secondary-bg);
-  border-right: 1px solid var(--border-color);
-  padding: 16px;
+  width: 260px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 1rem;
   overflow-y: auto;
 }
 
 .controlPanel h4 {
   margin: 0;
-  font-size: 14px;
+  font-size: 1.1rem;
   font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--text);
 }
 
 /* 设置项 */
 .settingGroup {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
 }
 
 .settingLabel {
-  font-size: 13px;
+  font-size: 0.9rem;
   color: var(--text-secondary);
 }
 
@@ -136,7 +140,7 @@
 .settingSlider {
   flex: 1;
   height: 4px;
-  background: var(--border-color);
+  background: var(--border);
   border-radius: 2px;
   appearance: none;
   outline: none;
@@ -159,31 +163,38 @@
 .settingNumber {
   width: 50px;
   text-align: center;
-  font-size: 13px;
-  color: var(--text-color);
-  background: var(--primary-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 4px;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.settingNumber:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  background: var(--input-focus-bg);
 }
 
 /* 设备信息 */
 .deviceInfo {
-  background: var(--primary-bg);
-  padding: 12px;
+  background: var(--panel-2);
+  padding: 0.75rem;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
 }
 
 .deviceName {
   font-weight: 600;
-  color: var(--text-color);
-  margin-bottom: 4px;
+  color: var(--text);
+  margin-bottom: 0.25rem;
 }
 
 .deviceUdid {
-  color: var(--text-secondary);
-  font-size: 11px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
   font-family: monospace;
   word-break: break-all;
 }
@@ -192,45 +203,63 @@
 .actionButtons {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
   margin-top: auto;
 }
 
 .actionButton {
-  padding: 10px 12px;
-  border: none;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--border);
   border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 0.9rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.actionButton:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.actionButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  transition: all 0.1s ease;
 }
 
 .startButton {
-  background: rgba(52, 199, 89, 0.2);
-  color: #34c759;
+  background: var(--success-bg);
+  border-color: var(--success);
+  color: var(--success);
 }
 
 .startButton:hover:not(:disabled) {
-  background: rgba(52, 199, 89, 0.3);
+  background: var(--success-bg-strong);
+  border-color: var(--success);
 }
 
 .stopButton {
-  background: rgba(255, 59, 48, 0.2);
-  color: #ff3b30;
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .stopButton:hover:not(:disabled) {
-  background: rgba(255, 59, 48, 0.3);
+  background: var(--danger-bg-strong);
+  border-color: var(--danger);
 }
 
 .actionButton:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
+  transform: none;
 }
 
 /* 右侧视频区域 */
@@ -238,8 +267,9 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #000;
+  background: var(--panel-2);
   position: relative;
+  padding: 1.5rem;
 }
 
 .videoContainer {
@@ -249,6 +279,10 @@
   justify-content: center;
   position: relative;
   overflow: hidden;
+  background: var(--panel);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  min-height: 400px;
 }
 
 .videoElement {
@@ -256,7 +290,7 @@
   max-height: 100%;
   object-fit: contain;
   cursor: crosshair;
-  background: #000;
+  border-radius: 4px;
 }
 
 .videoPlaceholder {
@@ -265,8 +299,8 @@
   align-items: center;
   justify-content: center;
   gap: 16px;
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 14px;
+  color: var(--text-muted);
+  font-size: 1.1rem;
 }
 
 .placeholderIcon {
@@ -278,16 +312,19 @@
 .statsBar {
   display: flex;
   justify-content: space-between;
-  padding: 8px 16px;
-  background: rgba(0, 0, 0, 0.8);
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+  padding: 0.75rem;
+  background: var(--panel);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  margin-top: 1rem;
+  border: 1px solid var(--border);
 }
 
 .statItem {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  color: var(--text-secondary);
 }
 
 /* 触控提示 */
@@ -297,10 +334,10 @@
   left: 50%;
   transform: translateX(-50%);
   padding: 8px 16px;
-  background: rgba(0, 0, 0, 0.7);
-  color: rgba(255, 255, 255, 0.8);
+  background: var(--overlay-strong);
+  color: var(--text);
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 0.85rem;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.3s;
@@ -308,4 +345,35 @@
 
 .videoContainer:hover .touchHint {
   opacity: 1;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .webrtcModal {
+    width: 98%;
+    height: 95%;
+  }
+  
+  .controlPanel {
+    width: 220px;
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .webrtcContent {
+    flex-direction: column;
+  }
+  
+  .controlPanel {
+    width: 100%;
+    height: auto;
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .videoPanel {
+    padding: 1rem;
+  }
 }

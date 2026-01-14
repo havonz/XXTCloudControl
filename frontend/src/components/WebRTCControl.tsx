@@ -116,16 +116,16 @@ export default function WebRTCControl(props: WebRTCControlProps) {
               const timeDiff = (now - lastTimestamp) / 1000;
               const bytesDiff = bytesReceived - lastBytesReceived;
               
-              if (bytesDiff > 0) {
-                console.log('[WebRTC] Receiving:', {
-                  kbps: Math.round((bytesDiff * 8) / timeDiff / 1000),
-                  framesDecoded,
-                  framesDropped,
-                  jitter: report.jitter,
-                  packetsLost: report.packetsLost,
-                  videoState: videoRef ? `play:${!videoRef.paused}, muted:${videoRef.muted}, ready:${videoRef.readyState}` : 'no-ref'
-                });
-              }
+              // if (bytesDiff > 0) {
+              //   console.log('[WebRTC] Receiving:', {
+              //     kbps: Math.round((bytesDiff * 8) / timeDiff / 1000),
+              //     framesDecoded,
+              //     framesDropped,
+              //     jitter: report.jitter,
+              //     packetsLost: report.packetsLost,
+              //     videoState: videoRef ? `play:${!videoRef.paused}, muted:${videoRef.muted}, ready:${videoRef.readyState}` : 'no-ref'
+              //   });
+              // }
               setBitrate(Math.round((bytesDiff * 8) / timeDiff / 1000)); // kbps
               lastBytesReceived = bytesReceived;
             }
