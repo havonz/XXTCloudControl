@@ -60,6 +60,7 @@ export class WebRTCService {
   private wsService: WebSocketService;
   private deviceUdid: string;
   private password: string;
+  private httpPort?: number;
   private events: WebRTCServiceEvents;
   private pendingRequests: Map<string, {
     resolve: (value: any) => void;
@@ -72,11 +73,18 @@ export class WebRTCService {
   private isPolling = false;
   private pendingCandidates: RTCIceCandidateInit[] = [];
 
-  constructor(wsService: WebSocketService, deviceUdid: string, password: string, events: WebRTCServiceEvents = {}) {
+  constructor(
+    wsService: WebSocketService,
+    deviceUdid: string,
+    password: string,
+    events: WebRTCServiceEvents = {},
+    httpPort?: number
+  ) {
     this.wsService = wsService;
     this.deviceUdid = deviceUdid;
     this.password = password;
     this.events = events;
+    this.httpPort = httpPort;
     this.setupMessageHandler();
   }
 
@@ -151,7 +159,8 @@ export class WebRTCService {
           path,
           query: query || {},
           headers: { 'Content-Type': 'application/json' },
-          body: body ? encodeBody(JSON.stringify(body)) : undefined
+          body: body ? encodeBody(JSON.stringify(body)) : undefined,
+          port: this.httpPort
         }
       );
 
@@ -227,6 +236,7 @@ export class WebRTCService {
           if (state === 'connected') {
             this.events.onConnected?.();
           } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+            this.stopPolling();
             this.events.onDisconnected?.();
           }
         };

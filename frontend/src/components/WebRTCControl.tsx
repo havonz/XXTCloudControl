@@ -29,6 +29,30 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   let lastFramesDecoded = 0;
   let lastTimestamp = 0;
 
+  const getDeviceHttpPort = (device: Device | null): number | undefined => {
+    if (!device) return undefined;
+    const candidates = [
+      device.system?.port,
+      device.system?.httpPort,
+      device.system?.http_port,
+      (device as any).port,
+      (device as any).httpPort,
+      (device as any).http_port
+    ];
+    for (const value of candidates) {
+      if (typeof value === 'number' && value > 0 && value <= 65535) {
+        return value;
+      }
+      if (typeof value === 'string') {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed) && parsed > 0 && parsed <= 65535) {
+          return parsed;
+        }
+      }
+    }
+    return undefined;
+  };
+
   // 获取当前选中设备对象
   const getCurrentDevice = () => {
     const udid = selectedControlDevice();
@@ -65,6 +89,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
         await webrtcService.cleanup();
       }
       
+      const httpPort = getDeviceHttpPort(device);
+
       webrtcService = new WebRTCService(
         props.webSocketService,
         device.udid,
@@ -86,7 +112,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
             console.log('[WebRTC] Setting remote stream signal');
             setRemoteStream(stream);
           }
-        }
+        },
+        httpPort
       );
 
       const options: WebRTCStartOptions = {
