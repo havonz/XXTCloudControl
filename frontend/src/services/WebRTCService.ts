@@ -328,7 +328,7 @@ export class WebRTCService {
 
     try {
       // 异步HTTP客户端已在Lua端实现，不再需要短超时
-      const messages = await this.sendRequest('GET', '/api/webrtc/poll') as any[];
+      const messages = await this.sendRequest('GET', '/api/webrtc/poll', null, { timeout: 25 }) as any[];
       
       if (Array.isArray(messages)) {
         for (const msg of messages) {
