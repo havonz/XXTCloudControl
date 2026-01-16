@@ -159,9 +159,11 @@ conf.open_cloud_control = conf.open_cloud_control or {}
 
 local address = "ws://" .. cloud_host .. ":" .. cloud_port .. "/api/ws"
 
+local xxt_port = tonumber(type(sys.port) == "function" and sys.port() or 46952) or 46952
+
 if conf.open_cloud_control.enable then
 	if sys.alert("当前设备已被以下云控控制\n\n"..tostring(conf.open_cloud_control.address).."\n\n你是否需要解除设备被控状态？", 10, "是否解除被控", "取消", "解除被控") == 1 then
-		local c, h, r = http.put('http://127.0.0.1:46952/api/config', 5, {}, json.encode{
+		local c, h, r = http.put('http://127.0.0.1:'..xxt_port..'/api/config', 5, {}, json.encode{
 			cloud = {
 				enable = false,
 				address = address,
@@ -173,7 +175,7 @@ if conf.open_cloud_control.enable then
 	end
 else
 	if sys.alert("你确认要将设备加入到以下云控的并被其控制？\n\n"..address.."\n\n⚠️你必须确定该云控是可信的，否则设备将被恶意控制！", 10, "是否加入", "取消", "加入并被控") == 1 then
-		local c, h, r = http.put('http://127.0.0.1:46952/api/config', 5, {}, json.encode{
+		local c, h, r = http.put('http://127.0.0.1:'..xxt_port..'/api/config', 5, {}, json.encode{
 			cloud = {
 				enable = true,
 				address = address,
