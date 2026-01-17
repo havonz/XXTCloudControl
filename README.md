@@ -73,16 +73,48 @@ go run . -set-password 12345678
 
 ```json
 {
-  "port": 46980,
-  "passhash": "hex-string",
-  "ping_interval": 15,
-  "ping_timeout": 10,
-  "frontend_dir": "./frontend"
+  "port": 46980, // WebSocket 服务端口
+  "passhash": "hex-string", // 密码的 HMAC-SHA256 哈希值
+  "ping_interval": 15, // 服务端发送 ping 请求的间隔（秒）
+  "ping_timeout": 10, // 服务端发送 ping 请求的超时时间（秒）
+  "frontend_dir": "./frontend", // 前端文件目录
+  "turnEnabled": true, // 是否启用 TURN 服务器
+  "turnPort": 43478,   // TURN 服务器监听端口
+  "turnPublicIP": "你的公网IP", // 你的公网IP
+  "turnRelayPortMin": 49152, // TURN 服务器中继端口范围起始
+  "turnRelayPortMax": 65535  // TURN 服务器中继端口范围结束
 }
 ```
 
 - `passhash` 为 `hmacSHA256("XXTouch", password)` 的结果，不是明文密码。
 - `ping_interval` 会触发服务端发送 `app/state` 请求，设备需回应以保持在线。
+
+## WebRTC 穿透 (TURN) 配置
+
+为了支持外网环境下的实时桌面控制，服务端内置了支持 UDP/TCP 的 TURN 服务器。当 `turnEnabled` 为 `true` 且 `turnPublicIP` 不为空时会自动激活。
+
+### 1) 快捷设置命令
+
+```bash
+# 设置公网 IP 并启用
+./xxtcloudserver -set-turn-ip 1.2.3.4
+
+# (可选) 设置监听端口 (默认 43478)
+./xxtcloudserver -set-turn-port 3478
+```
+
+### 2) 管理员防火墙配置
+
+服务器管理员需要在云安全组/防火墙中开放以下端口：
+
+| 端口范围 | 协议 | 用途 |
+|----------|------|------|
+| `46980` (或自定义) | **TCP** | **云控本体服务** (API & WebSocket) |
+| `43478` (或自定义) | **UDP & TCP** | WebRTC [TURN] 控制、握手与回退 |
+| `49152 - 65535` | **UDP** | WebRTC [TURN] 实时媒体流中继 |
+
+> [!TIP]
+> 媒体中继优先使用 UDP。在 UDP 流量被严格限制的情况下，WebRTC 会自动回退到 TCP (端口 43478) 以确保桌面流能够正常传输。
 
 ## 设备绑定方式
 

@@ -22,6 +22,8 @@ func showUsage() {
 	fmt.Println("  " + os.Args[0] + "                              # Start with default config (xxtcloudserver.json)")
 	fmt.Println("  " + os.Args[0] + " -config ./my-config.json     # Use specific config file")
 	fmt.Println("  " + os.Args[0] + " -set-password 12345678       # Set control password")
+	fmt.Println("  " + os.Args[0] + " -set-turn-ip 1.2.3.4         # Set TURN server public IP")
+	fmt.Println("  " + os.Args[0] + " -set-turn-port 3478          # Set TURN server UDP port")
 	fmt.Println("  " + os.Args[0] + " -v                           # Show version")
 	fmt.Println("  " + os.Args[0] + " -h                           # Show help")
 }
@@ -30,6 +32,8 @@ func main() {
 	// Define command line flags
 	configPath := flag.String("config", "", "Configuration file path (optional, uses default if not specified)")
 	setPassword := flag.String("set-password", "", "Set the control password")
+	setTurnIP := flag.String("set-turn-ip", "", "Set the TURN server public IP")
+	setTurnPort := flag.Int("set-turn-port", 0, "Set the TURN server UDP port")
 	help := flag.Bool("h", false, "Show help")
 	version := flag.Bool("v", false, "Show version")
 
@@ -67,6 +71,41 @@ func main() {
 		return
 	}
 
+	// Set TURN public IP if requested
+	if *setTurnIP != "" {
+		serverConfig.TURNEnabled = true
+		serverConfig.TURNPublicIP = *setTurnIP
+		targetPath := *configPath
+		if targetPath == "" {
+			targetPath = DefaultConfigFile
+		}
+		if err := saveConfig(targetPath, serverConfig); err != nil {
+			log.Fatalf("Failed to save configuration: %v", err)
+		}
+		fmt.Printf("TURN public IP set to: %s\n", *setTurnIP)
+		fmt.Printf("Please ensure UDP/TCP port %d and UDP ports %d-%d are open on your firewall\n",
+			serverConfig.TURNPort, serverConfig.TURNRelayPortMin, serverConfig.TURNRelayPortMax)
+		return
+	}
+
+	// Set TURN port if requested
+	if *setTurnPort != 0 {
+		if *setTurnPort < 1 || *setTurnPort > 65535 {
+			log.Fatalf("Invalid TURN port: %d", *setTurnPort)
+		}
+		serverConfig.TURNEnabled = true
+		serverConfig.TURNPort = *setTurnPort
+		targetPath := *configPath
+		if targetPath == "" {
+			targetPath = DefaultConfigFile
+		}
+		if err := saveConfig(targetPath, serverConfig); err != nil {
+			log.Fatalf("Failed to save configuration: %v", err)
+		}
+		fmt.Printf("TURN port set to: %d\n", *setTurnPort)
+		return
+	}
+
 	// Start status request timer
 	startStatusRequestTimer()
 	defer stopStatusRequestTimer()
@@ -92,6 +131,27 @@ func main() {
 
 	if err := loadAppSettings(); err != nil {
 		log.Printf("Warning: Failed to load app settings: %v", err)
+	}
+
+	// Initialize TURN server if enabled and public IP is configured
+	if serverConfig.TURNEnabled && serverConfig.TURNPublicIP != "" {
+		turnConfig := TURNConfig{
+			Enabled:       serverConfig.TURNEnabled,
+			Port:          serverConfig.TURNPort,
+			PublicIP:      serverConfig.TURNPublicIP,
+			Realm:         serverConfig.TURNRealm,
+			SecretKey:     serverConfig.TURNSecretKey,
+			CredentialTTL: serverConfig.TURNCredentialTTL,
+			RelayPortMin:  serverConfig.TURNRelayPortMin,
+			RelayPortMax:  serverConfig.TURNRelayPortMax,
+		}
+		if err := InitTURNServer(turnConfig); err != nil {
+			log.Printf("Warning: Failed to start TURN server: %v", err)
+		} else {
+			defer StopTURNServer()
+		}
+	} else if serverConfig.TURNEnabled && serverConfig.TURNPublicIP == "" {
+		fmt.Println("ℹ️  TURN server enabled but turnPublicIP not configured, skipping...")
 	}
 
 	// Configure Gin

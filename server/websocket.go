@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -226,17 +227,51 @@ func handleMessage(conn *SafeConn, data Message) error {
 		log.Printf("[http] Received control/http for devices: %v, path: %s", httpReq.Devices, httpReq.Path)
 
 		// 构建发送给设备的消息
+		httpBody := map[string]interface{}{
+			"requestId": httpReq.RequestID,
+			"method":    httpReq.Method,
+			"path":      httpReq.Path,
+			"query":     httpReq.Query,
+			"headers":   httpReq.Headers,
+			"body":      httpReq.Body,
+			"port":      httpReq.Port,
+		}
+
+		// 如果是 WebRTC start 请求，注入 TURN 服务器配置
+		if httpReq.Path == "/api/webrtc/start" && httpReq.Method == "POST" {
+			turnICEServers := GetTURNICEServers()
+			if len(turnICEServers) > 0 {
+				// 解析原始请求体
+				var originalBody map[string]interface{}
+				if httpReq.Body != "" {
+					decodedBody, err := base64.StdEncoding.DecodeString(httpReq.Body)
+					if err == nil {
+						json.Unmarshal(decodedBody, &originalBody)
+					}
+				}
+				if originalBody == nil {
+					originalBody = make(map[string]interface{})
+				}
+
+				// 合并 TURN 服务器到 iceServers
+				existingIceServers, _ := originalBody["iceServers"].([]interface{})
+				for _, turnServer := range turnICEServers {
+					existingIceServers = append(existingIceServers, turnServer)
+				}
+				originalBody["iceServers"] = existingIceServers
+
+				// 重新编码请求体
+				newBodyBytes, err := json.Marshal(originalBody)
+				if err == nil {
+					httpBody["body"] = base64.StdEncoding.EncodeToString(newBodyBytes)
+					log.Printf("[http] Injected TURN server config for WebRTC start request")
+				}
+			}
+		}
+
 		httpMsg := Message{
 			Type: "http/request",
-			Body: map[string]interface{}{
-				"requestId": httpReq.RequestID,
-				"method":    httpReq.Method,
-				"path":      httpReq.Path,
-				"query":     httpReq.Query,
-				"headers":   httpReq.Headers,
-				"body":      httpReq.Body,
-				"port":      httpReq.Port,
-			},
+			Body: httpBody,
 		}
 
 		for _, udid := range httpReq.Devices {

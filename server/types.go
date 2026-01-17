@@ -36,6 +36,16 @@ type ServerConfig struct {
 	PingTimeout  int    `json:"ping_timeout"`
 	FrontendDir  string `json:"frontend_dir"`
 	DataDir      string `json:"data_dir"`
+
+	// TURN server configuration
+	TURNEnabled       bool   `json:"turnEnabled"`       // Enable embedded TURN server
+	TURNPort          int    `json:"turnPort"`          // TURN UDP port (default: 3478)
+	TURNPublicIP      string `json:"turnPublicIP"`      // Public IP for TURN relay (required if enabled)
+	TURNRealm         string `json:"turnRealm"`         // TURN realm (default: "xxtcloud")
+	TURNSecretKey     string `json:"turnSecretKey"`     // Secret key for credential generation
+	TURNCredentialTTL int    `json:"turnCredentialTTL"` // Credential TTL in seconds (default: 86400)
+	TURNRelayPortMin  int    `json:"turnRelayPortMin"`  // Minimum relay port (default: 49152)
+	TURNRelayPortMax  int    `json:"turnRelayPortMax"`  // Maximum relay port (default: 65535)
 }
 
 // DefaultConfig returns the default server configuration
@@ -46,6 +56,13 @@ var DefaultConfig = ServerConfig{
 	PingTimeout:  10,
 	FrontendDir:  "./frontend",
 	DataDir:      "./data",
+
+	// TURN defaults (user only needs to fill TURNPublicIP to enable)
+	TURNEnabled:      true,
+	TURNPort:         43478,
+	TURNPublicIP:     "",
+	TURNRelayPortMin: 49152,
+	TURNRelayPortMax: 65535,
 }
 
 // Global configuration
