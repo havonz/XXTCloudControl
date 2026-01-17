@@ -447,26 +447,85 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     return wsKeyCodeMap[key] || key.toUpperCase();
   };
 
-  // 特殊按键映射
-  const keyMapping: Record<string, string> = {
+  // 特殊按键映射 - 使用 e.code (物理键码) 而不是 e.key (字符)
+  // 这样 Shift+2 会发送 Shift 和 "2"，而不是发送 "@"
+  const codeMapping: Record<string, string> = {
+    // 功能键
     'Enter': 'return',
+    'NumpadEnter': 'return',
     'Escape': 'escape',
     'Backspace': 'backspace',
     'Tab': 'tab',
-    ' ': 'space',
+    'Space': 'space',
     'Delete': 'delete',
+    // 方向键
     'ArrowUp': 'up',
     'ArrowDown': 'down',
     'ArrowLeft': 'left',
     'ArrowRight': 'right',
+    // 导航键
     'Home': 'homebutton',
     'End': 'end',
     'PageUp': 'pageup',
     'PageDown': 'pagedown',
-    'Control': 'command',
-    'Meta': 'command',
-    'Alt': 'option',
-    'Shift': 'shift'
+    // 修饰键
+    'ControlLeft': 'command',
+    'ControlRight': 'command',
+    'MetaLeft': 'command',
+    'MetaRight': 'command',
+    'AltLeft': 'option',
+    'AltRight': 'option',
+    'ShiftLeft': 'shift',
+    'ShiftRight': 'shift',
+    // 数字键 (主键盘)
+    'Digit0': '0',
+    'Digit1': '1',
+    'Digit2': '2',
+    'Digit3': '3',
+    'Digit4': '4',
+    'Digit5': '5',
+    'Digit6': '6',
+    'Digit7': '7',
+    'Digit8': '8',
+    'Digit9': '9',
+    // 符号键
+    'Minus': '-',
+    'Equal': '=',
+    'BracketLeft': '[',
+    'BracketRight': ']',
+    'Backslash': '\\',
+    'Semicolon': ';',
+    'Quote': "'",
+    'Comma': ',',
+    'Period': '.',
+    'Slash': '/',
+    'Backquote': '`',
+    // F键
+    'F1': 'f1',
+    'F2': 'f2',
+    'F3': 'f3',
+    'F4': 'f4',
+    'F5': 'f5',
+    'F6': 'f6',
+    'F7': 'f7',
+    'F8': 'f8',
+    'F9': 'f9',
+    'F10': 'f10',
+    'F11': 'f11',
+    'F12': 'f12'
+  };
+
+  // 从 e.code 提取按键名称
+  const getKeyFromCode = (code: string): string | null => {
+    // 优先使用映射表
+    if (codeMapping[code]) {
+      return codeMapping[code];
+    }
+    // 字母键: KeyA -> a, KeyB -> b, ...
+    if (code.startsWith('Key') && code.length === 4) {
+      return code[3].toLowerCase();
+    }
+    return null;
   };
 
   // 获取按键名称（用于显示）
@@ -513,8 +572,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       return;
     }
 
-    // 获取映射的按键
-    let mappedKey = keyMapping[e.key] || (e.key.length === 1 ? e.key.toLowerCase() : null);
+    // 使用 e.code 获取物理键码，这样 Shift+2 会正确发送 "2" 而不是 "@"
+    const mappedKey = getKeyFromCode(e.code);
     if (!mappedKey) return;
 
     e.preventDefault();
@@ -539,9 +598,11 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (connectionState() !== 'connected') return;
     const activeEl = document.activeElement;
     if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || (activeEl as HTMLElement)?.isContentEditable) return;
-    if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'v')) return;
+    // 忽略复制粘贴快捷键的 key up 事件（已在 keydown 拦截）
+    if ((e.metaKey || e.ctrlKey) && (e.code === 'KeyC' || e.code === 'KeyV')) return;
 
-    let mappedKey = keyMapping[e.key] || (e.key.length === 1 ? e.key.toLowerCase() : null);
+    // 使用 e.code 获取物理键码
+    const mappedKey = getKeyFromCode(e.code);
     if (!mappedKey) return;
 
     e.preventDefault();
