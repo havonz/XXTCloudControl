@@ -61,6 +61,30 @@ const App: Component = () => {
   const pendingFileGets = new Map<string, PendingFileGet[]>();
   const authService = AuthService.getInstance();
 
+  // Prevent browser default context menu and Cmd+A select all (except in input fields)
+  const handleGlobalContextMenu = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const tagName = target.tagName.toLowerCase();
+    // Allow context menu in input/textarea/contenteditable elements
+    if (tagName === 'input' || tagName === 'textarea' || target.isContentEditable) {
+      return;
+    }
+    e.preventDefault();
+  };
+
+  const handleGlobalKeyDown = (e: KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    const tagName = target.tagName.toLowerCase();
+    // Allow shortcuts in input/textarea/contenteditable elements
+    if (tagName === 'input' || tagName === 'textarea' || target.isContentEditable) {
+      return;
+    }
+    // Block Cmd+A (select all) outside of input fields
+    if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+      e.preventDefault();
+    }
+  };
+
   const enqueuePendingFileGet = (entry: PendingFileGet) => {
     const list = pendingFileGets.get(entry.deviceUdid) || [];
     list.push(entry);
@@ -77,7 +101,13 @@ const App: Component = () => {
     return entry;
   };
 
+  // Setup global event listeners
+  document.addEventListener('contextmenu', handleGlobalContextMenu);
+  document.addEventListener('keydown', handleGlobalKeyDown);
+
   onCleanup(() => {
+    document.removeEventListener('contextmenu', handleGlobalContextMenu);
+    document.removeEventListener('keydown', handleGlobalKeyDown);
     if (wsService) {
       wsService.disconnect();
     }
