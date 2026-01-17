@@ -35,6 +35,8 @@ export interface WebRTCServiceEvents {
   onKicked?: () => void;
   onError?: (error: string) => void;
   onTrack?: (stream: MediaStream) => void;
+  onClipboard?: (contentType: 'text' | 'image', content: string) => void;
+  onClipboardError?: (error: string) => void;
 }
 
 // 生成唯一请求ID
@@ -478,6 +480,20 @@ export class WebRTCService {
     }
   }
 
+  /**
+   * 通过 DataChannel 发送剪贴板请求（复制或剪切）
+   * @param operation 'copy' 或 'cut'
+   */
+  sendClipboardRequest(operation: 'copy' | 'cut') {
+    if (this.dataChannel?.readyState === 'open') {
+      const command = {
+        type: 'clipboard_request',
+        operation
+      };
+      this.dataChannel.send(JSON.stringify(command));
+    }
+  }
+
   private setupDataChannel() {
     if (!this.dataChannel) return;
 
@@ -488,6 +504,45 @@ export class WebRTCService {
     this.dataChannel.onerror = (error) => {
       console.error('DataChannel error:', error);
     };
+
+    this.dataChannel.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'clipboard') {
+          // 剪贴板内容响应
+          this.events.onClipboard?.(data.contentType, data.content || '');
+        } else if (data.type === 'clipboard_chunk') {
+          // 分块剪贴板数据处理
+          this.handleClipboardChunk(data);
+        } else if (data.type === 'clipboard_error') {
+          // 剪贴板错误
+          this.events.onClipboardError?.(data.error || '未知错误');
+        }
+      } catch (e) {
+        console.error('DataChannel message parse error:', e);
+      }
+    };
+  }
+
+  private clipboardChunks: Map<string, { chunks: string[], total: number }> = new Map();
+
+  private handleClipboardChunk(data: { messageId: string; chunkIndex: number; totalChunks: number; data: string; contentType: string }) {
+    const { messageId, chunkIndex, totalChunks, data: chunkData, contentType } = data;
+    
+    if (!this.clipboardChunks.has(messageId)) {
+      this.clipboardChunks.set(messageId, { chunks: new Array(totalChunks).fill(''), total: totalChunks });
+    }
+    
+    const entry = this.clipboardChunks.get(messageId)!;
+    entry.chunks[chunkIndex] = chunkData;
+    
+    // 检查是否所有分块都已接收
+    const received = entry.chunks.filter(c => c !== '').length;
+    if (received === entry.total) {
+      const fullContent = entry.chunks.join('');
+      this.clipboardChunks.delete(messageId);
+      this.events.onClipboard?.(contentType as 'text' | 'image', fullContent);
+    }
   }
 
   /**

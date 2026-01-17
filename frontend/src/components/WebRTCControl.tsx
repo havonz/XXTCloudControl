@@ -131,6 +131,24 @@ export default function WebRTCControl(props: WebRTCControlProps) {
           onTrack: (stream) => {
             console.log('[WebRTC] Setting remote stream signal');
             setRemoteStream(stream);
+          },
+          onClipboard: (contentType, content) => {
+            // 收到设备端剪贴板内容
+            setClipboardLoading(false);
+            if (contentType === 'text') {
+              setClipboardContent(content);
+              setClipboardImageData(null);
+            } else if (contentType === 'image') {
+              setClipboardImageData(content);
+              setClipboardContent('');
+            }
+          },
+          onClipboardError: (error) => {
+            // 剪贴板读取错误
+            setClipboardLoading(false);
+            console.error('Clipboard error:', error);
+            setClipboardContent('');
+            setClipboardImageData(null);
           }
         },
         httpPort
@@ -546,11 +564,6 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   // 处理键盘事件
   const handleKeyDown = (e: KeyboardEvent) => {
-    // ESC 关闭窗口
-    if (e.key === 'Escape' && props.isOpen) {
-      handleClose();
-      return;
-    }
 
     // 如果剪贴板模态框打开，不拦截键盘事件
     if (clipboardModalOpen()) return;
@@ -560,14 +573,33 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     const activeEl = document.activeElement;
     if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || (activeEl as HTMLElement)?.isContentEditable) return;
 
-    // 检测复制/粘贴快捷键
+    // 检测复制/剪切/粘贴快捷键
     if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
       e.preventDefault();
+      // 发送 command up 事件以防止设备端按键卡住（因为弹出模态框会中断焦点）
+      // 注意：c 的 down 事件还没发送（被上面拦截了），只有 command down 发了
+      if (webrtcService) {
+        webrtcService.sendKeyCommand('command', 'up');
+      }
       handleCopyFromDevice();
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'x') {
+      e.preventDefault();
+      // 发送 command up 事件以防止设备端按键卡住
+      if (webrtcService) {
+        webrtcService.sendKeyCommand('command', 'up');
+      }
+      handleCutFromDevice();
       return;
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
       e.preventDefault();
+      // 发送 command up 事件以防止设备端按键卡住（因为弹出模态框会中断焦点）
+      // 注意：v 的 down 事件还没发送（被上面拦截了），只有 command down 发了
+      if (webrtcService) {
+        webrtcService.sendKeyCommand('command', 'up');
+      }
       handlePasteToDevice();
       return;
     }
@@ -665,22 +697,31 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     setClipboardLoading(true);
     setClipboardModalOpen(true);
     
-    // 1. 先触发设备端的复制动作 (Cmd+C)
+    // 使用 clipboard_request 触发设备端的复制操作
+    // 设备端会执行 Cmd+C 并自动读取剪贴板内容返回
     if (webrtcService) {
-      webrtcService.sendKeyCommand('command', 'down');
-      webrtcService.sendKeyCommand('c', 'down');
-      setTimeout(() => {
-        webrtcService?.sendKeyCommand('c', 'up');
-        webrtcService?.sendKeyCommand('command', 'up');
-        
-        // 2. 稍等片刻后读取剪贴板
-        setTimeout(() => {
-          const currentDevice = selectedControlDevice();
-          if (currentDevice && props.webSocketService) {
-            props.webSocketService.readClipboard([currentDevice]);
-          }
-        }, 200);
-      }, 50);
+      webrtcService.sendClipboardRequest('copy');
+    } else {
+      // 如果没有 DataChannel，直接读取剪贴板
+      const currentDevice = selectedControlDevice();
+      if (currentDevice && props.webSocketService) {
+        props.webSocketService.readClipboard([currentDevice]);
+      }
+    }
+  };
+
+  // 剪贴板处理 - 剪切（打开读取模态框）
+  const handleCutFromDevice = () => {
+    setClipboardMode('read');
+    setClipboardContent('');
+    setClipboardImageData(null);
+    setClipboardLoading(true);
+    setClipboardModalOpen(true);
+    
+    // 使用 clipboard_request 触发设备端的剪切操作
+    // 设备端会执行 Cmd+X 并自动读取剪贴板内容返回
+    if (webrtcService) {
+      webrtcService.sendClipboardRequest('cut');
     } else {
       // 如果没有 DataChannel，直接读取剪贴板
       const currentDevice = selectedControlDevice();
@@ -752,18 +793,53 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     const text = clipboardContent();
     const imageData = clipboardImageData();
     
-    try {
-      if (text) {
-        await navigator.clipboard.writeText(text);
-      } else if (imageData) {
-        // 尝试复制图片到剪贴板
-        const response = await fetch(`data:image/png;base64,${imageData}`);
-        const blob = await response.blob();
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    // 尝试使用现代 Clipboard API（需要安全上下文）
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        if (text) {
+          await navigator.clipboard.writeText(text);
+          setClipboardModalOpen(false);
+          return;
+        } else if (imageData) {
+          // 尝试复制图片到剪贴板
+          const response = await fetch(`data:image/png;base64,${imageData}`);
+          const blob = await response.blob();
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          setClipboardModalOpen(false);
+          return;
+        }
+      } catch (error) {
+        console.warn('Clipboard API 失败，尝试 fallback:', error);
       }
-      setClipboardModalOpen(false);
-    } catch (error) {
-      console.error('复制到剪贴板失败:', error);
+    }
+    
+    // Fallback：使用 document.execCommand（适用于非安全上下文）
+    if (text) {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (success) {
+          setClipboardModalOpen(false);
+          return;
+        }
+      } catch (error) {
+        console.error('execCommand 复制失败:', error);
+      }
+    }
+    
+    // 如果都失败了，提示用户手动复制
+    if (imageData) {
+      alert('当前环境不支持自动复制图片，请手动右键保存图片');
+    } else {
+      alert('复制失败，请手动选中文本后按 Ctrl/Cmd+C 复制');
     }
   };
 
