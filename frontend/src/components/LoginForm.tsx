@@ -59,6 +59,8 @@ const LoginForm: Component<LoginFormProps> = (props) => {
   const [showPortInput, setShowPortInput] = createSignal(true);
   const [showPasswordInput, setShowPasswordInput] = createSignal(true);
   const [validationError, setValidationError] = createSignal('');
+  const [serverUnixTime, setServerUnixTime] = createSignal<number>(0);
+  const [timeOffset, setTimeOffset] = createSignal<number>(0); // serverTime - localTime
   let portInputRef: HTMLInputElement | undefined;
 
   const authService = AuthService.getInstance();
@@ -160,6 +162,11 @@ const LoginForm: Component<LoginFormProps> = (props) => {
           if (config.version) {
             setServerVersion(config.version);
           }
+          if (config.serverTime) {
+            const now = Math.floor(Date.now() / 1000);
+            setTimeOffset(config.serverTime - now);
+            setServerUnixTime(config.serverTime);
+          }
         }
       } catch (e) {
         // 忽略网络错误或中止的请求
@@ -173,6 +180,32 @@ const LoginForm: Component<LoginFormProps> = (props) => {
       }
     });
   });
+
+  // 实时更新服务器时间（每秒更新一次显示）
+  createEffect(() => {
+    if (serverUnixTime() === 0) return;
+    
+    const clockInterval = setInterval(() => {
+      const now = Math.floor(Date.now() / 1000);
+      setServerUnixTime(now + timeOffset());
+    }, 1000);
+
+    onCleanup(() => clearInterval(clockInterval));
+  });
+
+  const formatServerTime = (unix: number) => {
+    if (unix === 0) return '';
+    const date = new Date(unix * 1000);
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+  };
 
   const focusPortInput = (defer = false) => {
     if (!showPortInput() || defer || !portInputRef) {
@@ -410,7 +443,12 @@ const LoginForm: Component<LoginFormProps> = (props) => {
 
           {(validationError() || props.error) && (
             <div class={styles.errorMessage}>
-              {validationError() || props.error}
+              <div>{validationError() || props.error}</div>
+              {props.error && (props.error.includes('认证') || props.error.includes('密码') || props.error.includes('拒绝')) && (
+                <div class={styles.errorHint}>
+                  提示：如果密码正确，请尝试校准本地时间与服务器时间同步。
+                </div>
+              )}
             </div>
           )}
 
@@ -433,6 +471,9 @@ const LoginForm: Component<LoginFormProps> = (props) => {
         <div class={styles.loginFooter}>
           {serverVersion() && (
             <span class={styles.versionBadge}>服务器版本: {serverVersion()}</span>
+          )}
+          {serverUnixTime() > 0 && (
+            <span class={styles.timeBadge}>服务器时间: {formatServerTime(serverUnixTime())}</span>
           )}
         </div>
       </div>

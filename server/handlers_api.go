@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -95,7 +96,8 @@ func configHandler(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 
 	config := gin.H{
-		"version": Version,
+		"version":    Version,
+		"serverTime": time.Now().Unix(),
 		"websocket": gin.H{
 			"port":              serverConfig.Port,
 			"path":              "/api/ws",
