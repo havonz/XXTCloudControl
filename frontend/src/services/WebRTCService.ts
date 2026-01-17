@@ -465,6 +465,19 @@ export class WebRTCService {
     }
   }
 
+  /**
+   * 通过 DataChannel 发送粘贴命令
+   */
+  sendPasteCommand(text: string) {
+    if (this.dataChannel?.readyState === 'open') {
+      const command = {
+        type: 'paste',
+        text
+      };
+      this.dataChannel.send(JSON.stringify(command));
+    }
+  }
+
   private setupDataChannel() {
     if (!this.dataChannel) return;
 

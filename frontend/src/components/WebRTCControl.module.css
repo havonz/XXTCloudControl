@@ -442,6 +442,333 @@
 
 
 
+/* 旋转控制组 */
+.rotationGroup {
+  display: flex;
+  gap: 6px;
+}
+
+.rotateBtn {
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.rotateBtn:hover {
+  background: var(--hover-bg);
+  border-color: var(--primary);
+}
+
+.rotateBtn:active {
+  transform: scale(0.95);
+}
+
+.rotateBtn.active {
+  background: var(--btn-primary-bg);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* 底部工具栏 */
+.bottomToolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  background: var(--panel);
+  border-radius: 8px;
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.deviceButton {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.deviceButton:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.deviceButton:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.btnPrimary {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btnPrimary:hover {
+  background: var(--panel-3);
+  border-color: var(--text-secondary);
+}
+
+.btnSecondary {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btnSecondary:hover {
+  background: var(--panel-3);
+  border-color: var(--text-secondary);
+}
+
+.btnInfo {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btnInfo:hover {
+  background: var(--panel-3);
+  border-color: var(--text-secondary);
+}
+
+.btnSuccess {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btnSuccess:hover {
+  background: var(--panel-3);
+  border-color: var(--text-secondary);
+}
+
+.btnWarning {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btnWarning:hover {
+  background: var(--panel-3);
+  border-color: var(--text-secondary);
+}
+
+/* 键盘指示器 */
+.keyboardIndicator {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 16px;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 100;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* 剪贴板模态框 */
+.clipboardModalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+}
+
+.clipboardModal {
+  background: var(--panel);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+}
+
+.clipboardModalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.clipboardModalHeader h4 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.clipboardModalContent {
+  flex: 1;
+  padding: 1.25rem;
+  overflow-y: auto;
+  min-height: 150px;
+}
+
+.clipboardLoading,
+.clipboardEmpty {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 2rem;
+  font-size: 0.95rem;
+}
+
+.clipboardPreview {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.clipboardText {
+  padding: 1rem;
+  margin: 0;
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+  color: var(--text);
+}
+
+.clipboardImage {
+  max-width: 100%;
+  max-height: 300px;
+  display: block;
+  margin: 0 auto;
+}
+
+.clipboardInputArea {
+  min-height: 120px;
+}
+
+.clipboardPasteZone {
+  background: var(--panel-2);
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  min-height: 100px;
+  font-size: 0.95rem;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.clipboardPasteZone:focus {
+  border-color: var(--primary);
+}
+
+.clipboardTextarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 1rem;
+  background: var(--panel-2);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: var(--text);
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.clipboardTextarea:focus {
+  border-color: var(--primary);
+}
+
+.clipboardTextarea::placeholder {
+  color: var(--text-secondary);
+}
+
+.clipboardPlaceholder {
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.clipboardImagePreview {
+  position: relative;
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.clipboardImagePreview img {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 8px;
+}
+
+.clipboardClearImage {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  min-width: auto;
+  height: auto;
+  border-radius: 4px;
+  background: rgba(220, 53, 69, 0.9);
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.clipboardSyncHint {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: rgba(40, 167, 69, 0.15);
+  border-radius: 6px;
+  color: #28a745;
+  font-size: 0.85rem;
+}
+
+.clipboardModalActions {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border);
+  justify-content: flex-end;
+}
+
 /* Responsive adjustments */
 @media (max-width: 1024px) {
   .webrtcModal {
