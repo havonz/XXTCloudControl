@@ -17,6 +17,7 @@ import {
   IconICursor,
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './DeviceFileBrowser.module.css';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
 
@@ -51,6 +52,8 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const [selectedItems, setSelectedItems] = createSignal<Set<string>>(new Set<string>());
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isUploading, setIsUploading] = createSignal(false);
+  const mainBackdropClose = createBackdropClose(() => props.onClose());
+  const editorBackdropClose = createBackdropClose(() => setShowEditorModal(false));
   let dragCounter = 0;
 
   // 编辑器弹窗
@@ -328,8 +331,8 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   return (
     <>
     <Show when={props.isOpen}>
-      <div class={styles.overlay} onClick={props.onClose}>
-        <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div class={styles.overlay} onMouseDown={mainBackdropClose.onMouseDown} onMouseUp={mainBackdropClose.onMouseUp}>
+        <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.header}>
             <h2>设备文件浏览器 - {props.deviceName}</h2>
             <button class={styles.closeButton} onClick={props.onClose}>
@@ -574,8 +577,8 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
 
     {/* 编辑器弹窗 */}
     <Show when={showEditorModal()}>
-      <div class={styles.editorOverlay} onClick={() => setShowEditorModal(false)}>
-        <div class={styles.editorModal} onClick={(e) => e.stopPropagation()}>
+      <div class={styles.editorOverlay} onMouseDown={editorBackdropClose.onMouseDown} onMouseUp={editorBackdropClose.onMouseUp}>
+        <div class={styles.editorModal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.editorHeader}>
             <h3>编辑: {editorFileName()}</h3>
             <button class={styles.closeButton} onClick={() => setShowEditorModal(false)}>

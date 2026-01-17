@@ -1,6 +1,7 @@
 import { createSignal, createMemo, Show, createEffect, onMount, onCleanup } from 'solid-js';
 import QRCode from 'qrcode';
 import { AuthService } from '../services/AuthService';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './DeviceBindingModal.module.css';
 
 interface DeviceBindingModalProps {
@@ -12,6 +13,7 @@ interface DeviceBindingModalProps {
 
 const DeviceBindingModal = (props: DeviceBindingModalProps) => {
   const authService = AuthService.getInstance();
+  const backdropClose = createBackdropClose(() => handleClose());
 
   // 二维码数据URL状态
   const [qrCodeDataUrl, setQrCodeDataUrl] = createSignal('');
@@ -88,8 +90,8 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
 
   return (
     <Show when={props.isOpen}>
-      <div class={styles.modalOverlay} onClick={handleClose}>
-        <div class={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+      <div class={styles.modalOverlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
+        <div class={styles.modalContent} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
             <h2>设备绑定到云控</h2>
           </div>

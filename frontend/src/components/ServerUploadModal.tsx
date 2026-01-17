@@ -7,6 +7,7 @@ import {
   IconUpload,
   IconXmark,
 } from '../icons';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './ServerUploadModal.module.css';
 
 export interface ServerUploadModalProps {
@@ -22,6 +23,7 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
   const [uploadFiles, setUploadFiles] = createSignal<File[]>([]);
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isUploading, setIsUploading] = createSignal(false);
+  const backdropClose = createBackdropClose(() => handleClose());
 
   let fileInputRef: HTMLInputElement | undefined;
 
@@ -93,8 +95,8 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
 
   return (
     <Show when={props.isOpen}>
-      <div class={styles.overlay} onClick={handleClose}>
-        <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div class={styles.overlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
+        <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.header}>
             <h3>上传文件到服务器</h3>
             <button class={styles.closeButton} onClick={handleClose}>

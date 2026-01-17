@@ -1,4 +1,5 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './ScriptSelectionModal.module.css';
 
 interface ScriptSelectionModalProps {
@@ -11,6 +12,7 @@ interface ScriptSelectionModalProps {
 export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
   const [scriptName, setScriptName] = createSignal('');
   const [isLoading, setIsLoading] = createSignal(false);
+  const backdropClose = createBackdropClose(() => handleCancel());
 
   const handleSelectScript = async () => {
     const name = scriptName().trim();
@@ -51,8 +53,8 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
 
   if (!props.isOpen) return null;
   return (
-    <div class={styles.overlay} onClick={handleCancel}>
-      <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div class={styles.overlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
+      <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
         <div class={styles.header}>
           <h3 class={styles.title}>批量让设备选中脚本</h3>
         </div>

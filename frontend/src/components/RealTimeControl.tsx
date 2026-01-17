@@ -1,6 +1,7 @@
 import { createSignal, For, Show, onCleanup, createEffect, onMount, createMemo } from 'solid-js';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './RealTimeControl.module.css';
 import ClipboardModal from './ClipboardModal';
 import type { Device } from '../services/AuthService';
@@ -51,6 +52,7 @@ export default function RealTimeControl(props: RealTimeControlProps) {
   const [isCapturingScreen, setIsCapturingScreen] = createSignal(false);
   const [syncControl, setSyncControl] = createSignal(false); // 同步控制开关
   const [showClipboardModal, setShowClipboardModal] = createSignal(false); // 剪贴板模态框状态
+  const mainBackdropClose = createBackdropClose(() => handleClose());
   let screenshotInterval: number | undefined;
   let screenshotUnsubscribe: (() => void) | null = null;
   let screenshotService: WebSocketService | null = null;
@@ -658,8 +660,8 @@ export default function RealTimeControl(props: RealTimeControlProps) {
 
   return (
     <Show when={props.isOpen}>
-      <div class={styles.modalOverlay} onClick={handleClose}>
-        <div class={styles.realTimeModal} onClick={(e) => e.stopPropagation()}>
+      <div class={styles.modalOverlay} onMouseDown={mainBackdropClose.onMouseDown} onMouseUp={mainBackdropClose.onMouseUp}>
+        <div class={styles.realTimeModal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
             <h3>实时控制</h3>
           </div>

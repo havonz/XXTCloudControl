@@ -3,6 +3,7 @@ import { Portal } from 'solid-js/web';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { createFormRunnerStore } from '../services/formRunnerStore';
 import { ConfigItem, ScriptInfo } from '../utils/scriptConfig';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './FormRunner.module.css';
 
 interface FormRunnerProps {
@@ -19,6 +20,7 @@ export default function FormRunner(props: FormRunnerProps) {
   const store = createFormRunnerStore();
   const [aboutOpen, setAboutOpen] = createSignal(false);
   const [formReady, setFormReady] = createSignal(false);
+  const aboutBackdropClose = createBackdropClose(() => setAboutOpen(false));
 
   createRenderEffect(() => {
     if (props.open) {
@@ -233,8 +235,8 @@ export default function FormRunner(props: FormRunnerProps) {
         {/* About Dialog */}
         <Show when={aboutOpen()}>
           <Portal>
-            <div class={styles.aboutBackdrop} onClick={() => setAboutOpen(false)}>
-              <div class={styles.aboutModal} onClick={(e) => e.stopPropagation()}>
+            <div class={styles.aboutBackdrop} onMouseDown={aboutBackdropClose.onMouseDown} onMouseUp={aboutBackdropClose.onMouseUp}>
+              <div class={styles.aboutModal} onMouseDown={(e) => e.stopPropagation()}>
                 <div class={styles.aboutHeader}>
                   <span class={styles.aboutTitle}>关于脚本</span>
                   <Show when={props.title}>

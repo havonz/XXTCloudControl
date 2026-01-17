@@ -2,6 +2,7 @@ import { Component, createSignal, createMemo, For, Show, createEffect } from 'so
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
 import type { GroupInfo } from '../types';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './AddToGroupModal.module.css';
 
 interface AddToGroupModalProps {
@@ -15,6 +16,7 @@ interface AddToGroupModalProps {
 const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
   const [selectedGroupId, setSelectedGroupId] = createSignal('');
   const [isSubmitting, setIsSubmitting] = createSignal(false);
+  const backdropClose = createBackdropClose(() => props.onClose());
 
   // Create collection for Select component
   const groupCollection = createMemo(() => 
@@ -66,8 +68,8 @@ const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
 
   return (
     <Show when={props.open}>
-      <div class={styles.backdrop} onClick={props.onClose}>
-        <div class={styles.modal} onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
+      <div class={styles.backdrop} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
+        <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
           <h3 class={styles.title}>添加到分组</h3>
           
           <Show when={props.groups.length === 0}>

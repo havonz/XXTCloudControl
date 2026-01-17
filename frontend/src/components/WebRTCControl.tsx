@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, createEffect, Show, onMount, For } from 'solid-js';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './WebRTCControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
@@ -29,7 +30,12 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const [clipboardModalOpen, setClipboardModalOpen] = createSignal(false);
   const [clipboardMode, setClipboardMode] = createSignal<'read' | 'write'>('read');
   const [clipboardContent, setClipboardContent] = createSignal<string>(''); // 文本内容
-  const [clipboardImageData, setClipboardImageData] = createSignal<string | null>(null); // base64 图片数据
+  const [clipboardImageData, setClipboardImageData] = createSignal<string | null>(null);
+  
+  const mainBackdropClose = createBackdropClose(() => handleClose());
+  const clipboardBackdropClose = createBackdropClose(() => setClipboardModalOpen(false));
+
+  // 获取设备的 HTTP 端口图片数据
   const [clipboardLoading, setClipboardLoading] = createSignal(false);
 
   // 触摸状态跟踪
@@ -827,8 +833,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   return (
     <Show when={props.isOpen}>
-      <div class={styles.modalOverlay} onClick={handleClose}>
-        <div class={styles.webrtcModal} onClick={(e) => e.stopPropagation()}>
+      <div class={styles.modalOverlay} onMouseDown={mainBackdropClose.onMouseDown} onMouseUp={mainBackdropClose.onMouseUp}>
+        <div class={styles.webrtcModal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
             <h3>
               WebRTC 实时控制
@@ -1053,8 +1059,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
       {/* 剪贴板模态框 */}
       <Show when={clipboardModalOpen()}>
-        <div class={styles.clipboardModalOverlay} onClick={() => setClipboardModalOpen(false)}>
-          <div class={styles.clipboardModal} onClick={(e) => e.stopPropagation()}>
+        <div class={styles.clipboardModalOverlay} onMouseDown={clipboardBackdropClose.onMouseDown} onMouseUp={clipboardBackdropClose.onMouseUp}>
+          <div class={styles.clipboardModal} onMouseDown={(e) => e.stopPropagation()}>
             <div class={styles.clipboardModalHeader}>
               <h4>{clipboardMode() === 'read' ? '📑 设备剪贴板内容' : '📋 写入剪贴板'}</h4>
               <button class={styles.closeButton} onClick={() => setClipboardModalOpen(false)}>✕</button>

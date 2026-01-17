@@ -1,5 +1,6 @@
 import { createSignal, Show, onMount, onCleanup } from 'solid-js';
 import { useDialog } from './DialogContext';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './DictionaryModal.module.css';
 
 interface DictionaryModalProps {
@@ -15,6 +16,7 @@ export default function DictionaryModal(props: DictionaryModalProps) {
   const [key, setKey] = createSignal('');
   const [value, setValue] = createSignal('');
   const [isLoading, setIsLoading] = createSignal(false);
+  const backdropClose = createBackdropClose(() => handleClose());
 
   const handleSetValue = async () => {
     if (!key().trim() || !value().trim()) {
@@ -72,8 +74,8 @@ export default function DictionaryModal(props: DictionaryModalProps) {
 
   return (
     <Show when={props.isOpen}>
-      <div class={styles.modalOverlay} onClick={handleClose}>
-        <div class={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+      <div class={styles.modalOverlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
+        <div class={styles.modalContent} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
             <h2 class={styles.modalTitle}>词典发送</h2>
           </div>

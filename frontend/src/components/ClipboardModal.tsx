@@ -2,6 +2,7 @@ import { createSignal, Show, createEffect, onMount, onCleanup, For, createMemo }
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
 import { useDialog } from './DialogContext';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './ClipboardModal.module.css';
 
 interface ClipboardModalProps {
@@ -19,6 +20,7 @@ export default function ClipboardModal(props: ClipboardModalProps) {
   const [clipboardContent, setClipboardContent] = createSignal('');
   const [clipboardUti, setClipboardUti] = createSignal('public.plain-text');
   const [isReadingClipboard, setIsReadingClipboard] = createSignal(false);
+  const backdropClose = createBackdropClose(() => handleClose());
   
   // UTI options for Ark-UI Select
   const utiOptions = [
@@ -107,8 +109,8 @@ export default function ClipboardModal(props: ClipboardModalProps) {
 
   return (
     <Show when={props.isOpen}>
-      <div class={styles.modalOverlay} onClick={handleClose}>
-        <div class={styles.clipboardModal} onClick={(e) => e.stopPropagation()}>
+      <div class={styles.modalOverlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
+        <div class={styles.clipboardModal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
             <h3>剪贴板操作</h3>
             <p>选中设备: {props.selectedDevicesCount} 台</p>

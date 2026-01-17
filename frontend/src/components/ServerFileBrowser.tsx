@@ -19,6 +19,7 @@ import {
   IconXmark,
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './ServerFileBrowser.module.css';
 import { authFetch, appendAuthQuery } from '../services/httpAuth';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
@@ -47,6 +48,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [isUploading, setIsUploading] = createSignal(false);
   const [showHidden, setShowHidden] = createSignal(false);
   const [isLocal, setIsLocal] = createSignal(false);
+  const mainBackdropClose = createBackdropClose(() => props.onClose());
+  const editorBackdropClose = createBackdropClose(() => setShowEditorModal(false));
+  const imagePreviewBackdropClose = createBackdropClose(() => setShowImagePreview(false));
 
   const loadConfig = async () => {
     try {
@@ -408,8 +412,8 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   return (
     <Show when={props.isOpen}>
-      <div class={styles.modalOverlay} onClick={props.onClose}>
-        <div class={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+      <div class={styles.modalOverlay} onMouseDown={mainBackdropClose.onMouseDown} onMouseUp={mainBackdropClose.onMouseUp}>
+        <div class={styles.modalContent} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
             <h2>文件管理器</h2>
             <button class={styles.closeButton} onClick={props.onClose}>
@@ -612,8 +616,8 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       
       {/* 编辑器弹窗 */}
       <Show when={showEditorModal()}>
-        <div class={styles.editorOverlay} onClick={() => setShowEditorModal(false)}>
-          <div class={styles.editorModal} onClick={(e) => e.stopPropagation()}>
+        <div class={styles.editorOverlay} onMouseDown={editorBackdropClose.onMouseDown} onMouseUp={editorBackdropClose.onMouseUp}>
+          <div class={styles.editorModal} onMouseDown={(e) => e.stopPropagation()}>
             <div class={styles.editorHeader}>
               <h3>编辑: {editorFileName()}</h3>
               <button class={styles.closeButton} onClick={() => setShowEditorModal(false)}>
@@ -631,8 +635,8 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       
       {/* 图片预览 */}
       <Show when={showImagePreview()}>
-        <div class={styles.imagePreviewOverlay} onClick={() => setShowImagePreview(false)}>
-          <div class={styles.imagePreviewContent} onClick={(e) => e.stopPropagation()}>
+        <div class={styles.imagePreviewOverlay} onMouseDown={imagePreviewBackdropClose.onMouseDown} onMouseUp={imagePreviewBackdropClose.onMouseUp}>
+          <div class={styles.imagePreviewContent} onMouseDown={(e) => e.stopPropagation()}>
             <button class={styles.closeButton} onClick={() => setShowImagePreview(false)}>
               <IconXmark size={16} />
             </button>

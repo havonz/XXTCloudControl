@@ -1,4 +1,5 @@
 import { Component, createSignal, Show, createEffect } from 'solid-js';
+import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './NewGroupModal.module.css';
 
 interface NewGroupModalProps {
@@ -11,6 +12,8 @@ const NewGroupModal: Component<NewGroupModalProps> = (props) => {
   const [name, setName] = createSignal('');
   const [isSubmitting, setIsSubmitting] = createSignal(false);
   let inputRef: HTMLInputElement | undefined;
+
+  const backdropClose = createBackdropClose(() => props.onClose());
 
   // Focus input when modal opens
   createEffect(() => {
@@ -43,8 +46,8 @@ const NewGroupModal: Component<NewGroupModalProps> = (props) => {
 
   return (
     <Show when={props.open}>
-      <div class={styles.backdrop} onClick={props.onClose}>
-        <div class={styles.modal} onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
+      <div class={styles.backdrop} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
+        <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
           <h3 class={styles.title}>新建分组</h3>
           <form onSubmit={handleSubmit}>
             <input
