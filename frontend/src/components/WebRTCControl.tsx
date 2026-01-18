@@ -1138,7 +1138,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                           {device.system?.name || device.udid}
                         </div>
                         <div class={styles.deviceUdid}>
-                          {device.udid.substring(0, 8)}...
+                          {device.udid}
                         </div>
                       </div>
                     )}

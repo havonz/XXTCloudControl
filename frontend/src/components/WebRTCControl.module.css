@@ -111,7 +111,7 @@
   width: 260px;
   background: var(--panel);
   border-right: 1px solid var(--border);
-  padding: 1.5rem;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -132,8 +132,8 @@
 }
 
 .controlPanel h4 {
-  margin: 0 0 0.5rem 0;
-  font-size: 1.1rem;
+  margin: 0 0 0.4rem 0;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text);
   flex-shrink: 0;
@@ -150,8 +150,8 @@
 }
 
 .deviceItem {
-  padding: 0.4rem 0.6rem;
-  margin-bottom: 0.3rem;
+  padding: 0.2rem 0.4rem;
+  margin-bottom: 0.2rem;
   background: var(--panel-2);
   border-radius: 8px;
   cursor: pointer;
@@ -187,16 +187,16 @@
 
 .deviceName {
   font-weight: 500;
-  margin-bottom: 0.15rem;
+  margin-bottom: 0rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
-  font-size: 0.85rem;
+  font-size: 12px;
 }
 
 .deviceUdid {
-  font-size: 0.7rem;
+  font-size: 10px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -206,9 +206,9 @@
 
 /* 同步控制区 - 分段按钮 */
 .syncControlSection {
-  margin-top: 1rem;
-  margin-bottom: 1rem;
-  padding-top: 1rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-top: 0.5rem;
   border-top: 1px solid var(--border-light);
 }
 
@@ -229,7 +229,7 @@
 
 .segmentedButton {
   flex: 1;
-  padding: 8px 12px;
+  padding: 4px 8px;
   border: none;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -259,8 +259,8 @@
 .settingGroup {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
 }
 
 .settingLabel {
@@ -345,7 +345,7 @@
 }
 
 .actionButton {
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.75rem;
   border: 2px solid var(--border);
   border-radius: 8px;
   font-size: 0.9rem;
@@ -406,7 +406,7 @@
   flex-direction: column;
   background: var(--panel-2);
   position: relative;
-  padding: 0.75rem;
+  padding: 0.5rem;
 }
 
 .videoContainer {
@@ -453,11 +453,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1.25rem;
+  padding: 0.4rem 0.75rem;
   background: var(--panel-2);
   border-radius: 8px;
   font-size: 0.85rem;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
 }
@@ -533,10 +533,10 @@
   gap: 8px;
   align-items: center;
   justify-content: center;
-  padding: 0.75rem;
+  padding: 0.4rem;
   background: var(--panel);
   border-radius: 8px;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
   border: 1px solid var(--border);
   flex-wrap: wrap;
 }
@@ -960,11 +960,11 @@
     top: 0;
     left: 0;
     bottom: 0;
-    width: 280px;
-    max-width: 80%;
+    width: 260px;
+    max-width: 85%;
     height: 100%;
     max-height: none;
-    padding: 1rem;
+    padding: 0.6rem;
     border-right: 1px solid var(--border);
     border-bottom: none;
     background: var(--panel);
@@ -989,7 +989,7 @@
 
   .controlPanelBottom {
     flex-shrink: 0;
-    margin-top: 12px;
+    margin-top: 8px;
   }
   
   .controlPanel.mobileOpen {
@@ -998,8 +998,9 @@
   }
   
   .controlPanel h4 {
-    margin: 0 0 8px 0;
-    font-size: 14px;
+    margin: 0 0 4px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
   }
 
   .deviceList {
@@ -1007,7 +1008,7 @@
     flex-direction: column;
     overflow-x: visible;
     overflow-y: auto;
-    gap: 6px;
+    gap: 4px;
     margin-bottom: 0;
     padding-bottom: 0;
     flex: 1;
@@ -1019,29 +1020,39 @@
     min-width: 0;
     flex-shrink: 0;
     margin-bottom: 0;
-    padding: 10px;
+    padding: 4px 6px;
+    border-radius: 6px;
+  }
+
+  .deviceName {
+    font-size: 11px;
+    margin-bottom: 0;
+  }
+
+  .deviceUdid {
+    font-size: 9px;
   }
 
   .settingGroup {
     flex-direction: column;
     align-items: stretch;
-    gap: 8px;
-    margin-bottom: 12px;
+    gap: 4px;
+    margin-bottom: 6px;
   }
 
   .checkboxLabel {
-    padding: 10px;
-    margin: -10px;
+    padding: 6px;
+    margin: -6px;
     margin-bottom: 0;
   }
 
   .checkboxLabel input[type="checkbox"] {
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
   }
 
   .settingLabel {
-    font-size: 13px;
+    font-size: 11px;
     white-space: nowrap;
   }
 
@@ -1049,16 +1060,32 @@
     flex: 1;
   }
 
+  .syncControlSection {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+    padding-top: 0.5rem;
+  }
+
+  .syncControlLabel {
+    font-size: 10px; /* Reduced from 11px */
+    margin-bottom: 3px; /* Reduced from 4px */
+  }
+
+  .segmentedButton {
+    padding: 5px 8px; /* Reduced from 6px 10px */
+    font-size: 10px; /* Reduced from 11px */
+  }
+
   .actionButtons {
     flex-direction: column;
-    gap: 8px;
-    margin-top: 12px;
+    gap: 5px; /* Reduced from 6px */
+    margin-top: 6px; /* Reduced from 8px */
   }
 
   .actionButton {
     width: 100%;
-    padding: 10px;
-    font-size: 14px;
+    padding: 6px;
+    font-size: 13px;
   }
 
   .videoPanel {

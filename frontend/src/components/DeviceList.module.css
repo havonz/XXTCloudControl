@@ -1692,8 +1692,8 @@
 .deviceCardList {
   display: none;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px;
+  gap: 6px;
+  padding: 8px;
   overflow-y: auto;
   flex: 1;
 }
@@ -1702,10 +1702,10 @@
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 12px;
+  padding: 4px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
   box-shadow: var(--shadow-sm);
   transition: all 0.2s ease;
   position: relative;
@@ -1754,7 +1754,7 @@
 }
 
 .cardDeviceName {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
   white-space: nowrap;
@@ -1763,7 +1763,7 @@
 }
 
 .cardDeviceUdid {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-muted);
   font-family: monospace;
   word-break: break-all;
@@ -1777,13 +1777,13 @@
 }
 
 .cardBattery {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
 .cardRunningStatus {
-  font-size: 11px;
-  padding: 2px 8px;
+  font-size: 10px;
+  padding: 1px 6px;
   border-radius: 4px;
   font-weight: 600;
 }
@@ -1801,8 +1801,8 @@
 .cardDetailsGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  padding: 8px;
+  gap: 4px;
+  padding: 4px;
   background: var(--panel-2);
   border-radius: 8px;
 }
@@ -1810,18 +1810,18 @@
 .detailItem {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0px;
 }
 
 .detailLabel {
-  font-size: 9px;
+  font-size: 8px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .detailValue {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text);
   font-family: monospace;
   white-space: nowrap;
@@ -1832,9 +1832,9 @@
 .cardMessageArea {
   font-size: 12px;
   color: var(--text-secondary);
-  padding: 4px 0;
+  padding: 1px 0;
   border-top: 1px solid var(--border);
-  margin-top: 4px;
+  margin-top: 1px;
 }
 
 .cardMessageText {
@@ -1843,10 +1843,10 @@
 }
 
 .cardLogArea {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
   background: rgba(0, 0, 0, 0.03);
-  padding: 6px;
+  padding: 2px 4px;
   border-radius: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1914,9 +1914,6 @@
   transition: all 0.1s ease;
 }
 
-.contextMenuSection {
-  /* Section wrapper for grouping */
-}
 
 .contextMenuLabel {
   padding: 6px 12px;
@@ -1971,7 +1968,7 @@
   .actionToolbarRow {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: 4px;
     width: 100%;
     margin-bottom: 8px;
   }
@@ -1980,7 +1977,7 @@
   .managementToolbar .toolbarLeft {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
+    gap: 4px;
     width: 100%;
   }
 
@@ -2007,7 +2004,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 12px 8px;
+    padding: 4px 8px;
   }
 
   .toolbarRight {
@@ -2043,16 +2040,16 @@
   .scriptSelectGroup :global(.cbx-select) {
     width: 100% !important;
     min-width: 0 !important;
-    height: 40px !important;
-    font-size: 13px !important;
+    height: 30px !important;
+    font-size: 12px !important;
     padding: 0 8px !important;
     margin: 0 !important;
     flex: 1 !important;
   }
 
   .scriptSelectGroup .iconButton {
-    width: 40px;
-    height: 40px;
+    width: 30px;
+    height: 30px;
     background: var(--panel-2);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -2065,9 +2062,9 @@
 
   .toolbarActionButton,
   .managementToolbar .toolbarButton {
-    padding: 8px 4px;
-    font-size: 12px;
-    height: 40px;
+    padding: 2px 4px;
+    font-size: 11px;
+    height: 30px;
     display: flex;
     align-items: center;
     justify-content: center;
