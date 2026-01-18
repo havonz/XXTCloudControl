@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, createEffect, Show, onMount, For } from 'solid-js';
+import { createSignal, onCleanup, createEffect, Show, onMount, For, createMemo } from 'solid-js';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
 import styles from './WebRTCControl.module.css';
@@ -17,10 +17,12 @@ export interface WebRTCControlProps {
 export default function WebRTCControl(props: WebRTCControlProps) {
   const [selectedControlDevice, setSelectedControlDevice] = createSignal<string>('');
   const [connectionState, setConnectionState] = createSignal<'disconnected' | 'connecting' | 'connected'>('disconnected');
-  const [resolution, setResolution] = createSignal(0.6); // 60%
+  const [resolution, setResolution] = createSignal(0.6); // 这里的 resolution 现在解释为 "最高允许分辨率"
   const [frameRate, setFrameRate] = createSignal(20);
+  const [displaySize, setDisplaySize] = createSignal({ width: 0, height: 0 }); // 容器显示尺寸
   const [currentFps, setCurrentFps] = createSignal(0);
   const [bitrate, setBitrate] = createSignal(0);
+  const [currentResolution, setCurrentResolution] = createSignal(''); // 当前实际分辨率
   const [remoteStream, setRemoteStream] = createSignal<MediaStream | null>(null);
   const [syncControl, setSyncControl] = createSignal(false); // 同步控制开关
   const [currentRotation, setCurrentRotation] = createSignal(0); // 旋转角度: 0, 90, 180, 270
@@ -50,9 +52,49 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   let videoContainerRef: HTMLDivElement | undefined;
   let webrtcService: WebRTCService | null = null;
   let statsInterval: number | undefined;
+  let resizeObserver: ResizeObserver | undefined;
   let lastBytesReceived = 0;
   let lastFramesDecoded = 0;
   let lastTimestamp = 0;
+  let lastAppliedResolution = 0;
+
+  // 计算目标分辨率缩放比例
+  const targetResolution = createMemo(() => {
+    const device = getCurrentDevice();
+    const limit = resolution();
+    const size = displaySize();
+    
+    if (!device?.system?.scrw || !device?.system?.scrh || size.width <= 0 || size.height <= 0) {
+      return limit;
+    }
+
+    let nativeW = device.system.scrw;
+    let nativeH = device.system.scrh;
+    
+    // 考虑旋转
+    const rotation = currentRotation();
+    if (rotation === 90 || rotation === 270) {
+      const tmp = nativeW;
+      nativeW = nativeH;
+      nativeH = tmp;
+    }
+
+    // 计算为了充满显示区域所需的比例
+    const scaleW = size.width / nativeW;
+    const scaleH = size.height / nativeH;
+    
+    // 我们取宽高中较大的比例，以确保画面细节足够（或者取较小以节省带宽，这里取较小符合"最小值"逻辑）
+    // 实际上对于视频流，我们通常希望 requested_res >= display_res
+    // 如果 display 是 500x500, native 是 1000x1000, 那么 scale=0.5 刚好 1:1 像素映射
+    // 这里采用 Math.min(limit, Math.max(scaleW, scaleH)) 可能会更清晰，
+    // 但根据用户要求是 "minimum of control-side display and scaled maximum", 
+    // 这意味着我们不希望发送比显示区域大太多的像素。
+    const fitScale = Math.max(scaleW, scaleH); // 使用 max 确保至少有一边是 1:1，覆盖整个容器
+    const finalScale = Math.min(limit, fitScale);
+    
+    // 限制范围在 0.1 - 1.0 (后端通常支持到 0.25，但我们稍微放宽点，或者保持 0.25)
+    return Math.max(0.25, Math.min(1.0, finalScale));
+  });
 
   const getDeviceHttpPort = (device: Device | null): number | undefined => {
     if (!device) return undefined;
@@ -79,10 +121,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   };
 
   // 获取当前选中设备对象
-  const getCurrentDevice = () => {
+  function getCurrentDevice() {
     const udid = selectedControlDevice();
     return props.selectedDevices().find(d => d.udid === udid) || null;
-  };
+  }
 
   // 获取目标设备列表（根据同步控制状态）
   // 注意：当前画面设备的操作已通过 DataChannel 发送，所以需要排除
@@ -160,11 +202,12 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       );
 
       const options: WebRTCStartOptions = {
-        resolution: resolution(),
+        resolution: targetResolution(),
         fps: frameRate(),
         force: true
       };
 
+      lastAppliedResolution = targetResolution();
       await webrtcService.startStream(options);
     } catch (error) {
       console.error('Failed to start WebRTC stream:', error);
@@ -184,6 +227,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
     setConnectionState('disconnected');
     stopStatsMonitoring();
+    lastAppliedResolution = 0;
   };
 
   // 开始统计监控
@@ -228,6 +272,13 @@ export default function WebRTCControl(props: WebRTCControlProps) {
             }
           }
         });
+
+        // 每秒更新当前视频实际分辨率
+        if (videoRef && videoRef.videoWidth > 0) {
+          setCurrentResolution(`${videoRef.videoWidth}x${videoRef.videoHeight}`);
+        } else {
+          setCurrentResolution('');
+        }
       } catch (e) {
         console.error('Stats error:', e);
       }
@@ -242,6 +293,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
     setCurrentFps(0);
     setBitrate(0);
+    setCurrentResolution('');
     lastBytesReceived = 0;
     lastFramesDecoded = 0;
     lastTimestamp = 0;
@@ -1035,9 +1087,42 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
   });
 
+  // 监听目标分辨率变化并动态调整
+  createEffect(() => {
+    if (connectionState() === 'connected' && webrtcService) {
+      const target = targetResolution();
+      // 只有当变化超过一定阈值时才调整，避免过度频繁请求
+      // 或者当 user limit 改变时调整
+      if (Math.abs(target - lastAppliedResolution) > 0.05) {
+        console.log(`[WebRTC] Dynamically updating resolution: ${lastAppliedResolution} -> ${target}`);
+        webrtcService.setResolution(target).catch(e => console.error('Failed to update resolution:', e));
+        lastAppliedResolution = target;
+      }
+    }
+  });
+
   onMount(() => {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    
+    // 初始化 ResizeObserver 监听容器尺寸
+    if (videoContainerRef) {
+      resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (width > 0 && height > 0) {
+            setDisplaySize({ width, height });
+          }
+        }
+      });
+      resizeObserver.observe(videoContainerRef);
+      
+      // 初始尺寸
+      const rect = videoContainerRef.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setDisplaySize({ width: rect.width, height: rect.height });
+      }
+    }
     
     // 监听剪贴板响应
     const unsubscribe = props.webSocketService?.onMessage((message: any) => {
@@ -1066,6 +1151,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     onCleanup(() => {
       if (unsubscribe) unsubscribe();
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = undefined;
+      }
     });
   });
 
@@ -1106,9 +1195,11 @@ export default function WebRTCControl(props: WebRTCControlProps) {
             </button>
             <Show when={connectionState() === 'connected'}>
               <div class={styles.mobileStats}>
-                <span class={styles.mobileStatItem}>📊 {currentFps()} FPS</span>
-                <span class={styles.mobileStatItem}>📡 {bitrate()} kbps</span>
-                <span class={styles.mobileStatItem}>🎯 {syncControl() ? `同步` : '单端'}</span>
+                <span class={styles.mobileStatItem}>📊 {currentFps()}</span>
+                <span class={styles.mobileStatItem}>📡 {bitrate()}k</span>
+                <Show when={currentResolution()}>
+                  <span class={styles.mobileStatItem}>📺 {currentResolution()}</span>
+                </Show>
               </div>
             </Show>
             <button class={styles.mobileCloseBtn} onClick={handleClose} title="关闭">
@@ -1148,38 +1239,35 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
               {/* 下半部分：画质设置等 */}
               <div class={styles.controlPanelBottom}>
-                <h4>画质设置</h4>
-              <div class={styles.settingGroup}>
-                <label class={styles.settingLabel}>分辨率 ({Math.round(resolution() * 100)}%)</label>
-                <div class={styles.settingValue}>
-                  <input
-                    type="range"
-                    class={styles.settingSlider}
-                    min="0.25"
-                    max="1"
-                    step="0.05"
-                    value={resolution()}
-                    onInput={(e) => setResolution(parseFloat(e.currentTarget.value))}
-                    disabled={isStreaming()}
-                  />
+                <div class={styles.settingGroup}>
+                  <label class={styles.settingLabel}>最高分辨率 ({Math.round(resolution() * 100)}%)</label>
+                  <div class={styles.settingValue}>
+                    <input
+                      type="range"
+                      class={styles.settingSlider}
+                      min="0.25"
+                      max="1"
+                      step="0.05"
+                      value={resolution()}
+                      onInput={(e) => setResolution(parseFloat(e.currentTarget.value))}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div class={styles.settingGroup}>
-                <label class={styles.settingLabel}>帧率 ({frameRate()} FPS)</label>
-                <div class={styles.settingValue}>
-                  <input
-                    type="range"
-                    class={styles.settingSlider}
-                    min="5"
-                    max="30"
-                    step="5"
-                    value={frameRate()}
-                    onInput={(e) => setFrameRate(parseInt(e.currentTarget.value))}
-                    disabled={isStreaming()}
-                  />
+                <div class={styles.settingGroup}>
+                  <label class={styles.settingLabel}>帧率限制 ({frameRate()} FPS)</label>
+                  <div class={styles.settingValue}>
+                    <input
+                      type="range"
+                      class={styles.settingSlider}
+                      min="5"
+                      max="30"
+                      step="5"
+                      value={frameRate()}
+                      onInput={(e) => setFrameRate(parseInt(e.currentTarget.value))}
+                    />
+                  </div>
                 </div>
-              </div>
 
               {/* 同步控制 - 分段按钮 */}
               <div class={styles.syncControlSection}>
@@ -1307,6 +1395,9 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     {syncControl() && <span class={styles.syncActiveHint}> (同步中)</span>}
                   </div>
                   <div class={styles.statsGroup}>
+                    <Show when={currentResolution()}>
+                      <span class={styles.statItem}>📺 {currentResolution()}</span>
+                    </Show>
                     <span class={styles.statItem}>📊 {currentFps()} FPS</span>
                     <span class={styles.statItem}>📡 {bitrate()} kbps</span>
                     <span class={styles.statItem}>🎯 {syncControl() ? `同步 ${props.selectedDevices().length} 台` : '单端'}</span>
