@@ -58,6 +58,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const dialog = useDialog();
   const [currentPath, setCurrentPath] = createSignal('/lua/scripts');
   const [showHidden, setShowHidden] = createSignal(false);
+  const [lastSelectedItem, setLastSelectedItem] = createSignal<string | null>(null);
   const [isSelectMode, setIsSelectMode] = createSignal(false);
   const [selectedItems, setSelectedItems] = createSignal<Set<string>>(new Set<string>());
   const [isDragOver, setIsDragOver] = createSignal(false);
@@ -166,15 +167,34 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     window.removeEventListener('keydown', handleKeyDown);
   });
 
-  const handleFileClick = (file: FileItem) => {
+  const handleFileClick = (file: FileItem, e?: MouseEvent) => {
     if (isSelectMode()) {
       const current = new Set<string>(selectedItems());
+      
+      if (e?.shiftKey && lastSelectedItem()) {
+        const files = sortedFiles();
+        const lastIndex = files.findIndex(f => f.name === lastSelectedItem());
+        const currentIndex = files.findIndex(f => f.name === file.name);
+        
+        if (lastIndex !== -1 && currentIndex !== -1) {
+          const start = Math.min(lastIndex, currentIndex);
+          const end = Math.max(lastIndex, currentIndex);
+          const range = files.slice(start, end + 1);
+          
+          range.forEach(f => current.add(f.name));
+          setSelectedItems(current);
+          setLastSelectedItem(file.name);
+          return;
+        }
+      }
+
       if (current.has(file.name)) {
         current.delete(file.name);
       } else {
         current.add(file.name);
       }
       setSelectedItems(current);
+      setLastSelectedItem(file.name);
     } else if (file.type === 'directory') {
       const newPath = currentPath() === '/' 
         ? `/${file.name}` 
@@ -590,6 +610,12 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                 {(file) => (
                   <div 
                     class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}
+                    onMouseDown={(e) => {
+                      if (isSelectMode() && e.button === 0) {
+                        e.preventDefault(); // Prevent text selection on shift-click
+                      }
+                    }}
+                    onClick={(e) => handleFileClick(file, e)}
                     onContextMenu={(e) => handleFileContextMenu(e, file)}
                     onTouchStart={() => handleFileTouchStartForContext(file)}
                     onTouchEnd={handleFileTouchEndForContext}
@@ -601,16 +627,14 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                           type="checkbox" 
                           class="themed-checkbox"
                           checked={selectedItems().has(file.name)} 
-                          onChange={() => {
-                            const current = new Set(selectedItems());
-                            if (current.has(file.name)) current.delete(file.name);
-                            else current.add(file.name);
-                            setSelectedItems(current);
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            handleFileClick(file, e as any);
                           }}
                         />
                       </div>
                     </Show>
-                    <div class={`${styles.tableCell} ${styles.typeColumn}`} onClick={() => handleFileClick(file)}>
+                     <div class={`${styles.tableCell} ${styles.typeColumn}`}>
                       <span class={styles.fileIconWrapper}>
                         <span class={`${styles.fileIcon} ${isSelectedScript(file) ? styles.selectedFileIcon : ''}`}>
                           {renderFileIcon(file.name, { isDirectory: file.type === 'directory' })}
@@ -622,7 +646,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                         </Show>
                       </span>
                     </div>
-                    <div class={`${styles.tableCell} ${styles.nameColumn}`} onClick={() => handleFileClick(file)}>
+                    <div class={`${styles.tableCell} ${styles.nameColumn}`}>
                       <span class={styles.fileName}>{file.name}</span>
                     </div>
                     <div class={`${styles.tableCell} ${styles.sizeColumn}`}>

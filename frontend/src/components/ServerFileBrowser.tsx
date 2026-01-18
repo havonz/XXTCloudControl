@@ -84,6 +84,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [showImagePreview, setShowImagePreview] = createSignal(false);
   const [previewImageUrl, setPreviewImageUrl] = createSignal('');
 
+  // Range Selection
+  const [lastSelectedItem, setLastSelectedItem] = createSignal<string | null>(null);
+
   // 右键菜单
   const [contextMenuFile, setContextMenuFile] = createSignal<ServerFileItem | null>(null);
   const [contextMenuPosition, setContextMenuPosition] = createSignal({ x: 0, y: 0 });
@@ -202,9 +205,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   };
 
 
-  const handleFileClick = (file: ServerFileItem) => {
+  const handleFileClick = (file: ServerFileItem, e?: MouseEvent) => {
     if (isSelectMode()) {
-      toggleSelection(file.name);
+      toggleSelection(file.name, e);
     } else if (file.type === 'dir') {
       const newPath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
       handleNavigate(newPath);
@@ -212,14 +215,33 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     // 文件点击不做处理，使用右键菜单操作
   };
 
-  const toggleSelection = (name: string) => {
+  const toggleSelection = (name: string, e?: MouseEvent) => {
     const current = new Set<string>(selectedItems());
+    
+    if (e?.shiftKey && lastSelectedItem()) {
+      const files = sortedFiles();
+      const lastIndex = files.findIndex(f => f.name === lastSelectedItem());
+      const currentIndex = files.findIndex(f => f.name === name);
+      
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+        const range = files.slice(start, end + 1);
+        
+        range.forEach(f => current.add(f.name));
+        setSelectedItems(current);
+        setLastSelectedItem(name);
+        return;
+      }
+    }
+
     if (current.has(name)) {
       current.delete(name);
     } else {
       current.add(name);
     }
     setSelectedItems(current);
+    setLastSelectedItem(name);
   };
 
   const selectAll = () => setSelectedItems(new Set<string>(files().map(f => f.name)));
@@ -583,6 +605,12 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 {(file) => (
                   <div 
                     class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}
+                    onMouseDown={(e) => {
+                      if (isSelectMode() && e.button === 0) {
+                        e.preventDefault(); // Prevent text selection on shift-click
+                      }
+                    }}
+                    onClick={(e) => handleFileClick(file, e)}
                     onContextMenu={(e) => handleFileContextMenu(e, file)}
                     onTouchStart={() => handleFileTouchStart(file)}
                     onTouchEnd={handleFileTouchEnd}
@@ -590,15 +618,21 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                   >
                     <Show when={isSelectMode()}>
                       <div class={styles.tableCell} style={{ width: '40px' }}>
-                        <input type="checkbox" class="themed-checkbox" checked={selectedItems().has(file.name)} onChange={() => toggleSelection(file.name)} />
+                        <input 
+                          type="checkbox" 
+                          class="themed-checkbox" 
+                          checked={selectedItems().has(file.name)} 
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => toggleSelection(file.name, e as any)} 
+                        />
                       </div>
                     </Show>
-                    <div class={`${styles.tableCell} ${styles.typeColumn}`} onClick={() => handleFileClick(file)}>
+                    <div class={`${styles.tableCell} ${styles.typeColumn}`}>
                       <span class={styles.fileIcon}>
                         {renderFileIcon(file.name, { isDirectory: file.type === 'dir' })}
                       </span>
                     </div>
-                    <div class={`${styles.tableCell} ${styles.nameColumn}`} onClick={() => handleFileClick(file)}>
+                    <div class={`${styles.tableCell} ${styles.nameColumn}`}>
                       <span class={styles.fileName}>{file.name}</span>
                     </div>
                     <div class={`${styles.tableCell} ${styles.sizeColumn}`}>

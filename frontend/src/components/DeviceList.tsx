@@ -137,6 +137,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // Device context menu state
   const [contextMenuDevice, setContextMenuDevice] = createSignal<Device | null>(null);
   const [contextMenuPosition, setContextMenuPosition] = createSignal({ x: 0, y: 0 });
+  const [lastSelectedUdid, setLastSelectedUdid] = createSignal<string | null>(null);
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   
   // Refs for click-outside detection
@@ -666,22 +667,42 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     return sortDevices(props.devices);
   };
 
-  const handleDeviceToggle = (device: Device) => {
+  const handleDeviceToggle = (device: Device, e?: MouseEvent) => {
     const isSelected = props.selectedDevices().some(d => d.udid === device.udid);
+    const devices = filteredDevices();
     
-    console.log(`CLICK: ${device.udid} - currently ${isSelected ? 'SELECTED' : 'NOT SELECTED'}`);
-    
+    if (e?.shiftKey && lastSelectedUdid()) {
+      const lastIndex = devices.findIndex(d => d.udid === lastSelectedUdid());
+      const currentIndex = devices.findIndex(d => d.udid === device.udid);
+      
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+        const range = devices.slice(start, end + 1);
+        
+        const currentSelectedUdids = new Set(props.selectedDevices().map(d => d.udid));
+        
+        // If the clicked device is NOT selected, we select the range.
+        // If it IS selected, we also select the range (standard behavior usually adds to existing selection).
+        range.forEach(d => currentSelectedUdids.add(d.udid));
+        
+        const newSelection = props.devices.filter(d => currentSelectedUdids.has(d.udid));
+        props.onDeviceSelect(newSelection);
+        setLastSelectedUdid(device.udid);
+        return;
+      }
+    }
+
     if (isSelected) {
       // 取消选择
       const newSelection = props.selectedDevices().filter(d => d.udid !== device.udid);
-      console.log(`DESELECT: ${device.udid} - new count: ${newSelection.length}`);
       props.onDeviceSelect(newSelection);
     } else {
       // 添加到选择
       const newSelection = [...props.selectedDevices(), device];
-      console.log(`SELECT: ${device.udid} - new count: ${newSelection.length}`);
       props.onDeviceSelect(newSelection);
     }
+    setLastSelectedUdid(device.udid);
   };
 
   const handleSelectAll = () => {
@@ -1389,7 +1410,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                           return `${width}px`;
                         }).join(' ')}`
                       }}
-                      onClick={() => handleDeviceToggle(device)}
+                      onClick={(e) => handleDeviceToggle(device, e)}
                       onContextMenu={(e) => handleDeviceContextMenu(e, device)}
                     >
                       <div class={styles.tableCell}>
@@ -1496,7 +1517,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   <div 
                     class={styles.deviceCard}
                     classList={{ [styles.selected]: props.selectedDevices().some(d => d.udid === device.udid) }}
-                    onClick={() => handleDeviceToggle(device)}
+                    onClick={(e) => handleDeviceToggle(device, e)}
                     onContextMenu={(e) => handleDeviceContextMenu(e, device)}
                     onTouchStart={() => handleDeviceTouchStart(device)}
                     onTouchEnd={handleDeviceTouchEnd}
