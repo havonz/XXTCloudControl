@@ -17,8 +17,9 @@
   border-radius: 12px;
   width: 90%;
   max-width: 500px;
-  max-height: 90vh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border);
   color: var(--text);
@@ -28,7 +29,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.5rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
   border-radius: 12px 12px 0 0;
@@ -36,15 +37,38 @@
 
 .modalTitle {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 600;
   color: var(--text);
+}
+
+.closeButton {
+  background: var(--panel-2);
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.closeButton:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
+.closeButton:active {
+  transform: scale(0.92);
 }
 
 .modalBody {
   padding: 1.5rem;
   overflow-y: auto;
-  max-height: calc(90vh - 140px);
+  flex: 1;
 }
 
 .deviceInfo {
@@ -164,39 +188,11 @@
 }
 
 .modalFooter {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  padding: 1rem 1.5rem;
+  padding: 1rem;
+  text-align: center;
   border-top: 1px solid var(--border);
   background: var(--panel-2);
+  border-radius: 0 0 12px 12px;
 }
 
-.cancelButton {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 2px solid var(--border);
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 700;
-  transition: all 0.2s ease;
-}
 
-.cancelButton:hover:not(:disabled) {
-  background: var(--hover-bg);
-  border-color: var(--primary);
-  transform: translateY(-1px);
-}
-
-.cancelButton:active:not(:disabled) {
-  transform: translateY(1px) scale(0.98);
-  transition: all 0.1s ease;
-}
-
-.cancelButton:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}

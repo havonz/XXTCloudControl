@@ -140,3 +140,23 @@
     transform: scale(1) translateY(0);
   }
 }
+
+@media (max-width: 480px) {
+  .modal {
+    width: 100%;
+    margin-top: auto;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .footer {
+    flex-direction: column-reverse;
+    padding: 1rem;
+    gap: 12px;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+  }
+}

@@ -275,6 +275,39 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
     closeContextMenu();
   };
+
+  // 拷贝脚本文件名
+  const handleContextMenuCopyScriptSelect = () => {
+    const device = contextMenuDevice();
+    if (device) {
+      const scriptName = device.script?.select || '';
+      if (scriptName) {
+        copyToClipboard(scriptName, '脚本文件名');
+      } else {
+        showToastMessage('该设备未选中任何脚本');
+      }
+    }
+    closeContextMenu();
+  };
+
+  // 拷贝选中设备的脚本文件名
+  const handleContextMenuCopySelectedScriptSelects = () => {
+    const scriptNames = props.selectedDevices()
+      .map(d => {
+        const name = d.system?.name || d.udid;
+        const scriptName = d.script?.select || '';
+        return scriptName ? `[${name}] ${scriptName}` : '';
+      })
+      .filter(sn => sn) // 过滤掉空脚本名
+      .join('\n');
+    
+    if (scriptNames) {
+      copyToClipboard(scriptNames, '选中设备脚本文件名');
+    } else {
+      showToastMessage('选中设备暂无脚本选中');
+    }
+    closeContextMenu();
+  };
   
   onMount(() => {
     document.addEventListener('click', handleClickOutside);
@@ -1719,6 +1752,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   <button onClick={handleContextMenuCopySelectedNames}>拷贝选中设备名称</button>
                   <button onClick={handleContextMenuCopySelectedIps}>拷贝选中设备 IP</button>
                   <button onClick={handleContextMenuCopySelectedLastLogs}>拷贝选中设备最后日志</button>
+                  <button onClick={handleContextMenuCopySelectedScriptSelects}>拷贝选中设备的脚本文件名</button>
                   <Show when={props.onOpenAddToGroupModal}>
                     <button onClick={() => {
                       closeContextMenu();
@@ -1736,7 +1770,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               <button onClick={handleContextMenuCopyName}>拷贝设备名称</button>
               <button onClick={handleContextMenuCopyIp}>拷贝 IP 地址</button>
               <button onClick={handleContextMenuCopyLastLog}>拷贝最后日志</button>
-              <button onClick={handleContextMenuOpenFileBrowser}>浏览文件</button>
+              <button onClick={handleContextMenuCopyScriptSelect}>拷贝脚本文件名</button>
+              <button onClick={handleContextMenuOpenFileBrowser}>浏览设备文件</button>
             </div>
           </div>
         </Show>

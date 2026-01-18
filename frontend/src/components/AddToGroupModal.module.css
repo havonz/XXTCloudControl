@@ -165,7 +165,8 @@
 
   .actions {
     margin-top: 24px;
-    flex-direction: column;
+    display: flex;
+    flex-direction: column-reverse;
     gap: 12px;
   }
 

@@ -1,5 +1,6 @@
 import { createSignal, onCleanup, createEffect, Show, onMount, For } from 'solid-js';
 import { createBackdropClose } from '../hooks/useBackdropClose';
+import { IconXmark } from '../icons';
 import styles from './WebRTCControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
@@ -1089,7 +1090,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
               </span>
             </h3>
             <button class={styles.closeButton} onClick={handleClose} title="关闭">
-              ✕
+              <IconXmark size={16} />
             </button>
           </div>
           

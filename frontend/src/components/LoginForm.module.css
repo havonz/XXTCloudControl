@@ -272,8 +272,7 @@
 @media (max-width: 480px) {
   .loginContainer {
     padding: 1rem;
-    align-items: flex-start;
-    padding-top: 10vh;
+    align-items: center;
   }
   
   .loginCard {

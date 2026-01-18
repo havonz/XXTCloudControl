@@ -2,6 +2,7 @@ import { createSignal, For, Show, onCleanup, createEffect, onMount, createMemo }
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
 import { createBackdropClose } from '../hooks/useBackdropClose';
+import { IconXmark } from '../icons';
 import styles from './RealTimeControl.module.css';
 import ClipboardModal from './ClipboardModal';
 import type { Device } from '../services/AuthService';
@@ -664,6 +665,9 @@ export default function RealTimeControl(props: RealTimeControlProps) {
         <div class={styles.realTimeModal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
             <h3>实时控制</h3>
+            <button class={styles.closeButton} onClick={handleClose} title="关闭">
+              <IconXmark size={16} />
+            </button>
           </div>
           
           <div class={styles.realTimeContent}>
@@ -822,15 +826,6 @@ export default function RealTimeControl(props: RealTimeControlProps) {
                 <span>状态: {isCapturingScreen() ? '实时更新中' : '已停止'}</span>
               </div>
             </div>
-          </div>
-          
-          <div class={styles.modalActions}>
-            <button 
-              class={styles.cancelButton}
-              onClick={handleClose}
-            >
-              关闭
-            </button>
           </div>
         </div>
       </div>

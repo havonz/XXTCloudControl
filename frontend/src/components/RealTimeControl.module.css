@@ -40,7 +40,31 @@
 .modalHeader h3 {
   margin: 0;
   font-size: 1rem;
+  font-weight: 600;
   color: var(--text);
+}
+
+.closeButton {
+  background: var(--panel-2);
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.closeButton:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
+.closeButton:active {
+  transform: scale(0.92);
 }
 
 .realTimeContent {
@@ -279,39 +303,7 @@
   color: var(--text-secondary);
 }
 
-/* Modal actions */
-.modalActions {
-  padding: 1.5rem;
-  border-top: 1px solid var(--border);
-  display: flex;
-  justify-content: flex-end;
-  gap: 1rem;
-  background: var(--panel-2);
-  border-radius: 0 0 12px 12px;
-}
 
-.cancelButton {
-  padding: 0.75rem 1.5rem;
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel-2);
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 700;
-  transition: all 0.2s ease;
-}
-
-.cancelButton:hover {
-  background: var(--hover-bg);
-  border-color: var(--primary);
-  transform: translateY(-1px);
-}
-
-.cancelButton:active {
-  transform: translateY(1px) scale(0.98);
-  transition: all 0.1s ease;
-}
 
 /* Clipboard button container spacing */
 .clipboardSection {

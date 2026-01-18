@@ -1,6 +1,7 @@
 import { createSignal, Show, onMount, onCleanup } from 'solid-js';
 import { useDialog } from './DialogContext';
 import { createBackdropClose } from '../hooks/useBackdropClose';
+import { IconXmark } from '../icons';
 import styles from './DictionaryModal.module.css';
 
 interface DictionaryModalProps {
@@ -78,6 +79,9 @@ export default function DictionaryModal(props: DictionaryModalProps) {
         <div class={styles.modalContent} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
             <h2 class={styles.modalTitle}>词典发送</h2>
+            <button class={styles.closeButton} onClick={handleClose} title="关闭">
+              <IconXmark size={16} />
+            </button>
           </div>
           
           <div class={styles.modalBody}>
@@ -127,15 +131,7 @@ export default function DictionaryModal(props: DictionaryModalProps) {
             </div>
           </div>
           
-          <div class={styles.modalFooter}>
-            <button
-              onClick={handleClose}
-              class={styles.cancelButton}
-              disabled={isLoading()}
-            >
-              取消
-            </button>
-          </div>
+
         </div>
       </div>
     </Show>

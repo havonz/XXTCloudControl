@@ -300,3 +300,29 @@
   background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  .modal {
+    width: 100%;
+    margin-top: auto;
+    border-radius: 12px 12px 0 0;
+    max-height: 90vh;
+  }
+
+  .body {
+    padding: 1rem;
+  }
+
+  .footer {
+    padding: 1rem;
+    flex-direction: column-reverse;
+    gap: 12px;
+  }
+
+  .cancelBtn, .uploadBtn {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+  }
+}

@@ -1,5 +1,6 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
 import { createBackdropClose } from '../hooks/useBackdropClose';
+import { IconXmark } from '../icons';
 import styles from './ScriptSelectionModal.module.css';
 
 interface ScriptSelectionModalProps {
@@ -57,6 +58,9 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
       <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
         <div class={styles.header}>
           <h3 class={styles.title}>批量让设备选中脚本</h3>
+          <button class={styles.closeButton} onClick={handleCancel} title="关闭">
+            <IconXmark size={16} />
+          </button>
         </div>
 
         <div class={styles.body}>
@@ -85,11 +89,7 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
           <p class={styles.description}>该操作不会将脚本传输到设备上，它仅仅是让设备选中指定名称的脚本作为主运行脚本。</p>
         </div>
         
-        <div class={styles.footer}>
-          <button onClick={handleCancel} class={styles.cancelButton}>
-            取消
-          </button>
-        </div>
+
       </div>
     </div>
   );

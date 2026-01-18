@@ -2,6 +2,7 @@ import { createSignal, createMemo, Show, createEffect, onMount, onCleanup } from
 import QRCode from 'qrcode';
 import { AuthService } from '../services/AuthService';
 import { createBackdropClose } from '../hooks/useBackdropClose';
+import { IconXmark } from '../icons';
 import styles from './DeviceBindingModal.module.css';
 
 interface DeviceBindingModalProps {
@@ -94,6 +95,9 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
         <div class={styles.modalContent} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
             <h2>设备绑定到云控</h2>
+            <button class={styles.closeButton} onClick={handleClose} title="关闭">
+              <IconXmark size={16} />
+            </button>
           </div>
           
           <div class={styles.modalBody}>
@@ -129,11 +133,7 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
             </div>
           </div>
           
-          <div class={styles.modalFooter}>
-            <button class={styles.cancelButton} onClick={handleClose}>
-              关闭
-            </button>
-          </div>
+
         </div>
       </div>
     </Show>

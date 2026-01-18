@@ -3,6 +3,7 @@ import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
 import { useDialog } from './DialogContext';
 import { createBackdropClose } from '../hooks/useBackdropClose';
+import { IconXmark } from '../icons';
 import styles from './ClipboardModal.module.css';
 
 interface ClipboardModalProps {
@@ -112,8 +113,13 @@ export default function ClipboardModal(props: ClipboardModalProps) {
       <div class={styles.modalOverlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
         <div class={styles.clipboardModal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
-            <h3>剪贴板操作</h3>
-            <p>选中设备: {props.selectedDevicesCount} 台</p>
+            <div class={styles.headerTitles}>
+              <h3>剪贴板操作</h3>
+              <p>选中设备: {props.selectedDevicesCount} 台</p>
+            </div>
+            <button class={styles.closeButton} onClick={handleClose} title="关闭">
+              <IconXmark size={16} />
+            </button>
           </div>
           
           <div class={styles.modalContent}>
@@ -181,12 +187,7 @@ export default function ClipboardModal(props: ClipboardModalProps) {
             >
               写入剪贴板
             </button>
-            <button 
-              class={styles.cancelButton}
-              onClick={handleClose}
-            >
-              取消
-            </button>
+
           </div>
         </div>
       </div>

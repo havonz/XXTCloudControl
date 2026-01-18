@@ -40,7 +40,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.5rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
   border-radius: 12px 12px 0 0;
@@ -55,12 +55,11 @@
 .closeButton {
   background: var(--panel-2);
   border: none;
-  color: var(--text);
-  font-size: 1.3rem;
+  color: var(--text-secondary);
   cursor: pointer;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -867,13 +866,15 @@
     top: auto !important;
     width: 100%;
     max-width: none;
-    padding: 16px 16px 32px 16px;
+    padding: 8px 8px 32px 8px;
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
     animation: contextSlideUp 0.3s ease;
-    border-bottom: none;
-    border-left: none;
-    border-right: none;
+    background: var(--panel-2);
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   
   @keyframes contextSlideUp {
@@ -882,8 +883,8 @@
   }
   
   .contextMenu button {
-    padding: 14px;
-    font-size: 15px;
+    padding: 10px 12px;
+    font-size: 14px;
     border-radius: 10px;
   }
 
@@ -908,12 +909,15 @@
 .contextMenu {
   position: fixed;
   z-index: 10001;
-  background: var(--panel);
+  background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: var(--shadow), var(--shadow-pop);
+  box-shadow: var(--shadow-lg);
   min-width: 160px;
   padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .contextMenu button {
@@ -921,19 +925,19 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 10px 14px;
+  padding: 8px 12px;
   text-align: left;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
-.contextMenu button:hover {
-  background: var(--panel-2);
+.contextMenu button:hover:not(:disabled) {
+  background: var(--hover-bg);
 }
 
 .contextMenu button:active {
@@ -948,7 +952,7 @@
 }
 
 .contextMenuLabel {
-  padding: 8px 14px;
+  padding: 6px 12px;
   font-size: 12px;
   color: var(--text-muted);
   font-weight: 500;

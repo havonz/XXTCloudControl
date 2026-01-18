@@ -18,7 +18,7 @@
   max-width: 500px;
   width: 90%;
   max-height: 80vh;
-  overflow-y: auto;
+  overflow: hidden;
   color: var(--text);
   display: flex;
   flex-direction: column;
@@ -40,7 +40,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.5rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
   border-radius: 12px 12px 0 0;
@@ -48,13 +48,38 @@
 
 .modalHeader h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
+  font-weight: 600;
   color: var(--text);
+}
+
+.closeButton {
+  background: var(--panel-2);
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.closeButton:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
+.closeButton:active {
+  transform: scale(0.92);
 }
 
 .modalBody {
   padding: 1.5rem;
   flex: 1;
+  overflow-y: auto;
 }
 
 .qrSection {
@@ -154,33 +179,11 @@
 }
 
 .modalFooter {
-  padding: 1rem 1.5rem 1.5rem 1.5rem;
+  padding: 1rem;
   text-align: center;
   border-top: 1px solid var(--border);
   background: var(--panel-2);
-}
-
-.cancelButton {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  padding: 0.5rem 1rem;
-  font-size: 0.9rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.cancelButton:hover {
-  background: var(--hover-bg);
-  border-color: var(--primary);
-  transform: translateY(-1px);
-}
-
-.cancelButton:active {
-  transform: translateY(1px) scale(0.98);
-  transition: all 0.1s ease;
+  border-radius: 0 0 12px 12px;
 }
 
 /* 响应式设计 */
