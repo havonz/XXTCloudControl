@@ -1,4 +1,6 @@
-import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
+import { createSignal, createEffect, For, Show, onMount, onCleanup, createMemo } from 'solid-js';
+import { Portal } from 'solid-js/web';
+import { Select, createListCollection } from '@ark-ui/solid';
 import { useDialog } from './DialogContext';
 import {
   IconCode,
@@ -22,12 +24,14 @@ import {
   IconEye,
   IconHouse,
   IconXmark,
+  IconPaperPlane,
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './ServerFileBrowser.module.css';
 import { authFetch, appendAuthQuery } from '../services/httpAuth';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
+import type { Device } from '../services/WebSocketService';
 
 export interface ServerFileItem {
   name: string;
@@ -40,6 +44,7 @@ export interface ServerFileBrowserProps {
   isOpen: boolean;
   onClose: () => void;
   serverBaseUrl: string;
+  selectedDevices?: Device[];
 }
 
 export default function ServerFileBrowser(props: ServerFileBrowserProps) {
@@ -104,6 +109,23 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [contextMenuFile, setContextMenuFile] = createSignal<ServerFileItem | null>(null);
   const [contextMenuPosition, setContextMenuPosition] = createSignal({ x: 0, y: 0 });
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // 发送到设备
+  const [showSendToDeviceModal, setShowSendToDeviceModal] = createSignal(false);
+  const [targetDevicePath, setTargetDevicePath] = createSignal('/lua/scripts/');
+  const [isSendingToDevices, setIsSendingToDevices] = createSignal(false);
+
+  // 目标路径选项
+  const targetPathOptions = [
+    { value: '/lua/scripts/', label: '脚本目录 - /lua/scripts/' },
+    { value: '/lua/', label: '脚本模块目录 - /lua/' },
+    { value: '/res/', label: '资源目录 - /res/' },
+    { value: '/', label: '主目录 - /' },
+  ];
+
+  const targetPathCollection = createMemo(() => 
+    createListCollection({ items: targetPathOptions.map(opt => opt.value) })
+  );
 
   // 加载文件列表
   const loadFiles = async () => {
@@ -378,6 +400,89 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     }
     setSelectedItems(new Set<string>());
     loadFiles();
+  };
+
+  // 发送选中文件到设备
+  const handleSendToDevices = async () => {
+    const devices = props.selectedDevices || [];
+    const selectedFileNames = Array.from(selectedItems());
+    
+    if (selectedFileNames.length === 0 || devices.length === 0) return;
+    
+    setIsSendingToDevices(true);
+    setShowSendToDeviceModal(false);
+    
+    const SMALL_FILE_THRESHOLD = 128 * 1024; // 128KB
+    
+    try {
+      for (const fileName of selectedFileNames) {
+        const filePath = currentPath() ? `${currentPath()}/${fileName}` : fileName;
+        const file = files().find(f => f.name === fileName);
+        
+        if (!file) continue;
+        
+        // 跳过目录 - 暂时只支持文件
+        if (file.type === 'dir') continue;
+        
+        const fileSize = file.size || 0;
+        
+        for (const device of devices) {
+          const targetPath = targetDevicePath() + fileName;
+          
+          if (fileSize < SMALL_FILE_THRESHOLD) {
+            // 小文件: 使用 file/put API
+            try {
+              // 读取文件内容
+              const readUrl = appendAuthQuery(
+                `${props.serverBaseUrl}/api/server-files/read/${currentCategory()}/${filePath}`
+              );
+              const readResponse = await authFetch(readUrl);
+              if (!readResponse.ok) throw new Error(`Failed to read file: ${readResponse.statusText}`);
+              
+              const arrayBuffer = await readResponse.arrayBuffer();
+              const base64Data = btoa(
+                new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+              );
+              
+              // 发送到设备
+              await authFetch(`${props.serverBaseUrl}/api/devices/${device.udid}/file-put`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  path: targetPath,
+                  data: base64Data
+                })
+              });
+            } catch (err) {
+              console.error(`Failed to send ${fileName} to ${device.udid}:`, err);
+            }
+          } else {
+            // 大文件: 使用 transfer/fetch API
+            try {
+              await authFetch(`${props.serverBaseUrl}/api/transfer/push-to-device`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  deviceSN: device.udid,
+                  category: currentCategory(),
+                  path: filePath,
+                  targetPath: targetPath,
+                  serverBaseUrl: props.serverBaseUrl
+                })
+              });
+            } catch (err) {
+              console.error(`Failed to push ${fileName} to ${device.udid}:`, err);
+            }
+          }
+        }
+      }
+      
+      await dialog.alert(`已发送 ${selectedFileNames.length} 个文件到 ${devices.length} 台设备`);
+    } catch (err) {
+      await dialog.alert('发送失败: ' + (err as Error).message);
+    } finally {
+      setIsSendingToDevices(false);
+    }
   };
 
   // 创建
@@ -674,6 +779,18 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                   <span>粘贴</span>
                 </button>
                 
+                <Show when={(props.selectedDevices?.length || 0) > 0}>
+                  <div class={styles.selectDivider} />
+                  <button 
+                    class={`${styles.selectAction} ${styles.sendAction}`}
+                    onClick={() => setShowSendToDeviceModal(true)} 
+                    disabled={selectedItems().size === 0 || isSendingToDevices()}
+                  >
+                    <IconPaperPlane size={14} />
+                    <span>发送到设备 ({props.selectedDevices?.length})</span>
+                  </button>
+                </Show>
+                
                 <div class={styles.selectDivider} />
                 
                 <button class={styles.deleteAction} onClick={handleBatchDelete} disabled={selectedItems().size === 0}>
@@ -844,6 +961,128 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
             <button onClick={() => { handleDelete(contextMenuFile()!); closeContextMenu(); }}>
               <IconTrash size={14} /> 删除
             </button>
+          </div>
+        </div>
+      </Show>
+
+      {/* Send to Device Modal */}
+      <Show when={showSendToDeviceModal()}>
+        <div class={styles.createOverlay} onClick={() => setShowSendToDeviceModal(false)}>
+          <div class={styles.createModal} onClick={(e) => e.stopPropagation()} style={{ 'min-width': '400px', 'max-width': '500px' }}>
+            <h3>发送到设备</h3>
+            
+            {/* 文件列表预览 */}
+            <div style={{ 'margin-bottom': '16px' }}>
+              <div style={{ 'font-weight': '500', 'margin-bottom': '8px', 'color': 'var(--text-secondary)' }}>
+                选中文件 ({selectedItems().size} 个)
+              </div>
+              <div class={`${styles.fileList} scroll-standard`} style={{ 'max-height': '120px', 'min-height': 'auto', 'border': '1px solid var(--border)', 'border-radius': '6px', 'padding': '8px' }}>
+                <For each={Array.from(selectedItems()).slice(0, 10)}>
+                  {(name) => {
+                    const file = files().find(f => f.name === name);
+                    return (
+                      <div style={{ 'display': 'flex', 'align-items': 'center', 'gap': '8px', 'padding': '4px 0', 'font-size': '13px', 'color': 'var(--text)' }}>
+                        {renderFileIcon(name, { isDirectory: file?.type === 'dir', size: 14 })}
+                        <span style={{ 'overflow': 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{name}</span>
+                      </div>
+                    );
+                  }}
+                </For>
+                <Show when={selectedItems().size > 10}>
+                  <div style={{ 'font-size': '12px', 'color': 'var(--text-muted)', 'padding-top': '4px' }}>
+                    ... 还有 {selectedItems().size - 10} 个文件
+                  </div>
+                </Show>
+              </div>
+            </div>
+
+            {/* 设备列表预览 */}
+            <div style={{ 'margin-bottom': '16px' }}>
+              <div style={{ 'font-weight': '500', 'margin-bottom': '8px', 'color': 'var(--text-secondary)' }}>
+                目标设备 ({props.selectedDevices?.length || 0} 台)
+              </div>
+              <div class={`${styles.fileList} scroll-standard`} style={{ 'max-height': '100px', 'min-height': 'auto', 'border': '1px solid var(--border)', 'border-radius': '6px', 'padding': '8px', 'text-align': 'left' }}>
+                <For each={props.selectedDevices?.slice(0, 5) || []}>
+                  {(device) => (
+                    <div style={{ 'padding': '4px 0', 'font-size': '13px', 'color': 'var(--text)' }}>
+                      📱 {device.system?.name || device.udid} ({device.system?.ip || 'unknown'})
+                    </div>
+                  )}
+                </For>
+                <Show when={(props.selectedDevices?.length || 0) > 5}>
+                  <div style={{ 'font-size': '12px', 'color': 'var(--text-muted)', 'padding-top': '4px' }}>
+                    ... 还有 {(props.selectedDevices?.length || 0) - 5} 台设备
+                  </div>
+                </Show>
+              </div>
+            </div>
+
+            {/* 目标路径选择 */}
+            <div style={{ 'margin-bottom': '20px' }}>
+              <div style={{ 'font-weight': '500', 'margin-bottom': '8px', 'color': 'var(--text-secondary)' }}>
+                目标路径
+              </div>
+              <Select.Root
+                class="cbx-select-root"
+                collection={targetPathCollection()}
+                value={[targetDevicePath()]}
+                onValueChange={(e) => {
+                  const next = e.value[0];
+                  if (next) setTargetDevicePath(next);
+                }}
+              >
+                <Select.Control class="cbx-select-control">
+                  <Select.Trigger class="cbx-select" style={{ width: '100%' }}>
+                    <span style={{ 
+                      flex: 1, 
+                      overflow: 'hidden', 
+                      'text-overflow': 'ellipsis', 
+                      'white-space': 'nowrap',
+                      'text-align': 'left'
+                    }}>
+                      {targetPathOptions.find(opt => opt.value === targetDevicePath())?.label || targetDevicePath()}
+                    </span>
+                    <span class="dropdown-arrow">▼</span>
+                  </Select.Trigger>
+                </Select.Control>
+                <Portal>
+                  <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
+                    <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
+                      <Select.ItemGroup>
+                        <For each={targetPathOptions}>{(opt) => (
+                          <Select.Item item={opt.value} class="cbx-item">
+                            <div class="cbx-item-content">
+                              <Select.ItemIndicator>✓</Select.ItemIndicator>
+                              <Select.ItemText>{opt.label}</Select.ItemText>
+                            </div>
+                          </Select.Item>
+                        )}</For>
+                      </Select.ItemGroup>
+                    </Select.Content>
+                  </Select.Positioner>
+                </Portal>
+              </Select.Root>
+              <div style={{ 'margin-top': '4px', 'font-size': '12px', 'color': 'var(--text-muted)' }}>
+                文件将被发送到设备上的此目录
+              </div>
+            </div>
+
+            {/* 按钮 */}
+            <div class={styles.createActions}>
+              <button 
+                class={styles.cancelBtn}
+                onClick={() => setShowSendToDeviceModal(false)}
+              >
+                取消
+              </button>
+              <button 
+                class={styles.confirmBtn}
+                onClick={handleSendToDevices}
+                disabled={selectedItems().size === 0 || !props.selectedDevices?.length}
+              >
+                发送
+              </button>
+            </div>
           </div>
         </div>
       </Show>

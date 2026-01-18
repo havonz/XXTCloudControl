@@ -329,6 +329,19 @@
   cursor: not-allowed;
 }
 
+/* Send to Device action */
+.sendAction {
+  background: var(--success-bg-strong);
+  border-color: var(--success-border-muted);
+  color: var(--success);
+}
+
+.sendAction:hover:not(:disabled) {
+  background: var(--success);
+  color: white;
+  border-color: var(--success);
+}
+
 /* 文件列表 */
 .fileList {
   flex: 1;

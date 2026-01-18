@@ -1745,6 +1745,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           isOpen={showServerFileBrowser()}
           onClose={() => setShowServerFileBrowser(false)}
           serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
+          selectedDevices={props.selectedDevices()}
         />
         
         {/* Toast Notification */}
