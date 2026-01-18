@@ -115,6 +115,16 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [showSendToDeviceModal, setShowSendToDeviceModal] = createSignal(false);
   const [targetDevicePath, setTargetDevicePath] = createSignal('/lua/scripts/');
   const [isSendingToDevices, setIsSendingToDevices] = createSignal(false);
+  
+  // Toast 提示
+  const [toastMessage, setToastMessage] = createSignal('');
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  
+  const showToast = (message: string, duration: number = 3000) => {
+    if (toastTimer) clearTimeout(toastTimer);
+    setToastMessage(message);
+    toastTimer = setTimeout(() => setToastMessage(''), duration);
+  };
 
   // 目标路径选项
   const targetPathOptions = [
@@ -491,12 +501,19 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         }
       }
       
-      await dialog.alert(`已发送 ${sentCount} 个文件请求`);
+      showToast(`已发送 ${sentCount} 个文件请求`);
     } catch (err) {
       await dialog.alert('发送失败: ' + (err as Error).message);
     } finally {
       setIsSendingToDevices(false);
     }
+  };
+
+  // 右键菜单发送单个文件/目录到设备
+  const handleSendSingleItemToDevices = (file: ServerFileItem) => {
+    // 将单个文件添加到选中项并开始发送流程
+    setSelectedItems(new Set([file.name]));
+    setShowSendToDeviceModal(true);
   };
 
   // 创建
@@ -976,6 +993,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 <IconDownload size={14} /> 下载
               </button>
             </Show>
+            <Show when={props.selectedDevices && props.selectedDevices.length > 0}>
+              <button onClick={() => { handleSendSingleItemToDevices(contextMenuFile()!); closeContextMenu(); }}>
+                <IconPaperPlane size={14} /> 发送到设备
+              </button>
+            </Show>
             <div class={styles.contextMenuDivider}></div>
             <button onClick={() => { handleDelete(contextMenuFile()!); closeContextMenu(); }}>
               <IconTrash size={14} /> 删除
@@ -1104,6 +1126,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
             </div>
           </div>
         </div>
+      </Show>
+      
+      {/* Toast Notification */}
+      <Show when={toastMessage()}>
+        <div class={styles.toast}>{toastMessage()}</div>
       </Show>
     </Show>
   );

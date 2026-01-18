@@ -530,6 +530,14 @@ const App: Component = () => {
     }
   };
 
+  const handleListFilesAsync = async (deviceUdid: string, path: string): Promise<{name: string; type: 'file' | 'directory'; size?: number}[]> => {
+    if (!wsService) {
+      console.warn('WebSocket服务未连接');
+      return [];
+    }
+    return wsService.listFilesAsync(deviceUdid, path);
+  };
+
   const handleDeleteFile = (deviceUdid: string, path: string) => {
     if (wsService) {
       wsService.deleteFile(deviceUdid, path);
@@ -813,6 +821,7 @@ const App: Component = () => {
         isOpen={fileBrowserOpen()}
         onClose={handleCloseFileBrowser}
         onListFiles={handleListFiles}
+        onListFilesAsync={handleListFilesAsync}
         onDeleteFile={handleDeleteFile}
         onCreateDirectory={handleCreateDirectory}
         onUploadFile={handleUploadSingleFile}

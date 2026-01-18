@@ -1093,3 +1093,32 @@
   text-align: center;
 }
 
+/* Toast Notification */
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 12px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  z-index: 9999;
+  animation: toastSlideIn 0.3s ease-out;
+  max-width: 300px;
+  word-wrap: break-word;
+}
+
+@keyframes toastSlideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}

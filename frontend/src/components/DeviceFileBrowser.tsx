@@ -46,6 +46,7 @@ export interface DeviceFileBrowserProps {
   isOpen: boolean;
   onClose: () => void;
   onListFiles: (deviceUdid: string, path: string) => void;
+  onListFilesAsync?: (deviceUdid: string, path: string) => Promise<FileItem[]>;
   onDeleteFile: (deviceUdid: string, path: string) => void;
   onCreateDirectory: (deviceUdid: string, path: string) => void;
   onUploadFile: (deviceUdid: string, path: string, file: File) => void;
@@ -99,6 +100,18 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const [showSendToCloudModal, setShowSendToCloudModal] = createSignal(false);
   const [sendToCloudPendingItems, setSendToCloudPendingItems] = createSignal<string[]>([]);
   const [isSendingToCloud, setIsSendingToCloud] = createSignal(false);
+  // 扫描状态 - 用于递归扫描目录内的文件
+  const [isScanning, setIsScanning] = createSignal(false);
+  const [selectedDirectoryCount, setSelectedDirectoryCount] = createSignal(0);
+  // Toast 提示
+  const [toastMessage, setToastMessage] = createSignal('');
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  
+  const showToast = (message: string, duration: number = 3000) => {
+    if (toastTimer) clearTimeout(toastTimer);
+    setToastMessage(message);
+    toastTimer = setTimeout(() => setToastMessage(''), duration);
+  };
 
   // 监听文件内容更新
   createEffect(() => {
@@ -519,24 +532,93 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     return cb.srcPath !== currentPath();
   };
 
+  // 递归扫描目录，获取所有文件（返回 {sourcePath, relativePath}）
+  const scanDirectoryRecursive = async (
+    dirPath: string,
+    basePath: string
+  ): Promise<{sourcePath: string; relativePath: string}[]> => {
+    if (!props.onListFilesAsync) {
+      console.warn('onListFilesAsync not provided, cannot scan directory');
+      return [];
+    }
+
+    const result: {sourcePath: string; relativePath: string}[] = [];
+    const files = await props.onListFilesAsync(props.deviceUdid, dirPath);
+    
+    for (const file of files) {
+      const fullPath = dirPath === '/' ? `/${file.name}` : `${dirPath}/${file.name}`;
+      const relPath = basePath ? `${basePath}/${file.name}` : file.name;
+      
+      if (file.type === 'file') {
+        result.push({ sourcePath: fullPath, relativePath: relPath });
+      } else if (file.type === 'directory') {
+        // 递归扫描子目录
+        const subFiles = await scanDirectoryRecursive(fullPath, relPath);
+        result.push(...subFiles);
+      }
+    }
+    
+    return result;
+  };
+
   // 打开发送到云控模态框
-  const openSendToCloudModal = () => {
+  const openSendToCloudModal = async () => {
     const selected = selectedItems();
     if (selected.size === 0) return;
     
-    // 过滤掉文件夹，只允许发送文件
-    const fileNames = Array.from(selected).filter(name => {
+    // 统计选中的文件和目录
+    const selectedFiles: string[] = [];
+    const selectedDirs: string[] = [];
+    
+    Array.from(selected).forEach(name => {
       const file = sortedFiles().find(f => f.name === name);
-      return file && file.type === 'file';
+      if (file) {
+        if (file.type === 'file') {
+          selectedFiles.push(name);
+        } else if (file.type === 'directory') {
+          selectedDirs.push(name);
+        }
+      }
     });
     
-    if (fileNames.length === 0) {
-      dialog.alert('只能发送文件到云控，不能发送文件夹');
-      return;
-    }
+    setSelectedDirectoryCount(selectedDirs.length);
     
-    setSendToCloudPendingItems(fileNames);
-    setShowSendToCloudModal(true);
+    // 如果选中了目录，需要先扫描
+    if (selectedDirs.length > 0) {
+      if (!props.onListFilesAsync) {
+        dialog.alert('当前版本不支持发送目录到云控');
+        return;
+      }
+      
+      setIsScanning(true);
+      setSendToCloudPendingItems(selectedFiles); // 先显示已选中的文件
+      setShowSendToCloudModal(true);
+      
+      // 扫描所有选中的目录
+      const allFiles: string[] = [...selectedFiles];
+      
+      for (const dirName of selectedDirs) {
+        const dirPath = currentPath() === '/' ? `/${dirName}` : `${currentPath()}/${dirName}`;
+        const scanned = await scanDirectoryRecursive(dirPath, dirName);
+        // 将扫描到的文件的相对路径添加到列表
+        scanned.forEach(f => allFiles.push(f.relativePath));
+        setSendToCloudPendingItems([...allFiles]); // 实时更新计数
+      }
+      
+      setIsScanning(false);
+      
+      if (allFiles.length === 0) {
+        dialog.alert('选中的目录为空或扫描失败');
+        setShowSendToCloudModal(false);
+        return;
+      }
+      
+      setSendToCloudPendingItems(allFiles);
+    } else {
+      // 只有文件，直接打开模态框
+      setSendToCloudPendingItems(selectedFiles);
+      setShowSendToCloudModal(true);
+    }
   };
 
   // 执行发送到云控
@@ -587,24 +669,49 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     setIsSendingToCloud(false);
     
     if (successCount > 0 && failCount === 0) {
-      dialog.alert(`成功发送 ${successCount} 个文件到云控`);
+      showToast(`成功发送 ${successCount} 个文件到云控`);
     } else if (successCount > 0 && failCount > 0) {
-      dialog.alert(`发送完成：${successCount} 个成功，${failCount} 个失败`);
+      showToast(`发送完成：${successCount} 个成功，${failCount} 个失败`);
     } else {
-      dialog.alert(`发送失败：${failCount} 个文件发送失败`);
+      showToast(`发送失败：${failCount} 个文件发送失败`);
     }
     
     setSendToCloudPendingItems([]);
   };
 
-  // 单文件发送到云控
-  const handleSendSingleFileToCloud = (file: FileItem) => {
+  // 单项发送到云控（支持文件和目录）
+  const handleSendSingleFileToCloud = async (file: FileItem) => {
     if (file.type === 'directory') {
-      dialog.alert('只能发送文件到云控，不能发送文件夹');
-      return;
+      // 扫描目录并发送
+      if (!props.onListFilesAsync) {
+        dialog.alert('当前版本不支持发送目录到云控');
+        return;
+      }
+      
+      setSelectedDirectoryCount(1);
+      setIsScanning(true);
+      setSendToCloudPendingItems([]); // 先清空
+      setShowSendToCloudModal(true);
+      
+      const dirPath = currentPath() === '/' ? `/${file.name}` : `${currentPath()}/${file.name}`;
+      const scanned = await scanDirectoryRecursive(dirPath, file.name);
+      
+      setIsScanning(false);
+      
+      if (scanned.length === 0) {
+        dialog.alert('目录为空或扫描失败');
+        setShowSendToCloudModal(false);
+        return;
+      }
+      
+      const fileNames = scanned.map(f => f.relativePath);
+      setSendToCloudPendingItems(fileNames);
+    } else {
+      // 单个文件直接发送
+      setSelectedDirectoryCount(0);
+      setSendToCloudPendingItems([file.name]);
+      setShowSendToCloudModal(true);
     }
-    setSendToCloudPendingItems([file.name]);
-    setShowSendToCloudModal(true);
   };
 
   return (
@@ -954,7 +1061,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
               <IconDownload size={14} /> 下载
             </button>
           </Show>
-          <Show when={contextMenuFile()?.type === 'file' && props.onPullFileFromDevice}>
+          <Show when={props.onPullFileFromDevice && (contextMenuFile()?.type === 'file' || props.onListFilesAsync)}>
             <button onClick={() => { handleSendSingleFileToCloud(contextMenuFile()!); closeContextMenu(); }}>
               <IconUpload size={14} /> 发送到云控
             </button>
@@ -973,7 +1080,14 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       onClose={() => setShowSendToCloudModal(false)}
       onConfirm={handleSendToCloud}
       itemCount={sendToCloudPendingItems().length}
+      isScanning={isScanning()}
+      directoryCount={selectedDirectoryCount()}
     />
+    
+    {/* Toast Notification */}
+    <Show when={toastMessage()}>
+      <div class={styles.toast}>{toastMessage()}</div>
+    </Show>
     </>
   );
 }

@@ -1,7 +1,7 @@
 # XXTCloudControl
 
 用于 XXTouch 1.3.8+ 的云控服务端（WebSocket + 静态前端）与管理面板。  
-设备端接口实现源码在设备上的 `/var/mobile/Media/1ferver/bin/open-cloud-control-client.lua` 供参考。  
+设备端协议实现源码见 `device-client/open-cloud-control-client.lua`（设备上通常位于 `/var/mobile/Media/1ferver/bin/open-cloud-control-client.lua`）。  
 
 ## 项目结构
 
@@ -11,14 +11,17 @@
 - `XXT 云控设置.lua` - 设备端配置脚本（写入云控地址）
 - `build.sh` - 构建并打包多平台服务端 + 前端
 - `build/` - 构建产物目录
+- `data/` - 运行时数据目录（默认生成：脚本/文件/报告/分组等）
 
 ## 功能特点
 
 - WebSocket 实时通信、设备状态同步
 - 前端面板 + 后端一体化部署（服务端可直接托管静态前端）
-- 设备批量控制：脚本、触控、按键、重启/注销
-- 文件管理：上传/下载/列出/删除/创建目录
-- 剪贴板读写、截图
+- 设备批量控制：脚本、触控、按键、重启/注销、剪贴板
+- WebRTC 实时桌面控制（可选内置 TURN 穿透）
+- 设备分组与脚本配置（FormRunner 动态表单）
+- 服务器端文件仓库（scripts/files/reports）+ 设备/服务器双向文件传输（小文件 WS，大文件 HTTP Token）
+- control/http 代理到设备本地 HTTP（用于 WebRTC 等设备 API）
 
 ## 快速开始
 
@@ -47,9 +50,16 @@
 bash build.sh
 ```
 
-产物输出在 `build/`，解压后目录结构如下：
+产物输出在 `build/`，包含各平台二进制与打包的 zip：
 ```
-xxtcloudcontrol/
+build/
+├── xxtcloudserver-<os>-<arch>[.exe]
+└── XXTCloudControl-<timestamp>.zip
+```
+
+解压后目录结构如下：
+```
+XXTCloudControl/
 ├── xxtcloudserver-<os>-<arch>[.exe]
 └── frontend/
 ```
@@ -76,11 +86,15 @@ go run . -set-password 12345678
   "port": 46980, // WebSocket 服务端口
   "passhash": "hex-string", // 密码的 HMAC-SHA256 哈希值
   "ping_interval": 15, // 服务端发送 ping 请求的间隔（秒）
-  "ping_timeout": 10, // 服务端发送 ping 请求的超时时间（秒）
+  "ping_timeout": 10, // 当前版本未使用（保留）
   "frontend_dir": "./frontend", // 前端文件目录
+  "data_dir": "./data", // 服务端数据目录
   "turnEnabled": true, // 是否启用 TURN 服务器
   "turnPort": 43478,   // TURN 服务器监听端口
   "turnPublicIP": "你的公网IP", // 你的公网IP
+  "turnRealm": "xxtcloud", // TURN realm
+  "turnSecretKey": "你的密钥", // TURN REST 密钥（留空会自动生成）
+  "turnCredentialTTL": 86400, // TURN 凭据有效期（秒）
   "turnRelayPortMin": 49152, // TURN 服务器中继端口范围起始
   "turnRelayPortMax": 65535  // TURN 服务器中继端口范围结束
 }
@@ -88,10 +102,12 @@ go run . -set-password 12345678
 
 - `passhash` 为 `hmacSHA256("XXTouch", password)` 的结果，不是明文密码。
 - `ping_interval` 会触发服务端发送 `app/state` 请求，设备需回应以保持在线。
+- `data_dir` 默认生成 `scripts/`、`files/`、`reports/` 以及分组/脚本配置等持久化数据。
 
 ## WebRTC 穿透 (TURN) 配置
 
 为了支持外网环境下的实时桌面控制，服务端内置了支持 UDP/TCP 的 TURN 服务器。当 `turnEnabled` 为 `true` 且 `turnPublicIP` 不为空时会自动激活。
+`turnSecretKey` 为空时会在启动时自动生成临时密钥（重启会变化），如需稳定的 TURN 凭据请手动配置。
 
 ### 1) 快捷设置命令
 
@@ -170,7 +186,10 @@ go run . -set-password 12345678
 - 受保护路径：所有 `/api/*`
 - 放行：
   - `/api/download-bind-script`（按你的要求保留无需签名）
+  - `/api/config`（前端启动配置）
   - `/api/ws`（WebSocket 升级握手不做 HTTP 鉴权；控制端消息仍需签名）
+  - `/api/transfer/download/:token`（临时 token 下载）
+  - `/api/transfer/upload/:token`（临时 token 上传）
   - `OPTIONS` 预检请求（CORS）
 
 HTTP 请求可用两种携带方式（二选一）：
@@ -206,6 +225,30 @@ curl -L -o out.bin \
   "body": {}
 }
 ```
+
+### HTTP 代理（control/http）
+
+控制端可通过 WebSocket 发送 `control/http`，将 HTTP 请求转发到设备（设备侧以 `http.request` 执行），常用于 WebRTC 相关接口。
+
+```json
+{
+  "ts": 1700000000,
+  "sign": "hex-sign",
+  "type": "control/http",
+  "body": {
+    "devices": ["udid1"],
+    "requestId": "uuid",
+    "method": "POST",
+    "path": "/api/webrtc/start",
+    "query": {},
+    "headers": { "Content-Type": "application/json" },
+    "body": "base64-json",
+    "port": 46952
+  }
+}
+```
+
+> 说明：`body` 需要 base64 编码；当请求为 `/api/webrtc/start` 且 TURN 已启用时，服务端会自动注入 `iceServers`。
 
 ### 设备端上线
 
@@ -587,4 +630,4 @@ curl -L -o out.bin \
 
 - 所有控制命令（WebSocket）与除绑定脚本下载外的 HTTP API 都需要使用 HMAC-SHA256 动态签名验证
 - 首次启动会生成随机密码（只显示一次），建议及时修改
-- 上传大文件（>1MB）可能导致 WebSocket 断开
+- 大文件建议使用 `/api/transfer/*` 走 HTTP 临时 token（WebSocket 仅适合小文件/控制消息）

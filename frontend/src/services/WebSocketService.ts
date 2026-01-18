@@ -8,6 +8,9 @@ export interface Device {
   [key: string]: any;
 }
 
+// Pending file list request callback type
+type FileListCallback = (files: Array<{name: string; type: 'file' | 'directory'; size?: number}>) => void;
+
 export class WebSocketService {
   private ws: WebSocket | null = null;
   private url: string;
@@ -20,6 +23,9 @@ export class WebSocketService {
   private messageCallbacks: ((message: any) => void)[] = [];
   private deviceCallbacks: ((devices: Device[]) => void)[] = [];
   private authCallbacks: ((success: boolean, error?: string) => void)[] = [];
+  
+  // Pending file list requests by deviceUdid
+  private pendingFileListCallbacks: Map<string, FileListCallback[]> = new Map();
   
   private devices: Device[] = [];
   private password: string = '';
@@ -404,6 +410,65 @@ export class WebSocketService {
     }
   }
 
+  // 列出文件目录 (Promise 版本，用于递归扫描)
+  async listFilesAsync(deviceUdid: string, path: string): Promise<Array<{name: string; type: 'file' | 'directory'; size?: number}>> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
+      console.error('WebSocket未连接或未认证');
+      return [];
+    }
+
+    return new Promise((resolve) => {
+      // 注册回调
+      const callbacks = this.pendingFileListCallbacks.get(deviceUdid) || [];
+      callbacks.push(resolve);
+      this.pendingFileListCallbacks.set(deviceUdid, callbacks);
+
+      // 设置超时
+      const timeout = setTimeout(() => {
+        // 移除回调
+        const cbs = this.pendingFileListCallbacks.get(deviceUdid) || [];
+        const idx = cbs.indexOf(resolve);
+        if (idx >= 0) cbs.splice(idx, 1);
+        if (cbs.length === 0) {
+          this.pendingFileListCallbacks.delete(deviceUdid);
+        }
+        console.warn(`listFilesAsync 超时: ${deviceUdid}:${path}`);
+        resolve([]);
+      }, 10000);
+
+      try {
+        const message = AuthService.getInstance().createControlMessage(
+          this.password,
+          'control/command',
+          {
+            devices: [deviceUdid],
+            type: 'file/list',
+            body: {
+              path: path.trim()
+            }
+          }
+        );
+        
+        this.send(message);
+
+        // 保存timeout引用以便在响应时清除
+        (resolve as any)._timeout = timeout;
+
+      } catch (error) {
+        console.error('获取文件列表失败:', error);
+        clearTimeout(timeout);
+        // 移除回调
+        const cbs = this.pendingFileListCallbacks.get(deviceUdid) || [];
+        const idx = cbs.indexOf(resolve);
+        if (idx >= 0) cbs.splice(idx, 1);
+        if (cbs.length === 0) {
+          this.pendingFileListCallbacks.delete(deviceUdid);
+        }
+        resolve([]);
+      }
+    });
+  }
+
   // 删除文件
   async deleteFile(deviceUdid: string, path: string): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
@@ -735,6 +800,33 @@ export class WebSocketService {
     // 处理文件操作响应
     if (message.type === 'file/list' || message.type === 'file/put' || message.type === 'file/delete') {
       console.log('文件操作响应:', message);
+      
+      // 处理 file/list 的异步回调
+      if (message.type === 'file/list' && message.udid) {
+        const callbacks = this.pendingFileListCallbacks.get(message.udid);
+        if (callbacks && callbacks.length > 0) {
+          const callback = callbacks.shift();
+          if (callbacks.length === 0) {
+            this.pendingFileListCallbacks.delete(message.udid);
+          }
+          if (callback) {
+            // 清除超时
+            if ((callback as any)._timeout) {
+              clearTimeout((callback as any)._timeout);
+            }
+            // 转换文件类型
+            const files = (message.body && Array.isArray(message.body)) 
+              ? message.body.map((f: any) => ({
+                  name: f.name,
+                  type: f.type === 'dir' ? 'directory' as const : 'file' as const,
+                  size: f.size
+                }))
+              : [];
+            callback(files);
+          }
+        }
+      }
+      
       // 文件操作响应转发给回调处理
       this.notifyMessage(message);
       return;

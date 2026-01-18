@@ -10,6 +10,8 @@ export interface SendToCloudModalProps {
   onClose: () => void;
   onConfirm: (category: 'scripts' | 'files' | 'reports', relativePath: string) => void;
   itemCount: number;
+  isScanning?: boolean;
+  directoryCount?: number;
 }
 
 const CATEGORY_OPTIONS = [
@@ -118,15 +120,28 @@ export default function SendToCloudModal(props: SendToCloudModalProps) {
 
           <div class={styles.sendToCloudFooter}>
             <span class={styles.itemCountInfo}>
-              将发送 {props.itemCount} 个文件
+              <Show when={props.isScanning} fallback={
+                <>
+                  {props.directoryCount && props.directoryCount > 0 && (
+                    <span>{props.directoryCount} 个目录，</span>
+                  )}
+                  将发送 {props.itemCount} 个文件
+                </>
+              }>
+                <span>扫描目录中... 已发现 {props.itemCount} 个文件</span>
+              </Show>
             </span>
             <div class={styles.sendToCloudActions}>
               <button class={styles.cancelBtn} onClick={props.onClose}>
                 取消
               </button>
-              <button class={styles.confirmBtn} onClick={handleConfirm}>
+              <button 
+                class={styles.confirmBtn} 
+                onClick={handleConfirm}
+                disabled={props.isScanning || props.itemCount === 0}
+              >
                 <IconUpload size={14} />
-                <span>确定</span>
+                <span>{props.isScanning ? '扫描中...' : '确定'}</span>
               </button>
             </div>
           </div>
