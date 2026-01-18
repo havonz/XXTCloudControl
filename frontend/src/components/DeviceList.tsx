@@ -2,6 +2,7 @@ import { Component, createSignal, For, Accessor, Show, createEffect, createMemo,
 import { AuthService, Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { useDialog } from './DialogContext';
+import { useToast } from './ToastContext';
 import RealTimeControl from './RealTimeControl';
 import WebRTCControl from './WebRTCControl';
 import styles from './DeviceList.module.css';
@@ -46,6 +47,7 @@ interface DeviceListProps {
 
 const DeviceList: Component<DeviceListProps> = (props) => {
   const dialog = useDialog();
+  const toast = useToast();
   const authService = AuthService.getInstance();
   const [forceUpdate, setForceUpdate] = createSignal(0);
   
@@ -330,10 +332,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // WebRTC control modal state
   const [showWebRTCModal, setShowWebRTCModal] = createSignal(false);
   
-  // Toast notification state
-  const [toastMessage, setToastMessage] = createSignal('');
-  const [showToast, setShowToast] = createSignal(false);
-  
   // Sorting state
   const [sortField, setSortField] = createSignal<string>('');
   const [sortDirection, setSortDirection] = createSignal<'asc' | 'desc'>('asc');
@@ -576,13 +574,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   // Show toast notification
   const showToastMessage = (message: string) => {
-    setToastMessage(message);
-    setShowToast(true);
-    
-    // Auto hide after 2 seconds
-    setTimeout(() => {
-      setShowToast(false);
-    }, 2000);
+    toast.showInfo(message);
   };
   
   // Handle table header click for sorting
@@ -1747,13 +1739,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
           selectedDevices={props.selectedDevices()}
         />
-        
-        {/* Toast Notification */}
-        <Show when={showToast()}>
-          <div class={styles.toast}>
-            {toastMessage()}
-          </div>
-        </Show>
         
         {/* Device Context Menu */}
         <Show when={contextMenuDevice()}>

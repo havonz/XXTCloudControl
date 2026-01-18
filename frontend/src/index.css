@@ -503,38 +503,74 @@ code {
   line-height: 1;
 }
 
-/* Version Update Toast */
-.version-update-toast {
+/* Global Toast System */
+.global-toast-container {
   position: fixed;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--warning);
-  color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
+  top: 24px;
+  right: 24px;
+  background: var(--panel-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text);
+  padding: 12px 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+  font-weight: 500;
   box-shadow: var(--shadow-lg);
-  z-index: 9999;
-  animation: versionToastSlideIn 0.3s ease-out;
+  z-index: 20000;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  max-width: 360px;
+  word-wrap: break-word;
+  pointer-events: auto;
+  transform: translateX(0);
+  opacity: 1;
+  transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
 }
 
-.version-update-toast::before {
-  content: '⚡';
-  font-size: 16px;
+.global-toast-container.visible {
+  animation: toastEnter 0.4s cubic-bezier(0.19, 1, 0.22, 1);
 }
 
-@keyframes versionToastSlideIn {
+.global-toast-container.exit {
+  transform: translateX(120%);
+  opacity: 0;
+}
+
+@keyframes toastEnter {
   from {
+    transform: translateX(120%);
     opacity: 0;
-    transform: translateX(-50%) translateY(-20px);
   }
   to {
+    transform: translateX(0);
     opacity: 1;
-    transform: translateX(-50%) translateY(0);
   }
+}
+
+.global-toast-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.global-toast-container[style*="success"] .global-toast-icon { color: var(--success); }
+.global-toast-container[style*="warning"] .global-toast-icon { color: var(--warning); }
+.global-toast-container[style*="danger"] .global-toast-icon { color: var(--danger); }
+.global-toast-container[style*="info"] .global-toast-icon { color: var(--primary); }
+
+.global-toast-message {
+  line-height: 1.4;
+}
+
+/* Version Update Toast (legacy, can be removed or rebranded) */
+.version-update-toast {
+  display: none; /* Replaced by global toast system */
 }

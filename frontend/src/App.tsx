@@ -1,4 +1,5 @@
 import { Component, createSignal, onCleanup, createMemo, createEffect, Show } from 'solid-js';
+import { useToast } from './components/ToastContext';
 import { WebSocketService, Device } from './services/WebSocketService';
 import { AuthService, LoginCredentials } from './services/AuthService';
 import { createGroupStore } from './services/GroupStore';
@@ -22,6 +23,7 @@ type PendingFileGet =
   | { kind: 'read'; deviceUdid: string; path: string };
 
 const App: Component = () => {
+  const toast = useToast();
   const { theme, toggleTheme } = useTheme();
   const [isAuthenticated, setIsAuthenticated] = createSignal(false);
   const [isConnecting, setIsConnecting] = createSignal(false);
@@ -34,10 +36,6 @@ const App: Component = () => {
   const [serverHost, setServerHost] = createSignal('');
   const [serverPort, setServerPort] = createSignal('');
   const [serverVersion, setServerVersion] = createSignal('');
-  
-  // Version update toast state
-  const [showVersionUpdateToast, setShowVersionUpdateToast] = createSignal(false);
-  const [versionUpdateMessage, setVersionUpdateMessage] = createSignal('');
   
   // File browser state
   const [fileBrowserOpen, setFileBrowserOpen] = createSignal(false);
@@ -672,8 +670,7 @@ const App: Component = () => {
               
               // If cached version exists and differs from server version, trigger refresh
               if (cachedVersion && cachedVersion !== config.version) {
-                setVersionUpdateMessage(`检测到新版本 ${config.version}，3秒后自动刷新...`);
-                setShowVersionUpdateToast(true);
+                toast.showWarning(`检测到新版本 ${config.version}，3秒后自动刷新...`, 3000);
                 
                 // Clear cached version and refresh after 3 seconds
                 setTimeout(() => {
@@ -705,13 +702,6 @@ const App: Component = () => {
 
   return (
     <div class={styles.App}>
-      {/* Version Update Toast */}
-      <Show when={showVersionUpdateToast()}>
-        <div class="version-update-toast">
-          {versionUpdateMessage()}
-        </div>
-      </Show>
-      
       {!isAuthenticated() ? (
         <LoginForm 
           onLogin={handleLogin}

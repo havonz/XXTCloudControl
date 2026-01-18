@@ -1,5 +1,6 @@
 import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { useDialog } from './DialogContext';
+import { useToast } from './ToastContext';
 import {
   IconFolderPlus,
   IconFileCirclePlus,
@@ -103,15 +104,8 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   // 扫描状态 - 用于递归扫描目录内的文件
   const [isScanning, setIsScanning] = createSignal(false);
   const [selectedDirectoryCount, setSelectedDirectoryCount] = createSignal(0);
-  // Toast 提示
-  const [toastMessage, setToastMessage] = createSignal('');
-  let toastTimer: ReturnType<typeof setTimeout> | null = null;
   
-  const showToast = (message: string, duration: number = 3000) => {
-    if (toastTimer) clearTimeout(toastTimer);
-    setToastMessage(message);
-    toastTimer = setTimeout(() => setToastMessage(''), duration);
-  };
+  const toast = useToast();
 
   // 监听文件内容更新
   createEffect(() => {
@@ -669,11 +663,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     setIsSendingToCloud(false);
     
     if (successCount > 0 && failCount === 0) {
-      showToast(`成功发送 ${successCount} 个文件到云控`);
+      toast.showSuccess(`成功发送 ${successCount} 个文件到云控`);
     } else if (successCount > 0 && failCount > 0) {
-      showToast(`发送完成：${successCount} 个成功，${failCount} 个失败`);
+      toast.showWarning(`发送完成：${successCount} 个成功，${failCount} 个失败`);
     } else {
-      showToast(`发送失败：${failCount} 个文件发送失败`);
+      toast.showError(`发送失败：${failCount} 个文件发送失败`);
     }
     
     setSendToCloudPendingItems([]);
@@ -1083,11 +1077,6 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       isScanning={isScanning()}
       directoryCount={selectedDirectoryCount()}
     />
-    
-    {/* Toast Notification */}
-    <Show when={toastMessage()}>
-      <div class={styles.toast}>{toastMessage()}</div>
-    </Show>
     </>
   );
 }

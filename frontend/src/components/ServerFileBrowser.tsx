@@ -2,6 +2,7 @@ import { createSignal, createEffect, For, Show, onMount, onCleanup, createMemo }
 import { Portal } from 'solid-js/web';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { useDialog } from './DialogContext';
+import { useToast } from './ToastContext';
 import {
   IconCode,
   IconBoxesStacked,
@@ -116,15 +117,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [targetDevicePath, setTargetDevicePath] = createSignal('/lua/scripts/');
   const [isSendingToDevices, setIsSendingToDevices] = createSignal(false);
   
-  // Toast 提示
-  const [toastMessage, setToastMessage] = createSignal('');
-  let toastTimer: ReturnType<typeof setTimeout> | null = null;
-  
-  const showToast = (message: string, duration: number = 3000) => {
-    if (toastTimer) clearTimeout(toastTimer);
-    setToastMessage(message);
-    toastTimer = setTimeout(() => setToastMessage(''), duration);
-  };
+  const toast = useToast();
 
   // 目标路径选项
   const targetPathOptions = [
@@ -501,7 +494,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         }
       }
       
-      showToast(`已发送 ${sentCount} 个文件请求`);
+      toast.showSuccess(`已发送 ${sentCount} 个文件请求`);
     } catch (err) {
       await dialog.alert('发送失败: ' + (err as Error).message);
     } finally {
@@ -1126,11 +1119,6 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
             </div>
           </div>
         </div>
-      </Show>
-      
-      {/* Toast Notification */}
-      <Show when={toastMessage()}>
-        <div class={styles.toast}>{toastMessage()}</div>
       </Show>
     </Show>
   );

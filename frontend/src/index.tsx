@@ -14,11 +14,14 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
 }
 
 import { DialogProvider } from './components/DialogContext';
+import { ToastProvider } from './components/ToastContext';
 
 render(() => (
   <ThemeProvider>
-    <DialogProvider>
-      <App />
-    </DialogProvider>
+    <ToastProvider>
+      <DialogProvider>
+        <App />
+      </DialogProvider>
+    </ToastProvider>
   </ThemeProvider>
 ), root!);
