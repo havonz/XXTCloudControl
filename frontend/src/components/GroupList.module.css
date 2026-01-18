@@ -253,3 +253,75 @@
 .contextMenu .dangerButton:hover {
   background: var(--danger-bg);
 }
+
+@media (max-width: 768px) {
+  .groupListContainer {
+    border-radius: 0;
+    box-shadow: none;
+    height: 100%;
+    background: var(--bg);
+    min-width: 0;
+    max-width: none;
+    border: none;
+  }
+  
+  .groupItem {
+    padding: 12px;
+  }
+  
+  .groupCheckbox {
+    width: 18px;
+    height: 18px;
+  }
+  
+  .groupName {
+    font-size: 15px;
+  }
+  
+  .groupSubInfo {
+    font-size: 11px;
+  }
+  
+  .title {
+    font-size: 15px;
+  }
+  
+  .addButton, .settingsButton {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+  
+  .contextMenu {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    width: 100%;
+    max-width: none;
+    padding: 16px 16px 32px 16px;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+    animation: slideUp 0.3s ease;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+  }
+  
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  
+  .contextMenu button {
+    padding: 14px;
+    font-size: 15px;
+    border-radius: 10px;
+  }
+
+  .contextBackdrop {
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+  }
+}

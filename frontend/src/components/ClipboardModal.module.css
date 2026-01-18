@@ -28,21 +28,21 @@
 
 /* Modal header */
 .modalHeader {
-  padding: 1.5rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
 }
 
 .modalHeader h3 {
-  margin: 0 0 0.5rem 0;
-  font-size: 1.2rem;
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
   color: var(--text);
   font-weight: 600;
 }
 
 .modalHeader p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--text-secondary);
 }
 
@@ -184,18 +184,45 @@
 }
 
 /* Responsive adjustments */
-@media (max-width: 768px) {
+@media (max-width: 480px) {
   .clipboardModal {
-    width: 95%;
-    margin: 1rem;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
   }
   
+  .modalHeader {
+    padding: 1rem;
+  }
+
+  .modalContent {
+    flex: 1;
+    padding: 1rem;
+    max-height: none;
+  }
+
+  .textareaInput {
+    font-size: 16px;
+  }
+
   .modalActions {
+    padding: 1rem;
     flex-direction: column;
+    gap: 0.75rem;
   }
   
   .actionButton,
   .cancelButton {
     width: 100%;
+    min-height: 48px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 }

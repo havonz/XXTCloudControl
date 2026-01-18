@@ -30,14 +30,14 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.5rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
 }
 
 .header h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1rem;
   color: var(--text);
 }
 
@@ -664,11 +664,96 @@
   cursor: not-allowed;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .modal {
-    width: 95%;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    border: none;
   }
+
+  .header {
+    padding: 0.75rem 1rem;
+  }
+
+  .header h2 {
+    font-size: 1rem;
+  }
+
+  .tabs {
+    padding: 0.75rem;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab {
+    flex-shrink: 0;
+  }
+
+  .toolbar {
+    padding: 0.75rem;
+  }
+
+  .actions {
+    gap: 6px;
+  }
+
+  .actionButton, .uploadButton {
+    padding: 8px;
+    font-size: 12px;
+  }
+
+  .actionButton span {
+    display: none; /* Hide text on mobile buttons to save space */
+  }
+
+  .breadcrumbs {
+    padding: 8px;
+  }
+
+  .fileList {
+    padding: 0.5rem;
+  }
+
+  .tableHeader {
+    display: none; /* Hide table header on mobile */
+  }
+
+  .tableRow {
+    padding: 12px 8px;
+  }
+
+  .typeColumn {
+    width: 40px;
+  }
+
   .actionsColumn {
-    width: 80px;
+    width: auto;
+    flex-direction: row;
+  }
+
+  .actionBtn, .deleteBtn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .editorModal {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .editorTextarea {
+    margin: 0.75rem;
+    font-size: 14px;
+  }
+
+  .editorFooter {
+    transform: translateY(-20px); /* Adjust for mobile keyboard or bottom bar */
   }
 }

@@ -28,7 +28,7 @@
 }
 
 .modalHeader {
-  padding: 1.5rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
@@ -39,7 +39,7 @@
 
 .modalHeader h3 {
   margin: 0;
-  font-size: 1.3rem;
+  font-size: 1rem;
   color: var(--text);
 }
 
@@ -367,26 +367,125 @@
 }
 
 @media (max-width: 768px) {
+  .realTimeModal {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    border: none;
+  }
+
+  .modalHeader {
+    padding: 0.75rem 1rem;
+  }
+
+  .modalHeader h3 {
+    font-size: 1.1rem;
+  }
+
   .realTimeContent {
     flex-direction: column;
   }
   
   .devicePanel {
     width: 100%;
-    height: 200px;
+    height: auto;
+    max-height: 250px;
+    padding: 0.75rem;
     border-right: none;
-    border-bottom: 1px solid var(--border-light);
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+  }
+
+  .devicePanel h4 {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
   }
   
   .deviceList {
+    display: flex;
     flex-direction: row;
     overflow-x: auto;
-    margin-bottom: 1rem;
+    gap: 8px;
+    margin-bottom: 0.75rem;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
   }
   
   .deviceItem {
-    min-width: 150px;
-    margin-right: 0.5rem;
+    min-width: 120px;
+    flex-shrink: 0;
     margin-bottom: 0;
+    padding: 8px;
+  }
+
+  .deviceName {
+    font-size: 13px;
+  }
+
+  .scaleControl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 0;
+    justify-content: space-between;
+  }
+
+  .inputLabel {
+    margin-bottom: 0;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .syncControlSection {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: none;
+  }
+
+  .checkboxLabel {
+    margin-bottom: 0;
+  }
+
+  .checkboxHint {
+    display: none; /* Hide hint on mobile to save space */
+  }
+
+  .clipboardSection {
+    margin-top: 4px;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .clipboardButton {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  
+  .screenPanel {
+    padding: 0.5rem;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .screenContainer {
+    min-height: 200px;
+  }
+
+  .screenInfo {
+    padding: 6px 10px;
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .modalActions {
+    padding: 0.75rem;
+    border-radius: 0;
+  }
+
+  .cancelButton {
+    width: 100%;
+    padding: 10px;
   }
 }

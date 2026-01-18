@@ -33,7 +33,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.5rem;
+  padding: 0.75rem 1rem;
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
   border-radius: 12px 12px 0 0;
@@ -41,7 +41,7 @@
 
 .modalHeader h3 {
   margin: 0;
-  font-size: 1.3rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text);
   display: flex;
@@ -72,26 +72,32 @@
 }
 
 .closeButton {
-  padding: 0.75rem 1.5rem;
-  border: 2px solid var(--border);
-  border-radius: 8px;
   background: var(--panel-2);
+  border: none;
   color: var(--text);
+  font-size: 1.1rem;
   cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 700;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: all 0.2s ease;
 }
 
 .closeButton:hover {
   background: var(--hover-bg);
-  border-color: var(--primary);
-  transform: translateY(-1px);
 }
 
 .closeButton:active {
-  transform: translateY(1px) scale(0.98);
+  transform: scale(0.92);
   transition: all 0.1s ease;
+}
+
+/* 移动端浮动标题栏 - 默认隐藏 */
+.mobileHeader {
+  display: none;
 }
 
 .webrtcContent {
@@ -108,15 +114,29 @@
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0;
   overflow-y: auto;
 }
 
+.controlPanelTop {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.controlPanelBottom {
+  flex-shrink: 0;
+}
+
 .controlPanel h4 {
-  margin: 0;
+  margin: 0 0 0.5rem 0;
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--text);
+  flex-shrink: 0;
 }
 
 /* 设备列表 */
@@ -124,8 +144,9 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  margin-bottom: 1rem;
-  max-height: 200px;
+  margin-bottom: 0;
+  min-height: 0;
+  max-height: none;
 }
 
 .deviceItem {
@@ -183,32 +204,55 @@
   max-width: 100%;
 }
 
-/* 同步控制区 */
+/* 同步控制区 - 分段按钮 */
 .syncControlSection {
   margin-top: 1rem;
+  margin-bottom: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--border-light);
 }
 
-.checkboxLabel {
-  display: flex;
-  align-items: flex-start;
-  margin-bottom: 0.5rem;
+.syncControlLabel {
   font-size: 0.9rem;
   color: var(--text-secondary);
-  cursor: pointer;
-  gap: 0.5rem;
+  margin-bottom: 0.5rem;
 }
 
-.checkboxContent {
+.segmentedControl {
+  display: flex;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.segmentedButton {
   flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 
-.checkboxHint {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-top: 0.25rem;
-  line-height: 1.3;
+.segmentedButton:hover:not(.active) {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
+.segmentedButton.active {
+  background: var(--btn-primary-bg);
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 设置项 */
@@ -216,6 +260,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .settingLabel {
@@ -361,7 +406,7 @@
   flex-direction: column;
   background: var(--panel-2);
   position: relative;
-  padding: 1.5rem;
+  padding: 0.75rem;
 }
 
 .videoContainer {
@@ -372,7 +417,7 @@
   position: relative;
   overflow: hidden;
   background: var(--panel);
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   min-height: 400px;
 }
@@ -383,6 +428,9 @@
   object-fit: contain;
   cursor: crosshair;
   border-radius: 4px;
+  touch-action: none; /* 禁用默认触摸行为，启用自定义触摸控制 */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .videoPlaceholder {
@@ -446,6 +494,7 @@
 .rotationGroup {
   display: flex;
   gap: 6px;
+  justify-content: center;
 }
 
 .rotateBtn {
@@ -783,19 +832,309 @@
 }
 
 @media (max-width: 768px) {
+  .webrtcModal {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    border: none;
+  }
+
+  /* 隐藏桌面端标题栏 */
+  .modalHeader {
+    display: none;
+  }
+
+  /* 移动端浮动标题栏 */
+  .mobileHeader {
+    display: flex;
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    z-index: 100;
+    background: var(--panel-glass);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+  }
+
+  .mobileStats {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    flex: 1;
+    justify-content: center;
+  }
+
+  .mobileStatItem {
+    white-space: nowrap;
+  }
+  
+  .mobileMenuBtn,
+  .mobileCloseBtn {
+    pointer-events: auto;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: none;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow);
+    transition: all 0.2s ease;
+  }
+  
+  .mobileMenuBtn {
+    position: relative;
+  }
+  
+  .connectionDot {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+  
+  .connectionDot.connected {
+    background: var(--success);
+  }
+  
+  .connectionDot.connecting {
+    background: var(--warning);
+    animation: pulse 1s infinite;
+  }
+  
+  .connectionDot.disconnected {
+    background: var(--danger);
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  
+  .mobileMenuBtn:active,
+  .mobileCloseBtn:active {
+    transform: scale(0.92);
+  }
+  
+  /* 移动端侧边栏遮罩 */
+  .mobileSidebarOverlay {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--overlay);
+    z-index: 200;
+    animation: fadeIn 0.2s ease;
+  }
+  
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
   .webrtcContent {
     flex-direction: column;
+    position: relative;
   }
-  
+
   .controlPanel {
-    width: 100%;
-    height: auto;
-    max-height: 200px;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 80%;
+    height: 100%;
+    max-height: none;
+    padding: 1rem;
+    border-right: 1px solid var(--border);
+    border-bottom: none;
+    background: var(--panel);
+    z-index: 300;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    justify-content: space-between;
+  }
+
+  .controlPanelTop {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .controlPanelBottom {
+    flex-shrink: 0;
+    margin-top: 12px;
   }
   
+  .controlPanel.mobileOpen {
+    transform: translateX(0);
+    box-shadow: var(--shadow-lg);
+  }
+  
+  .controlPanel h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+  }
+
+  .deviceList {
+    display: flex;
+    flex-direction: column;
+    overflow-x: visible;
+    overflow-y: auto;
+    gap: 6px;
+    margin-bottom: 0;
+    padding-bottom: 0;
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .deviceItem {
+    min-width: 0;
+    flex-shrink: 0;
+    margin-bottom: 0;
+    padding: 10px;
+  }
+
+  .settingGroup {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .checkboxLabel {
+    padding: 10px;
+    margin: -10px;
+    margin-bottom: 0;
+  }
+
+  .checkboxLabel input[type="checkbox"] {
+    width: 24px;
+    height: 24px;
+  }
+
+  .settingLabel {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .settingValue {
+    flex: 1;
+  }
+
+  .actionButtons {
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .actionButton {
+    width: 100%;
+    padding: 10px;
+    font-size: 14px;
+  }
+
   .videoPanel {
-    padding: 1rem;
+    padding: 0;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .videoContainer {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .videoElement {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  /* 移动端隐藏底部统计信息栏（已移到顶部） */
+  .statsBar {
+    display: none;
+  }
+
+  /* 移动端隐藏鼠标操作提示 */
+  .touchHintInline {
+    display: none;
+  }
+
+  .statsGroup {
+    gap: 10px;
+  }
+
+  .bottomToolbar {
+    position: relative;
+    bottom: auto;
+    left: auto;
+    right: auto;
+    padding: 6px;
+    gap: 6px;
+    background: var(--panel-glass);
+    backdrop-filter: blur(8px);
+    border-radius: 8px;
+    margin: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* 移动端主屏幕按钮单独一行 */
+  .homeButton {
+    flex: 0 0 100%;
+    order: 10;
+  }
+
+  .deviceButton {
+    padding: 8px 10px;
+    font-size: 11px;
+    flex: 1;
+    min-width: 70px;
+    justify-content: center;
+  }
+
+  .closeButton {
+    width: 28px;
+    height: 28px;
   }
 }

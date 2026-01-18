@@ -46,6 +46,9 @@ const App: Component = () => {
   const [isLoadingFiles, setIsLoadingFiles] = createSignal(false);
   const [fileContent, setFileContent] = createSignal<{path: string, content: string} | null>(null);
   
+  // Mobile UI state
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = createSignal(false);
+  
   // Group management state
   const groupStore = createGroupStore();
   const [showNewGroupModal, setShowNewGroupModal] = createSignal(false);
@@ -668,13 +671,27 @@ const App: Component = () => {
         <div class={styles.appContainer}>
           <header class={styles.appHeader}>
             <div class={styles.headerLeft}>
+              <button 
+                class={styles.mobileMenuToggle} 
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen())}
+                title="切换菜单"
+              >
+                <div class={`${styles.hamburger} ${isMobileMenuOpen() ? styles.open : ''}`}>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </button>
               <img src="/favicon-48.png" alt="Logo" class={styles.logo} />
-              <h1 class={styles.appTitle}>XXT 云控制器</h1>
+              <h1 class={styles.appTitle}>XXT 云控</h1>
               {serverVersion() && (
                 <span class={styles.versionBadge}>{serverVersion()}</span>
               )}
             </div>
             <div class={styles.headerRight}>
+              <div class={styles.serverInfo}>
+                <span class={styles.serverIp}>{serverHost()}</span>
+              </div>
               <button
                 onClick={toggleTheme}
                 class={styles.themeToggle}
@@ -684,7 +701,7 @@ const App: Component = () => {
               </button>
             </div>
           </header>
-          <main class={styles.appMain}>
+          <main class={`${styles.appMain} ${isMobileMenuOpen() ? styles.sidebarOpen : ''}`}>
             <DeviceList 
               devices={filteredDevices()}
               onDeviceSelect={handleDeviceSelect}
@@ -705,6 +722,8 @@ const App: Component = () => {
               checkedGroups={groupStore.checkedGroups}
               getPreferredGroupScript={groupStore.getPreferredGroupScript}
               getGroupedDevicesForLaunch={groupStore.getGroupedDevicesForLaunch}
+              isMobileMenuOpen={isMobileMenuOpen()}
+              onCloseMobileMenu={() => setIsMobileMenuOpen(false)}
               sidebar={
                 <GroupList
                   groupStore={groupStore}
@@ -718,6 +737,10 @@ const App: Component = () => {
                     const allDevices = devices();
                     const newSelection = allDevices.filter(d => deviceIds.has(d.udid));
                     setSelectedDevices(newSelection);
+                    // On mobile, close sidebar after selection
+                    if (window.innerWidth < 768) {
+                      setIsMobileMenuOpen(false);
+                    }
                   }}
                 />
               }

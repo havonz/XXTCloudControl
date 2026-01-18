@@ -272,13 +272,33 @@
 @media (max-width: 480px) {
   .loginContainer {
     padding: 1rem;
+    align-items: flex-start;
+    padding-top: 10vh;
   }
   
   .loginCard {
-    padding: 2rem;
+    padding: 2rem 1.5rem;
+    border-radius: 16px;
   }
   
+  .loginHeader {
+    margin-bottom: 2rem;
+  }
+
   .loginHeader h1 {
-    font-size: 2rem;
+    font-size: 1.75rem;
+  }
+
+  .loginHeader p {
+    font-size: 1rem;
+  }
+  
+  .input {
+    font-size: 16px; /* Prevent auto-zoom on iOS */
+  }
+
+  .loginButton, .storedValueButton, .clearPasswordButton {
+    min-height: 48px;
+    font-size: 16px;
   }
 }

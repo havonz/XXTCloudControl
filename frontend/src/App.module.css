@@ -18,12 +18,54 @@
   padding: 0 16px;
   flex-shrink: 0;
   box-shadow: var(--shadow-sm);
+  position: relative;
+  z-index: 1000;
 }
 
 .headerLeft {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.mobileMenuToggle {
+  display: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  margin-left: -8px;
+  border-radius: 6px;
+}
+
+.hamburger {
+  width: 20px;
+  height: 14px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.hamburger span {
+  display: block;
+  width: 100%;
+  height: 2px;
+  background-color: var(--text);
+  border-radius: 2px;
+  transition: all 0.3s ease;
+}
+
+.hamburger.open span:nth-child(1) {
+  transform: translateY(6px) rotate(45deg);
+}
+
+.hamburger.open span:nth-child(2) {
+  opacity: 0;
+}
+
+.hamburger.open span:nth-child(3) {
+  transform: translateY(-6px) rotate(-45deg);
 }
 
 .logo {
@@ -36,11 +78,12 @@
   font-size: 16px;
   font-weight: 600;
   color: var(--text);
+  white-space: nowrap;
 }
 
 .versionBadge {
   padding: 3px 10px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   background: transparent;
   color: var(--text-secondary);
@@ -53,6 +96,18 @@
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.serverInfo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.serverIp {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
 }
 
 .themeToggle {
@@ -94,4 +149,22 @@
   flex-direction: column;
   background: var(--bg);
   color: var(--text);
+}
+
+@media (max-width: 768px) {
+  .mobileMenuToggle {
+    display: block;
+  }
+  
+  .appTitle {
+    font-size: 14px;
+  }
+  
+  .versionBadge {
+    display: none;
+  }
+  
+  .serverInfo {
+    display: none;
+  }
 }

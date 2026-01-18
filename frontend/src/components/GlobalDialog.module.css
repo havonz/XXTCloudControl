@@ -26,14 +26,14 @@
 }
 
 .header {
-  padding: 1rem 1.5rem;
+  padding: 0.75rem 1rem;
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
 }
 
 .header h3 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 600;
 }
 

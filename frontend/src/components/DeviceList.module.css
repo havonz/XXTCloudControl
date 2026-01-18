@@ -257,6 +257,10 @@
   gap: 4px;
 }
 
+.scriptSelectWrapper {
+  width: 10em; /* 固定10字宽度 */
+}
+
 .moreActionsContainer {
   position: relative;
 }
@@ -311,12 +315,14 @@
   gap: 8px;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .sidebarSection {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .contentArea {
@@ -325,6 +331,78 @@
   gap: 8px;
   min-width: 0;
   overflow: hidden;
+  height: 100%;
+}
+
+.mobileSidebarOverlay {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--overlay);
+  backdrop-filter: blur(2px);
+  z-index: 998;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .mainLayoutBody {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  
+  .sidebarSection {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    z-index: 999;
+    background: var(--bg);
+    transform: translateX(-100%);
+    box-shadow: none;
+    border-right: 1px solid var(--border);
+  }
+  
+  .sidebarSection.mobileOpen {
+    transform: translateX(0);
+    box-shadow: var(--shadow-lg);
+  }
+  
+  .mobileSidebarOverlay {
+    display: block;
+  }
+  
+  .contentArea {
+    padding: 0;
+  }
+  
+  .deviceListContainer {
+    padding: 0;
+    gap: 0;
+  }
+  
+  .actionToolbar {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    padding: 8px;
+  }
+  
+  .managementToolbar {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    padding: 6px 8px;
+  }
 }
 
 .managementToolbar {
@@ -1221,6 +1299,13 @@
 
 /* 响应式设计 */
 @media (max-width: 768px) {
+  /* Management Toolbar moved here */
+  .managementToolbar {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    padding: 6px 8px;
+  }
   .deviceListContainer {
     padding: 1rem;
   }
@@ -1601,4 +1686,425 @@
 
 .themeIcon {
   font-size: 1rem;
+}
+
+/* Mobile Card View Styles */
+.deviceCardList {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.deviceCard {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.deviceCard.selected {
+  border: 2px solid var(--primary);
+  background: var(--selected-bg);
+  box-shadow: 0 0 0 1px var(--primary), var(--shadow);
+}
+
+.cardSelectionIndicator {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  background: var(--primary);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+  z-index: 2;
+  border: 2px solid var(--panel);
+}
+
+.checkIcon {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.deviceCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.cardTitleSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cardDeviceName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cardDeviceUdid {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.cardStatusSection {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.cardBattery {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cardRunningStatus {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.cardRunningStatus.running {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.cardRunningStatus.stopped {
+  background: var(--hover-bg);
+  color: var(--text-muted);
+}
+
+.cardDetailsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+  background: var(--panel-2);
+  border-radius: 8px;
+}
+
+.detailItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.detailLabel {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.detailValue {
+  font-size: 11px;
+  color: var(--text);
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cardMessageArea {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.cardMessageText {
+  font-style: italic;
+  word-break: break-all;
+}
+
+.cardLogArea {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.03);
+  padding: 6px;
+  border-radius: 6px;
+  max-height: 60px;
+  overflow: hidden;
+  position: relative;
+}
+
+[data-theme="dark"] .cardLogArea {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cardCheckbox {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: none;
+}
+
+/* Device Context Menu */
+.contextBackdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10000;
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 10001;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow), var(--shadow-pop);
+  min-width: 160px;
+  padding: 4px;
+}
+
+.contextMenu button {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.contextMenu button:hover {
+  background: var(--panel-2);
+}
+
+.contextMenu button:active {
+  transform: scale(0.98);
+  transition: all 0.1s ease;
+}
+
+.contextMenuSection {
+  /* Section wrapper for grouping */
+}
+
+.contextMenuLabel {
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.contextMenuDivider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 8px;
+}
+
+@media (max-width: 768px) {
+  .tableArea {
+    padding: 0;
+  }
+  
+  .deviceTable {
+    display: none !important;
+  }
+  
+  .deviceCardList {
+    display: flex;
+  }
+  
+  .toolbarLeft {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  
+  .toolbarButton {
+    padding: 6px 10px;
+    font-size: 12px;
+    flex: 1 1 auto;
+  }
+  
+  .toolbarActionButton {
+    padding: 8px 10px;
+    font-size: 12px;
+    flex: 1 1 calc(50% - 6px);
+    text-align: center;
+    justify-content: center;
+  }
+  
+  .scriptSelectGroup {
+    flex: 1 1 100%;
+    margin-bottom: 4px;
+  }
+  
+  .actionToolbarRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  /* 管理工具栏：表头设置、请求刷新、全选、反选 四个按钮等宽一行 */
+  .managementToolbar .toolbarLeft {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    width: 100%;
+  }
+
+  .toolbarActionButton,
+  .scriptSelectGroup,
+  .scriptActionButtons,
+  .moreActionsContainer {
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    flex: none !important;
+  }
+  
+  .managementToolbar .toolbarButton,
+  .managementToolbar .columnSettingsContainer {
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    flex: none !important;
+  }
+
+  /* Right side of management toolbar (device count) should span full width or move below */
+  .managementToolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 8px;
+  }
+
+  .toolbarRight {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  /* Make the select input inside the group take full width of its grid cell */
+  .scriptSelectGroup {
+    display: flex !important;
+    gap: 4px !important; /* Tight gap as requested "挨在一起" */
+    align-items: center !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .scriptSelectWrapper {
+    flex: 1;
+    min-width: 0 !important;
+    display: flex;
+    width: 100%;
+  }
+
+  /* Ensure Ark UI components inside the wrapper expand */
+  .scriptSelectWrapper :global(.cbx-select-root),
+  .scriptSelectWrapper :global(.cbx-select-control) {
+    flex: 1;
+    width: 100% !important;
+    min-width: 0 !important;
+    display: flex !important;
+  }
+
+  .scriptSelectGroup :global(.cbx-select) {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 40px !important;
+    font-size: 13px !important;
+    padding: 0 8px !important;
+    margin: 0 !important;
+    flex: 1 !important;
+  }
+
+  .scriptSelectGroup .iconButton {
+    width: 40px;
+    height: 40px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+
+  .toolbarActionButton,
+  .managementToolbar .toolbarButton {
+    padding: 8px 4px;
+    font-size: 12px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    width: 100%;
+  }
+
+  .deviceCountSummary {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  
+  /* Mobile context menu - bottom sheet style */
+  .contextBackdrop {
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+  }
+  
+  .contextMenu {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    width: 100%;
+    max-width: none;
+    padding: 16px 16px 32px 16px;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+    animation: contextSlideUp 0.3s ease;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+  }
+  
+  @keyframes contextSlideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  
+  .contextMenu button {
+    padding: 14px;
+    font-size: 15px;
+    border-radius: 10px;
+  }
 }

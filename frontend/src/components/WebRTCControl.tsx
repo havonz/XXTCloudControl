@@ -32,6 +32,9 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const [clipboardContent, setClipboardContent] = createSignal<string>(''); // 文本内容
   const [clipboardImageData, setClipboardImageData] = createSignal<string | null>(null);
   
+  // 移动端侧边栏状态
+  const [mobileSettingsOpen, setMobileSettingsOpen] = createSignal(false);
+  
   const mainBackdropClose = createBackdropClose(() => handleClose());
   const clipboardBackdropClose = createBackdropClose(() => setClipboardModalOpen(false));
 
@@ -43,6 +46,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   let lastTouchPosition = { x: 0, y: 0 }; // 记录最后触摸位置
 
   let videoRef: HTMLVideoElement | undefined;
+  let videoContainerRef: HTMLDivElement | undefined;
   let webrtcService: WebRTCService | null = null;
   let statsInterval: number | undefined;
   let lastBytesReceived = 0;
@@ -253,8 +257,38 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     setSelectedControlDevice(deviceUdid);
   };
 
-  // 触控事件处理
-  const convertToDeviceCoordinates = (event: MouseEvent) => {
+  // 计算旋转后的视频样式
+  // 当旋转90°或270°时，视频的宽高互换，需要缩放以适应容器
+  const getVideoTransformStyle = () => {
+    const rotation = currentRotation();
+    
+    if (rotation === 0 || rotation === 180) {
+      // 不需要特殊处理
+      return { transform: `rotate(${rotation}deg)` };
+    }
+    
+    // 90° 或 270° 旋转：视频宽高互换
+    // 需要计算缩放比例，使旋转后的视频适应容器
+    if (!videoContainerRef) {
+      return { transform: `rotate(${rotation}deg)` };
+    }
+    
+    const containerWidth = videoContainerRef.clientWidth;
+    const containerHeight = videoContainerRef.clientHeight;
+    
+    // 旋转后，视频的"显示宽度"是原来的高度，"显示高度"是原来的宽度
+    // 我们需要让视频元素的宽高等于容器的高宽（交换）
+    // 然后旋转后刚好填满容器
+    // 计算缩放比例：取较小的那个比例，确保不超出
+    const scale = Math.min(containerWidth / containerHeight, containerHeight / containerWidth);
+    
+    return { 
+      transform: `rotate(${rotation}deg) scale(${scale})`,
+    };
+  };
+
+  // 触控事件处理 - 支持鼠标和触摸事件
+  const convertToDeviceCoordinates = (clientX: number, clientY: number) => {
     if (!videoRef) return null;
 
     const rect = videoRef.getBoundingClientRect();
@@ -291,8 +325,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
     
     // 计算点击位置相对于视频元素的位置
-    const clickPosX = event.clientX - rect.left;
-    const clickPosY = event.clientY - rect.top;
+    const clickPosX = clientX - rect.left;
+    const clickPosY = clientY - rect.top;
     
     // 检查是否在视频显示区域内
     if (clickPosX < offsetX || clickPosX > offsetX + displayWidth ||
@@ -326,7 +360,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       document.activeElement.blur();
     }
 
-    const coords = convertToDeviceCoordinates(event);
+    const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
     if (!coords) return;
 
     // 记录触摸位置
@@ -350,7 +384,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (event.buttons !== 1) return;
     event.preventDefault();
 
-    const coords = convertToDeviceCoordinates(event);
+    const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
     
     // 如果离开了视频区域且正在触摸，发送 touch up（使用最后位置）
     if (!coords && isTouching()) {
@@ -387,7 +421,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     if (!isTouching()) return;
 
-    const coords = convertToDeviceCoordinates(event);
+    const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
     const finalCoords = coords ?? lastTouchPosition;
 
     // 1. 始终控制当前设备（通过 WebRTC DataChannel）
@@ -416,6 +450,79 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       }
       setIsTouching(false);
     }
+  };
+
+  // 移动端触摸事件处理
+  const handleTouchStart = (event: TouchEvent) => {
+    event.preventDefault();
+    
+    // 移除其他元素的焦点
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
+    const touch = event.touches[0];
+    if (!touch) return;
+
+    const coords = convertToDeviceCoordinates(touch.clientX, touch.clientY);
+    if (!coords) return;
+
+    lastTouchPosition = coords;
+
+    // 1. 始终控制当前设备（通过 WebRTC DataChannel）
+    if (webrtcService) {
+      webrtcService.sendTouchCommand('down', coords.x, coords.y);
+    }
+
+    // 2. 如果开启同步控制，控制其他设备（通过 WebSocket）
+    const targetDevices = getTargetDevices();
+    if (targetDevices.length > 0 && props.webSocketService) {
+      props.webSocketService.touchDownMultipleNormalized(targetDevices, coords.x, coords.y);
+    }
+    
+    setIsTouching(true);
+  };
+
+  const handleTouchMove = (event: TouchEvent) => {
+    event.preventDefault();
+
+    const touch = event.touches[0];
+    if (!touch) return;
+
+    const coords = convertToDeviceCoordinates(touch.clientX, touch.clientY);
+    if (!coords) return;
+
+    lastTouchPosition = coords;
+
+    // 1. 始终控制当前设备（通过 WebRTC DataChannel）
+    if (webrtcService) {
+      webrtcService.sendTouchCommand('move', coords.x, coords.y);
+    }
+
+    // 2. 如果开启同步控制，控制其他设备（通过 WebSocket）
+    const targetDevices = getTargetDevices();
+    if (targetDevices.length > 0 && props.webSocketService) {
+      props.webSocketService.touchMoveMultipleNormalized(targetDevices, coords.x, coords.y);
+    }
+  };
+
+  const handleTouchEnd = (event: TouchEvent) => {
+    event.preventDefault();
+    
+    if (!isTouching()) return;
+
+    // 1. 始终控制当前设备（通过 WebRTC DataChannel）
+    if (webrtcService) {
+      webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
+    }
+
+    // 2. 如果开启同步控制，控制其他设备（通过 WebSocket）
+    const targetDevices = getTargetDevices();
+    if (targetDevices.length > 0 && props.webSocketService) {
+      props.webSocketService.touchUpMultipleNormalized(targetDevices);
+    }
+    
+    setIsTouching(false);
   };
 
   const handleContextMenu = (event: MouseEvent) => {
@@ -972,6 +1079,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     <Show when={props.isOpen}>
       <div class={styles.modalOverlay} onMouseDown={mainBackdropClose.onMouseDown} onMouseUp={mainBackdropClose.onMouseUp}>
         <div class={styles.webrtcModal} onMouseDown={(e) => e.stopPropagation()}>
+          {/* 桌面端标题栏 */}
           <div class={styles.modalHeader}>
             <h3>
               WebRTC 实时控制
@@ -984,30 +1092,62 @@ export default function WebRTCControl(props: WebRTCControlProps) {
               ✕
             </button>
           </div>
+          
+          {/* 移动端浮动标题栏 */}
+          <div class={styles.mobileHeader}>
+            <button 
+              class={styles.mobileMenuBtn} 
+              onClick={() => setMobileSettingsOpen(!mobileSettingsOpen())}
+              title="设置"
+            >
+              <span class={`${styles.connectionDot} ${styles[connectionState()]}`}></span>
+              ☰
+            </button>
+            <Show when={connectionState() === 'connected'}>
+              <div class={styles.mobileStats}>
+                <span class={styles.mobileStatItem}>📊 {currentFps()} FPS</span>
+                <span class={styles.mobileStatItem}>📡 {bitrate()} kbps</span>
+                <span class={styles.mobileStatItem}>🎯 {syncControl() ? `同步` : '单端'}</span>
+              </div>
+            </Show>
+            <button class={styles.mobileCloseBtn} onClick={handleClose} title="关闭">
+              ✕
+            </button>
+          </div>
 
           <div class={styles.webrtcContent}>
+            {/* 移动端侧边栏遮罩 */}
+            <Show when={mobileSettingsOpen()}>
+              <div class={styles.mobileSidebarOverlay} onClick={() => setMobileSettingsOpen(false)}></div>
+            </Show>
+            
             {/* 左侧控制面板 */}
-            <div class={styles.controlPanel}>
-              <h4>设备画面</h4>
-              <div class={styles.deviceList}>
-                <For each={props.selectedDevices()}>
-                  {(device) => (
-                    <div 
-                      class={`${styles.deviceItem} ${selectedControlDevice() === device.udid ? styles.active : ''} ${isStreaming() ? styles.disabled : ''}`}
-                      onClick={() => selectControlDevice(device.udid)}
-                    >
-                      <div class={styles.deviceName}>
-                        {device.system?.name || device.udid}
+            <div class={`${styles.controlPanel} ${mobileSettingsOpen() ? styles.mobileOpen : ''}`}>
+              {/* 上半部分：设备列表 */}
+              <div class={styles.controlPanelTop}>
+                <h4>设备画面</h4>
+                <div class={styles.deviceList}>
+                  <For each={props.selectedDevices()}>
+                    {(device) => (
+                      <div 
+                        class={`${styles.deviceItem} ${selectedControlDevice() === device.udid ? styles.active : ''} ${isStreaming() ? styles.disabled : ''}`}
+                        onClick={() => selectControlDevice(device.udid)}
+                      >
+                        <div class={styles.deviceName}>
+                          {device.system?.name || device.udid}
+                        </div>
+                        <div class={styles.deviceUdid}>
+                          {device.udid.substring(0, 8)}...
+                        </div>
                       </div>
-                      <div class={styles.deviceUdid}>
-                        {device.udid.substring(0, 8)}...
-                      </div>
-                    </div>
-                  )}
-                </For>
+                    )}
+                  </For>
+                </div>
               </div>
 
-              <h4>画质设置</h4>
+              {/* 下半部分：画质设置等 */}
+              <div class={styles.controlPanelBottom}>
+                <h4>画质设置</h4>
               <div class={styles.settingGroup}>
                 <label class={styles.settingLabel}>分辨率 ({Math.round(resolution() * 100)}%)</label>
                 <div class={styles.settingValue}>
@@ -1040,46 +1180,46 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 </div>
               </div>
 
-              {/* 同步控制 */}
-              <div class={`${styles.settingGroup} ${styles.syncControlSection}`}>
-                <label class={styles.checkboxLabel}>
-                  <input 
-                    type="checkbox" 
-                    class="themed-checkbox"
-                    checked={syncControl()}
-                    onChange={(e) => setSyncControl(e.target.checked)}
-                    disabled={connectionState() !== 'connected'}
-                  />
-                  <div class={styles.checkboxContent}>
-                    同步控制
-                    <div class={styles.checkboxHint}>
-                      勾选后操作将同步到所有选中设备
-                    </div>
-                  </div>
-                </label>
+              {/* 同步控制 - 分段按钮 */}
+              <div class={styles.syncControlSection}>
+                <label class={styles.syncControlLabel}>控制模式</label>
+                <div class={styles.segmentedControl}>
+                  <button 
+                    class={`${styles.segmentedButton} ${!syncControl() ? styles.active : ''}`}
+                    onClick={() => setSyncControl(false)}
+                  >
+                    🎯 单端
+                  </button>
+                  <button 
+                    class={`${styles.segmentedButton} ${syncControl() ? styles.active : ''}`}
+                    onClick={() => setSyncControl(true)}
+                  >
+                    🔗 同步
+                  </button>
+                </div>
               </div>
 
-              {/* 画面旋转 */}
-              <div class={styles.settingGroup}>
-                <label class={styles.settingLabel}>画面旋转</label>
-                <div class={styles.rotationGroup}>
+              {/* 画面旋转 - 分段按钮 */}
+              <div class={styles.syncControlSection}>
+                <label class={styles.syncControlLabel}>画面旋转</label>
+                <div class={styles.segmentedControl}>
                   <button 
-                    class={`${styles.rotateBtn} ${currentRotation() === 0 ? styles.active : ''}`}
+                    class={`${styles.segmentedButton} ${currentRotation() === 0 ? styles.active : ''}`}
                     onClick={() => setRotation(0)}
                     title="正常"
                   >↑</button>
                   <button 
-                    class={`${styles.rotateBtn} ${currentRotation() === 90 ? styles.active : ''}`}
+                    class={`${styles.segmentedButton} ${currentRotation() === 90 ? styles.active : ''}`}
                     onClick={() => setRotation(90)}
                     title="右转90°"
                   >→</button>
                   <button 
-                    class={`${styles.rotateBtn} ${currentRotation() === 180 ? styles.active : ''}`}
+                    class={`${styles.segmentedButton} ${currentRotation() === 180 ? styles.active : ''}`}
                     onClick={() => setRotation(180)}
                     title="旋转180°"
                   >↓</button>
                   <button 
-                    class={`${styles.rotateBtn} ${currentRotation() === 270 ? styles.active : ''}`}
+                    class={`${styles.segmentedButton} ${currentRotation() === 270 ? styles.active : ''}`}
                     onClick={() => setRotation(270)}
                     title="左转90°"
                   >←</button>
@@ -1105,11 +1245,12 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   </button>
                 </Show>
               </div>
+              </div>
             </div>
 
             {/* 右侧视频区域 */}
             <div class={styles.videoPanel}>
-              <div class={styles.videoContainer}>
+              <div class={styles.videoContainer} ref={videoContainerRef}>
                 <div 
                   class={styles.videoPlaceholder} 
                   style={{ display: connectionState() === 'connected' ? 'none' : 'flex' }}
@@ -1126,7 +1267,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   style={{ 
                     display: connectionState() === 'connected' ? 'block' : 'none',
                     "pointer-events": connectionState() === 'connected' ? 'auto' : 'none',
-                    transform: `rotate(${currentRotation()}deg)`
+                    ...getVideoTransformStyle()
                   }}
                   autoplay
                   playsinline
@@ -1142,6 +1283,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   onMouseUp={handleMouseUp}
                   onMouseLeave={handleMouseLeave}
                   onContextMenu={handleContextMenu}
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  onTouchCancel={handleTouchEnd}
                 />
                 
                 {/* 键盘指示器 */}
@@ -1154,9 +1299,22 @@ export default function WebRTCControl(props: WebRTCControlProps) {
               </div>
 
               <Show when={connectionState() === 'connected'}>
+                {/* 统计信息栏 */}
+                <div class={styles.statsBar}>
+                  <div class={styles.touchHintInline}>
+                    🖱️ 左键: 触摸 | 右键: Home
+                    {syncControl() && <span class={styles.syncActiveHint}> (同步中)</span>}
+                  </div>
+                  <div class={styles.statsGroup}>
+                    <span class={styles.statItem}>📊 {currentFps()} FPS</span>
+                    <span class={styles.statItem}>📡 {bitrate()} kbps</span>
+                    <span class={styles.statItem}>🎯 {syncControl() ? `同步 ${props.selectedDevices().length} 台` : '单端'}</span>
+                  </div>
+                </div>
+
                 {/* 底部工具栏 */}
                 <div class={styles.bottomToolbar}>
-                  <button class={`${styles.deviceButton} ${styles.btnInfo}`} onClick={handleHomeButton} title="返回主屏幕">
+                  <button class={`${styles.deviceButton} ${styles.btnInfo} ${styles.homeButton}`} onClick={handleHomeButton} title="返回主屏幕">
                     🏠 主屏幕
                   </button>
                   <button class={`${styles.deviceButton} ${styles.btnSecondary}`} onClick={handleVolumeDown} title="音量-">
@@ -1174,19 +1332,6 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   <button class={`${styles.deviceButton} ${styles.btnPrimary}`} onClick={handlePasteToDevice} title="粘贴剪贴板内容到设备">
                     📋 粘贴
                   </button>
-                </div>
-
-                {/* 统计信息栏 */}
-                <div class={styles.statsBar}>
-                  <div class={styles.touchHintInline}>
-                    🖱️ 左键: 触摸 | 右键: Home
-                    {syncControl() && <span class={styles.syncActiveHint}> (同步中)</span>}
-                  </div>
-                  <div class={styles.statsGroup}>
-                    <span class={styles.statItem}>📊 {currentFps()} FPS</span>
-                    <span class={styles.statItem}>📡 {bitrate()} kbps</span>
-                    <span class={styles.statItem}>🎯 {syncControl() ? `同步 ${props.selectedDevices().length} 台` : '单端'}</span>
-                  </div>
                 </div>
               </Show>
             </div>

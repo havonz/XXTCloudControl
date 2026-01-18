@@ -39,6 +39,8 @@ interface DeviceListProps {
   getPreferredGroupScript?: () => { scriptPath: string; groupId: string } | null; // 获取分组绑定脚本
   getGroupedDevicesForLaunch?: (selectedDeviceIds: string[]) => Array<{ groupId: string; groupName: string; scriptPath: string | undefined; deviceIds: string[] }>; // 获取按分组分配的设备列表
   sidebar?: JSX.Element;
+  isMobileMenuOpen?: boolean;
+  onCloseMobileMenu?: () => void;
 }
 
 const DeviceList: Component<DeviceListProps> = (props) => {
@@ -131,6 +133,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // More actions menu state
   const [showMoreActions, setShowMoreActions] = createSignal(false);
   
+  // Device context menu state
+  const [contextMenuDevice, setContextMenuDevice] = createSignal<Device | null>(null);
+  const [contextMenuPosition, setContextMenuPosition] = createSignal({ x: 0, y: 0 });
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  
   // Refs for click-outside detection
   let moreActionsRef: HTMLDivElement | undefined;
   let columnSettingsRef: HTMLDivElement | undefined;
@@ -148,6 +155,91 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     if (showColumnSettings() && columnSettingsRef && !columnSettingsRef.contains(target)) {
       setShowColumnSettings(false);
     }
+    
+    // Close device context menu if clicking outside
+    if (contextMenuDevice()) {
+      setContextMenuDevice(null);
+    }
+  };
+  
+  // Device context menu handlers
+  const handleDeviceContextMenu = (e: MouseEvent, device: Device) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenuDevice(device);
+    setContextMenuPosition({ x: e.clientX, y: e.clientY });
+  };
+  
+  const handleDeviceTouchStart = (device: Device) => {
+    longPressTimer = setTimeout(() => {
+      // Use center of screen for mobile
+      setContextMenuDevice(device);
+      setContextMenuPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    }, 500);
+  };
+  
+  const handleDeviceTouchEnd = () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  };
+  
+  const closeContextMenu = () => {
+    setContextMenuDevice(null);
+  };
+  
+  const handleContextMenuCopyUdid = () => {
+    const device = contextMenuDevice();
+    if (device) {
+      copyToClipboard(device.udid, 'UDID');
+    }
+    closeContextMenu();
+  };
+  
+  const handleContextMenuCopyName = () => {
+    const device = contextMenuDevice();
+    if (device) {
+      const name = device.system?.name || '未知设备';
+      copyToClipboard(name, '设备名称');
+    }
+    closeContextMenu();
+  };
+  
+  const handleContextMenuCopyIp = () => {
+    const device = contextMenuDevice();
+    if (device) {
+      copyToClipboard(device.system?.ip || '未知', 'IP地址');
+    }
+    closeContextMenu();
+  };
+  
+  const handleContextMenuOpenFileBrowser = () => {
+    const device = contextMenuDevice();
+    if (device) {
+      const name = device.system?.name || '未知设备';
+      props.onOpenFileBrowser(device.udid, name);
+    }
+    closeContextMenu();
+  };
+  
+  // 批量复制选中设备信息
+  const handleContextMenuCopySelectedUdids = () => {
+    const udids = props.selectedDevices().map(d => d.udid).join('\n');
+    copyToClipboard(udids, '选中设备 UDID');
+    closeContextMenu();
+  };
+  
+  const handleContextMenuCopySelectedNames = () => {
+    const names = props.selectedDevices().map(d => d.system?.name || '未知设备').join('\n');
+    copyToClipboard(names, '选中设备名称');
+    closeContextMenu();
+  };
+  
+  const handleContextMenuCopySelectedIps = () => {
+    const ips = props.selectedDevices().map(d => d.system?.ip || '未知').join('\n');
+    copyToClipboard(ips, '选中设备 IP');
+    closeContextMenu();
   };
   
   onMount(() => {
@@ -156,6 +248,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   onCleanup(() => {
     document.removeEventListener('click', handleClickOutside);
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+    }
   });
   
 
@@ -842,41 +937,52 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           </button>
           
           <div class={styles.scriptSelectGroup}>
-            <Select.Root
-              collection={selectableScriptsCollection()}
-              value={serverScriptName() ? [serverScriptName()] : []}
-              onValueChange={(e) => {
-                const next = e.value[0] ?? '';
-                setServerScriptName(next);
-                saveSelectedScript(next);
-              }}
-              onOpenChange={(e) => {
-                if (e.open) fetchSelectableScripts();
-              }}
-            >
-              <Select.Control>
-                <Select.Trigger class="cbx-select" style={{ 'min-width': '160px' }}>
-                  <span>{serverScriptName() || '-- 选择脚本 --'}</span>
-                  <span class="dropdown-arrow">▼</span>
-                </Select.Trigger>
-              </Select.Control>
-              <Portal>
-                <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
-                  <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
-                      <Select.ItemGroup>
-                        <For each={selectableScriptsWithPlaceholder()}>{(script) => (
-                          <Select.Item item={script} class="cbx-item">
-                            <div class="cbx-item-content">
-                              <Select.ItemIndicator>✓</Select.ItemIndicator>
-                              <Select.ItemText>{script}</Select.ItemText>
-                            </div>
-                          </Select.Item>
-                        )}</For>
-                      </Select.ItemGroup>
-                    </Select.Content>
-                  </Select.Positioner>
-                </Portal>
-              </Select.Root>
+            <div class={styles.scriptSelectWrapper}>
+              <Select.Root
+                class="cbx-select-root"
+                collection={selectableScriptsCollection()}
+                value={serverScriptName() ? [serverScriptName()] : []}
+                onValueChange={(e) => {
+                  const next = e.value[0] ?? '';
+                  setServerScriptName(next);
+                  saveSelectedScript(next);
+                }}
+                onOpenChange={(e) => {
+                  if (e.open) fetchSelectableScripts();
+                }}
+              >
+                <Select.Control class="cbx-select-control">
+                  <Select.Trigger class="cbx-select">
+                    <span style={{ 
+                      flex: 1, 
+                      overflow: 'hidden', 
+                      'text-overflow': 'ellipsis', 
+                      'white-space': 'nowrap',
+                      'text-align': 'left'
+                    }}>
+                      {serverScriptName() || '-- 选择脚本 --'}
+                    </span>
+                    <span class="dropdown-arrow">▼</span>
+                  </Select.Trigger>
+                </Select.Control>
+                <Portal>
+                  <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
+                    <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
+                        <Select.ItemGroup>
+                          <For each={selectableScriptsWithPlaceholder()}>{(script) => (
+                            <Select.Item item={script} class="cbx-item">
+                              <div class="cbx-item-content">
+                                <Select.ItemIndicator>✓</Select.ItemIndicator>
+                                <Select.ItemText>{script}</Select.ItemText>
+                              </div>
+                            </Select.Item>
+                          )}</For>
+                        </Select.ItemGroup>
+                      </Select.Content>
+                    </Select.Positioner>
+                  </Portal>
+                </Select.Root>
+              </div>
               <button 
                 class={styles.iconButton} 
                 onClick={fetchSelectableScripts}
@@ -978,7 +1084,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       </div>
 
       <div class={styles.mainLayoutBody}>
-        <div class={styles.sidebarSection}>
+        <Show when={props.isMobileMenuOpen}>
+          <div class={styles.mobileSidebarOverlay} onClick={props.onCloseMobileMenu}></div>
+        </Show>
+        
+        <div class={`${styles.sidebarSection} ${props.isMobileMenuOpen ? styles.mobileOpen : ''}`}>
           {props.sidebar}
         </div>
         
@@ -1028,11 +1138,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 {props.isLoading ? '刷新中...' : '请求刷新'}
               </button>
               <button 
-                onClick={handleCopySelectedUDIDs}
+                onClick={handleSelectAll}
                 class={styles.toolbarButton}
-                disabled={props.selectedDevices().length === 0}
               >
-                复制UDID
+                全选
               </button>
               <button 
                 onClick={handleInvertSelection}
@@ -1225,6 +1334,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         }).join(' ')}`
                       }}
                       onClick={() => handleDeviceToggle(device)}
+                      onContextMenu={(e) => handleDeviceContextMenu(e, device)}
                     >
                       <div class={styles.tableCell}>
                         <div 
@@ -1366,6 +1476,71 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   }}
                 </For>
               </div>
+          </div>
+
+          <div class={styles.deviceCardList}>
+            <For each={filteredDevices()}>
+              {(device) => {
+                const info = formatDeviceInfo(device);
+                return (
+                  <div 
+                    class={styles.deviceCard}
+                    classList={{ [styles.selected]: props.selectedDevices().some(d => d.udid === device.udid) }}
+                    onClick={() => handleDeviceToggle(device)}
+                    onContextMenu={(e) => handleDeviceContextMenu(e, device)}
+                    onTouchStart={() => handleDeviceTouchStart(device)}
+                    onTouchEnd={handleDeviceTouchEnd}
+                    onTouchMove={handleDeviceTouchEnd}
+                  >
+                    <div class={styles.deviceCardHeader}>
+                      <div class={styles.cardTitleSection}>
+                        <div class={styles.cardDeviceName}>{info.name}</div>
+                        <div class={styles.cardDeviceUdid}>{device.udid}</div>
+                      </div>
+                      <Show when={props.selectedDevices().some(d => d.udid === device.udid)}>
+                        <div class={styles.cardSelectionIndicator}>
+                          <span class={styles.checkIcon}>✓</span>
+                        </div>
+                      </Show>
+                      <div class={styles.cardStatusSection}>
+                        <div 
+                          class={styles.cardBattery} 
+                          style={{ color: getBatteryColor(info.battery) }}
+                        >
+                          {info.battery}%
+                        </div>
+                        <div class={`${styles.cardRunningStatus} ${info.running ? styles.running : styles.stopped}`}>
+                          {info.running ? (info.paused ? '暂停中' : '运行中') : '已停止'}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div class={styles.cardDetailsGrid}>
+                      <div class={styles.detailItem}>
+                        <span class={styles.detailLabel}>IP地址</span>
+                        <span class={styles.detailValue}>{device.system?.ip || '未知'}</span>
+                      </div>
+                      <div class={styles.detailItem}>
+                        <span class={styles.detailLabel}>系统版本</span>
+                        <span class={styles.detailValue}>{info.version}</span>
+                      </div>
+                    </div>
+                    
+                    <Show when={device.system?.message}>
+                      <div class={styles.cardMessageArea}>
+                        <div class={styles.cardMessageText}>{device.system?.message}</div>
+                      </div>
+                    </Show>
+                    
+                    <Show when={device.system?.log}>
+                      <div class={styles.cardLogArea}>
+                        {device.system?.log}
+                      </div>
+                    </Show>
+                  </div>
+                );
+              }}
+            </For>
           </div>
             </Show>
           </div>
@@ -1546,7 +1721,39 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           <div class={styles.toast}>
             {toastMessage()}
           </div>
-      </Show>
+        </Show>
+        
+        {/* Device Context Menu */}
+        <Show when={contextMenuDevice()}>
+          <div class={styles.contextBackdrop} onClick={closeContextMenu}>
+            <div 
+              class={styles.contextMenu}
+              style={{ 
+                left: `${contextMenuPosition().x}px`, 
+                top: `${contextMenuPosition().y}px` 
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* 批量操作区域 - 仅当选中多个设备时显示 */}
+              <Show when={props.selectedDevices().length > 1}>
+                <div class={styles.contextMenuSection}>
+                  <div class={styles.contextMenuLabel}>选中的 {props.selectedDevices().length} 台设备</div>
+                  <button onClick={handleContextMenuCopySelectedUdids}>复制选中设备 UDID</button>
+                  <button onClick={handleContextMenuCopySelectedNames}>复制选中设备名称</button>
+                  <button onClick={handleContextMenuCopySelectedIps}>复制选中设备 IP</button>
+                </div>
+                <div class={styles.contextMenuDivider}></div>
+                <div class={styles.contextMenuSection}>
+                  <div class={styles.contextMenuLabel}>{contextMenuDevice()?.system?.name || '未知设备'}</div>
+                </div>
+              </Show>
+              <button onClick={handleContextMenuCopyUdid}>复制 UDID</button>
+              <button onClick={handleContextMenuCopyName}>复制设备名称</button>
+              <button onClick={handleContextMenuCopyIp}>复制 IP 地址</button>
+              <button onClick={handleContextMenuOpenFileBrowser}>浏览文件</button>
+            </div>
+          </div>
+        </Show>
 
       {/* Script Configuration Modal */}
       <ScriptConfigModal
