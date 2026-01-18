@@ -17,6 +17,7 @@ import {
   IconICursor,
   IconClipboardCheck,
   IconCircleCheck,
+  IconCheck,
   IconCheckDouble,
   IconCircleXmark,
   IconCopy,
@@ -27,6 +28,7 @@ import { renderFileIcon } from '../utils/fileIcons';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './DeviceFileBrowser.module.css';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
+import SendToCloudModal from './SendToCloudModal';
 
 export interface FileItem {
   name: string;
@@ -58,6 +60,7 @@ export interface DeviceFileBrowserProps {
   files: FileItem[];
   isLoading: boolean;
   fileContent?: { path: string; content: string } | null;
+  onPullFileFromDevice?: (deviceUdid: string, sourcePath: string, category: 'scripts' | 'files' | 'reports', targetPath: string) => Promise<{success: boolean; error?: string}>;
 }
 
 export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
@@ -91,6 +94,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const [contextMenuFile, setContextMenuFile] = createSignal<FileItem | null>(null);
   const [contextMenuPosition, setContextMenuPosition] = createSignal({ x: 0, y: 0 });
   let contextLongPressTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // 发送到云控模态框
+  const [showSendToCloudModal, setShowSendToCloudModal] = createSignal(false);
+  const [sendToCloudPendingItems, setSendToCloudPendingItems] = createSignal<string[]>([]);
+  const [isSendingToCloud, setIsSendingToCloud] = createSignal(false);
 
   // 监听文件内容更新
   createEffect(() => {
@@ -511,6 +519,94 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     return cb.srcPath !== currentPath();
   };
 
+  // 打开发送到云控模态框
+  const openSendToCloudModal = () => {
+    const selected = selectedItems();
+    if (selected.size === 0) return;
+    
+    // 过滤掉文件夹，只允许发送文件
+    const fileNames = Array.from(selected).filter(name => {
+      const file = sortedFiles().find(f => f.name === name);
+      return file && file.type === 'file';
+    });
+    
+    if (fileNames.length === 0) {
+      dialog.alert('只能发送文件到云控，不能发送文件夹');
+      return;
+    }
+    
+    setSendToCloudPendingItems(fileNames);
+    setShowSendToCloudModal(true);
+  };
+
+  // 执行发送到云控
+  const handleSendToCloud = async (category: 'scripts' | 'files' | 'reports', targetPath: string) => {
+    if (!props.onPullFileFromDevice) {
+      dialog.alert('发送到云控功能不可用');
+      return;
+    }
+    
+    const items = sendToCloudPendingItems();
+    if (items.length === 0) return;
+    
+    setShowSendToCloudModal(false);
+    setIsSendingToCloud(true);
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const name of items) {
+      const sourcePath = currentPath() === '/' 
+        ? `/${name}` 
+        : `${currentPath()}/${name}`;
+      
+      // 构建目标路径：targetPath + 文件名
+      const finalTargetPath = targetPath === '/' || targetPath === '' 
+        ? name 
+        : (targetPath.endsWith('/') ? targetPath + name : targetPath + '/' + name);
+      
+      try {
+        const result = await props.onPullFileFromDevice(
+          props.deviceUdid, 
+          sourcePath, 
+          category, 
+          finalTargetPath
+        );
+        if (result.success) {
+          successCount++;
+        } else {
+          failCount++;
+          console.error(`发送文件失败 ${name}:`, result.error);
+        }
+      } catch (err) {
+        failCount++;
+        console.error(`发送文件失败 ${name}:`, err);
+      }
+    }
+    
+    setIsSendingToCloud(false);
+    
+    if (successCount > 0 && failCount === 0) {
+      dialog.alert(`成功发送 ${successCount} 个文件到云控`);
+    } else if (successCount > 0 && failCount > 0) {
+      dialog.alert(`发送完成：${successCount} 个成功，${failCount} 个失败`);
+    } else {
+      dialog.alert(`发送失败：${failCount} 个文件发送失败`);
+    }
+    
+    setSendToCloudPendingItems([]);
+  };
+
+  // 单文件发送到云控
+  const handleSendSingleFileToCloud = (file: FileItem) => {
+    if (file.type === 'directory') {
+      dialog.alert('只能发送文件到云控，不能发送文件夹');
+      return;
+    }
+    setSendToCloudPendingItems([file.name]);
+    setShowSendToCloudModal(true);
+  };
+
   return (
     <>
     <Show when={props.isOpen}>
@@ -530,28 +626,28 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
               onClick={() => handleNavigate('/lua/scripts')}
             >
               <IconCode size={16} />
-              <span>脚本目录</span>
+              <span>脚本<span class={styles.desktopText}>目录</span></span>
             </button>
             <button 
               class={`${styles.tab} ${currentPath() === '/res' ? styles.active : ''}`} 
               onClick={() => handleNavigate('/res')}
             >
               <IconBoxesStacked size={16} />
-              <span>资源目录</span>
+              <span>资源<span class={styles.desktopText}>目录</span></span>
             </button>
             <button 
               class={`${styles.tab} ${currentPath() === '/log' ? styles.active : ''}`} 
               onClick={() => handleNavigate('/log')}
             >
               <IconChartColumn size={16} />
-              <span>日志目录</span>
+              <span>日志<span class={styles.desktopText}>目录</span></span>
             </button>
             <button 
               class={`${styles.tab} ${currentPath() === '/' || currentPath() === '' ? styles.active : ''}`} 
               onClick={() => handleNavigate('/')}
             >
               <IconHouse size={16} />
-              <span>主目录</span>
+              <span>主<span class={styles.desktopText}>目录</span></span>
             </button>
           </div>
           
@@ -604,7 +700,12 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
           <Show when={isSelectMode()}>
             <div class={styles.selectToolbar}>
               <div class={styles.selectInfo}>
-                <span class={styles.selectedCount}>已选择 {selectedItems().size} 项</span>
+                <span class={styles.selectedCount}>
+                  <span class={styles.mobileCheck}><IconCheck size={14} /></span>
+                  <span class={styles.desktopText}>已选择 </span>
+                  {selectedItems().size}
+                  <span class={styles.desktopText}> 项</span>
+                </span>
                 <Show when={clipboard()}>
                   <span class={styles.clipboardInfo}>
                     剪贴板: {clipboard()!.items.length} 项 ({clipboard()!.mode === 'copy' ? '复制' : '剪切'})
@@ -637,6 +738,19 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                 </button>
                 
                 <div class={styles.selectDivider} />
+
+                <Show when={props.onPullFileFromDevice}>
+                  <button 
+                    class={`${styles.selectAction} ${styles.sendToCloudAction}`}
+                    onClick={openSendToCloudModal} 
+                    disabled={selectedItems().size === 0 || isSendingToCloud()}
+                  >
+                    <IconUpload size={14} />
+                    <span>{isSendingToCloud() ? '发送中...' : '发送到云控'}</span>
+                  </button>
+                  
+                  <div class={styles.selectDivider} />
+                </Show>
                 
                 <button 
                   class={styles.deleteAction} 
@@ -668,7 +782,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
           <div class={styles.breadcrumbs}>
             <button class={styles.breadcrumbItem} onClick={() => handleNavigate('/')}>
               <IconHouse size={14} />
-              <span>根目录</span>
+              <span>根<span class={styles.desktopText}>目录</span></span>
             </button>
             <For each={breadcrumbs()}>
               {(part, index) => (
@@ -840,6 +954,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
               <IconDownload size={14} /> 下载
             </button>
           </Show>
+          <Show when={contextMenuFile()?.type === 'file' && props.onPullFileFromDevice}>
+            <button onClick={() => { handleSendSingleFileToCloud(contextMenuFile()!); closeContextMenu(); }}>
+              <IconUpload size={14} /> 发送到云控
+            </button>
+          </Show>
           <div class={styles.contextMenuDivider}></div>
           <button onClick={() => { handleDeleteFile(contextMenuFile()!); closeContextMenu(); }}>
             <IconTrash size={14} /> 删除
@@ -847,6 +966,14 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
         </div>
       </div>
     </Show>
+
+    {/* 发送到云控模态框 */}
+    <SendToCloudModal 
+      isOpen={showSendToCloudModal()} 
+      onClose={() => setShowSendToCloudModal(false)}
+      onConfirm={handleSendToCloud}
+      itemCount={sendToCloudPendingItems().length}
+    />
     </>
   );
 }

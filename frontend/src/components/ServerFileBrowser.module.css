@@ -227,11 +227,19 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  padding: 0.5rem 1.5rem;
-  background: var(--panel);
+  padding: 0.6rem 1.25rem;
+  background: var(--panel-2); /* Slightly darker/distinct background */
   border-bottom: 1px solid var(--border);
-  gap: 1.5rem;
-  flex-wrap: wrap;
+  gap: 1rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none; /* Hide scrollbar Firefox */
+  -ms-overflow-style: none; /* Hide scrollbar IE/Edge */
+  backdrop-filter: blur(8px);
+}
+
+.selectToolbar::-webkit-scrollbar {
+  display: none; /* Hide scrollbar Chrome/Safari */
 }
 
 .selectInfo {
@@ -243,7 +251,23 @@
 }
 
 .selectedCount {
-  font-weight: 500;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--primary-bg);
+  color: var(--primary);
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  border: 1px solid var(--primary-border);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.mobileCheck {
+  display: flex;
+  align-items: center;
+  opacity: 0.8;
 }
 
 .clipboardInfo {
@@ -260,7 +284,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .selectDivider {
@@ -595,10 +619,13 @@
   background: var(--panel);
   border-radius: 12px;
   padding: 1.5rem;
-  min-width: 320px;
+  width: 90%;
+  max-width: 500px;
   color: var(--text);
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
 }
 
 .createModal h3 {
@@ -853,8 +880,37 @@
     font-size: 12px;
   }
 
-  .actionButton span {
+  .actionButton span,
+  .selectAction span,
+  .deleteAction span,
+  .desktopText {
     display: none; /* Hide text on mobile buttons to save space */
+  }
+
+  .mobileCheck {
+    display: flex;
+    align-items: center;
+  }
+
+  .selectToolbar {
+    padding: 0.5rem 0.75rem;
+    gap: 0.75rem;
+    background: var(--panel-2);
+  }
+
+  .selectInfo {
+    gap: 6px;
+  }
+
+  .selectActions {
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+
+  .clipboardInfo {
+    padding: 0.2rem 0.4rem;
+    font-size: 11px;
+    white-space: nowrap;
   }
 
   .breadcrumbs {
@@ -910,7 +966,24 @@
     padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
   }
 
-  /* Mobile context menu - bottom sheet style */
+  .createModal {
+    width: 100%;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    padding: 1rem;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .createOverlay {
+    align-items: flex-end; /* Align to bottom for better mobile feel */
+  }
+
+  /* Preview lists inside send to device modal */
+  .createModal .fileList {
+    max-height: 25vh !important;
+  }
   .contextBackdrop {
     background: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(2px);

@@ -24,6 +24,7 @@ export {
   FaSolidFileCirclePlus as IconFileCirclePlus,
   FaSolidFolderPlus as IconFolderPlus,
   FaSolidCircleCheck as IconCircleCheck,
+  FaSolidCheck as IconCheck,
   FaSolidCheckDouble as IconCheckDouble,
   FaSolidCircleXmark as IconCircleXmark,
   FaSolidCopy as IconCopy,

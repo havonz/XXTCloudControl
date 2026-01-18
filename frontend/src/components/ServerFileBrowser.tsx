@@ -11,6 +11,7 @@ import {
   IconFolderOpen,
   IconRotate,
   IconSquareCheck,
+  IconCheck,
   IconCheckDouble,
   IconCircleXmark,
   IconCopy,
@@ -686,21 +687,21 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
               onClick={() => handleCategoryChange('scripts')}
             >
               <IconCode size={16} />
-              <span>脚本目录</span>
+              <span>脚本<span class={styles.desktopText}>目录</span></span>
             </button>
             <button 
               class={`${styles.tab} ${currentCategory() === 'files' ? styles.active : ''}`} 
               onClick={() => handleCategoryChange('files')}
             >
               <IconBoxesStacked size={16} />
-              <span>资源目录</span>
+              <span>资源<span class={styles.desktopText}>目录</span></span>
             </button>
             <button 
               class={`${styles.tab} ${currentCategory() === 'reports' ? styles.active : ''}`} 
               onClick={() => handleCategoryChange('reports')}
             >
               <IconChartColumn size={16} />
-              <span>报告目录</span>
+              <span>报告<span class={styles.desktopText}>目录</span></span>
             </button>
           </div>
           
@@ -760,7 +761,12 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
           <Show when={isSelectMode()}>
             <div class={styles.selectToolbar}>
               <div class={styles.selectInfo}>
-                <span class={styles.selectedCount}>已选择 {selectedItems().size} 项</span>
+                <span class={styles.selectedCount}>
+                  <span class={styles.mobileCheck}><IconCheck size={14} /></span>
+                  <span class={styles.desktopText}>已选择 </span>
+                  {selectedItems().size}
+                  <span class={styles.desktopText}> 项</span>
+                </span>
                 <Show when={clipboard()}>
                   <span class={styles.clipboardInfo}>
                     剪贴板: {clipboard()!.items.length} 项 ({clipboard()!.mode === 'copy' ? '复制' : '剪切'})
@@ -818,7 +824,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
           <div class={styles.breadcrumbs}>
             <button class={styles.breadcrumbItem} onClick={() => handleNavigate('')}>
               <IconHouse size={14} />
-              <span>根目录</span>
+              <span>根<span class={styles.desktopText}>目录</span></span>
             </button>
             <For each={breadcrumbs()}>
               {(part, index) => (
@@ -981,7 +987,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       {/* Send to Device Modal */}
       <Show when={showSendToDeviceModal()}>
         <div class={styles.createOverlay} onClick={() => setShowSendToDeviceModal(false)}>
-          <div class={styles.createModal} onClick={(e) => e.stopPropagation()} style={{ 'min-width': '400px', 'max-width': '500px' }}>
+          <div class={styles.createModal} onClick={(e) => e.stopPropagation()}>
             <h3>发送到设备</h3>
             
             {/* 文件列表预览 */}

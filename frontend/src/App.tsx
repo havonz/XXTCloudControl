@@ -614,6 +614,37 @@ const App: Component = () => {
     }
   };
 
+  // Pull file from device to cloud handler
+  const handlePullFileFromDevice = async (
+    deviceUdid: string, 
+    sourcePath: string, 
+    category: 'scripts' | 'files' | 'reports', 
+    targetPath: string
+  ): Promise<{success: boolean; error?: string}> => {
+    console.log(`📥 Pull file from device: ${sourcePath} -> ${category}/${targetPath}`);
+    
+    try {
+      const result = await fileTransferService.pullFromDevice(
+        deviceUdid,
+        sourcePath,
+        category,
+        targetPath
+      );
+      
+      if (result.success) {
+        console.log(`✅ Pull file initiated: token=${result.token}`);
+        return { success: true };
+      } else {
+        console.error(`❌ Pull file failed: ${result.error}`);
+        return { success: false, error: result.error };
+      }
+    } catch (err) {
+      const errorMessage = (err as Error).message || 'Unknown error';
+      console.error(`❌ Pull file error:`, err);
+      return { success: false, error: errorMessage };
+    }
+  };
+
   // Load groups and group settings when authenticated
   createEffect(() => {
     if (isAuthenticated()) {
@@ -796,6 +827,7 @@ const App: Component = () => {
         files={fileList()}
         isLoading={isLoadingFiles()}
         fileContent={fileContent()}
+        onPullFileFromDevice={handlePullFileFromDevice}
       />
     </div>
   );
