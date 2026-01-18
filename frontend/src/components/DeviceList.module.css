@@ -1307,7 +1307,7 @@
     padding: 6px 8px;
   }
   .deviceListContainer {
-    padding: 1rem;
+    padding: 0;
   }
   
   .headerTop {
@@ -1848,9 +1848,9 @@
   background: rgba(0, 0, 0, 0.03);
   padding: 6px;
   border-radius: 6px;
-  max-height: 60px;
   overflow: hidden;
-  position: relative;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 [data-theme="dark"] .cardLogArea {

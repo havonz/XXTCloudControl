@@ -722,6 +722,7 @@ const App: Component = () => {
               checkedGroups={groupStore.checkedGroups}
               getPreferredGroupScript={groupStore.getPreferredGroupScript}
               getGroupedDevicesForLaunch={groupStore.getGroupedDevicesForLaunch}
+              onOpenAddToGroupModal={() => setShowAddToGroupModal(true)}
               isMobileMenuOpen={isMobileMenuOpen()}
               onCloseMobileMenu={() => setIsMobileMenuOpen(false)}
               sidebar={
@@ -730,7 +731,6 @@ const App: Component = () => {
                   deviceCount={devices().length}
                   allDevices={devices()}
                   onOpenNewGroupModal={() => setShowNewGroupModal(true)}
-                  onOpenAddToGroupModal={() => setShowAddToGroupModal(true)}
                   selectedDeviceCount={selectedDevices().length}
                   onDeviceSelectionChange={(deviceIds) => {
                     // 当分组选中改变时，同步设备选中

@@ -69,6 +69,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const [editorContent, setEditorContent] = createSignal('');
   const [editorSaving, setEditorSaving] = createSignal(false);
 
+  // 右键菜单
+  const [contextMenuFile, setContextMenuFile] = createSignal<FileItem | null>(null);
+  const [contextMenuPosition, setContextMenuPosition] = createSignal({ x: 0, y: 0 });
+  let contextLongPressTimer: ReturnType<typeof setTimeout> | null = null;
+
   // 监听文件内容更新
   createEffect(() => {
     const content = props.fileContent;
@@ -113,12 +118,40 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
-      if (showEditorModal()) {
+      if (contextMenuFile()) {
+        setContextMenuFile(null);
+      } else if (showEditorModal()) {
         setShowEditorModal(false);
       } else if (props.isOpen) {
         props.onClose();
       }
     }
+  };
+
+  // 右键菜单处理
+  const handleFileContextMenu = (e: MouseEvent, file: FileItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenuFile(file);
+    setContextMenuPosition({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleFileTouchStartForContext = (file: FileItem) => {
+    contextLongPressTimer = setTimeout(() => {
+      setContextMenuFile(file);
+      setContextMenuPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    }, 500);
+  };
+
+  const handleFileTouchEndForContext = () => {
+    if (contextLongPressTimer) {
+      clearTimeout(contextLongPressTimer);
+      contextLongPressTimer = null;
+    }
+  };
+
+  const closeContextMenu = () => {
+    setContextMenuFile(null);
   };
 
   onMount(() => {
@@ -341,6 +374,13 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     return path.split('/').filter(p => p);
   };
 
+  const formatSize = (bytes?: number) => {
+    if (!bytes || bytes === 0) return '-';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   const toggleAllSelection = () => {
     const allFileNames = sortedFiles().map(f => f.name);
     if (selectedItems().size === allFileNames.length) {
@@ -519,12 +559,18 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                 </Show>
                 <div class={`${styles.tableCell} ${styles.typeColumn}`}>类型</div>
                 <div class={`${styles.tableCell} ${styles.nameColumn}`}>名称</div>
-                <div class={`${styles.tableCell} ${styles.actionsColumn}`}>操作</div>
+                <div class={`${styles.tableCell} ${styles.sizeColumn}`}>尺寸</div>
               </div>
 
               <For each={sortedFiles()}>
                 {(file) => (
-                  <div class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}>
+                  <div 
+                    class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}
+                    onContextMenu={(e) => handleFileContextMenu(e, file)}
+                    onTouchStart={() => handleFileTouchStartForContext(file)}
+                    onTouchEnd={handleFileTouchEndForContext}
+                    onTouchMove={handleFileTouchEndForContext}
+                  >
                     <Show when={isSelectMode()}>
                       <div class={styles.tableCell} style={{ width: '40px' }}>
                         <input 
@@ -548,41 +594,8 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                     <div class={`${styles.tableCell} ${styles.nameColumn}`} onClick={() => handleFileClick(file)}>
                       <span class={styles.fileName}>{file.name}</span>
                     </div>
-                    <div class={`${styles.tableCell} ${styles.actionsColumn}`}>
-                      <Show when={!isSelectMode()}>
-                        <Show when={file.type === 'file' && isTextFile(file.name)}>
-                          <button 
-                            class={styles.actionBtn}
-                            onClick={() => handleEditFile(file)}
-                            title="编辑"
-                          >
-                            <IconICursor size={14} />
-                          </button>
-                        </Show>
-                        <button 
-                          class={styles.actionBtn}
-                          onClick={() => handleRenameFile(file)}
-                          title="重命名"
-                        >
-                          <IconPen size={14} />
-                        </button>
-                        <Show when={file.type === 'file'}>
-                          <button 
-                            class={styles.actionBtn}
-                            onClick={() => handleDownloadFile(file)}
-                            title="下载"
-                          >
-                            <IconDownload size={14} />
-                          </button>
-                        </Show>
-                        <button 
-                          class={styles.deleteBtn}
-                          onClick={() => handleDeleteFile(file)}
-                          title="删除"
-                        >
-                          <IconTrash size={14} />
-                        </button>
-                      </Show>
+                    <div class={`${styles.tableCell} ${styles.sizeColumn}`}>
+                      {file.type === 'file' ? formatSize(file.size) : '-'}
                     </div>
                   </div>
                 )}
@@ -618,6 +631,39 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
               {editorSaving() ? '保存中...' : '保存'}
             </button>
           </div>
+        </div>
+      </div>
+    </Show>
+
+    {/* 右键菜单 */}
+    <Show when={contextMenuFile()}>
+      <div class={styles.contextBackdrop} onClick={closeContextMenu}>
+        <div 
+          class={styles.contextMenu}
+          style={{ 
+            left: `${contextMenuPosition().x}px`, 
+            top: `${contextMenuPosition().y}px` 
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div class={styles.contextMenuLabel}>{contextMenuFile()?.name}</div>
+          <Show when={contextMenuFile()?.type === 'file' && isTextFile(contextMenuFile()!.name)}>
+            <button onClick={() => { handleEditFile(contextMenuFile()!); closeContextMenu(); }}>
+              <IconICursor size={14} /> 编辑
+            </button>
+          </Show>
+          <button onClick={() => { handleRenameFile(contextMenuFile()!); closeContextMenu(); }}>
+            <IconPen size={14} /> 重命名
+          </button>
+          <Show when={contextMenuFile()?.type === 'file'}>
+            <button onClick={() => { handleDownloadFile(contextMenuFile()!); closeContextMenu(); }}>
+              <IconDownload size={14} /> 下载
+            </button>
+          </Show>
+          <div class={styles.contextMenuDivider}></div>
+          <button onClick={() => { handleDeleteFile(contextMenuFile()!); closeContextMenu(); }}>
+            <IconTrash size={14} /> 删除
+          </button>
         </div>
       </div>
     </Show>

@@ -38,6 +38,7 @@ interface DeviceListProps {
   checkedGroups?: Accessor<Set<string>>; // 选中的分组ID列表
   getPreferredGroupScript?: () => { scriptPath: string; groupId: string } | null; // 获取分组绑定脚本
   getGroupedDevicesForLaunch?: (selectedDeviceIds: string[]) => Array<{ groupId: string; groupName: string; scriptPath: string | undefined; deviceIds: string[] }>; // 获取按分组分配的设备列表
+  onOpenAddToGroupModal?: () => void; // 打开添加到分组弹窗
   sidebar?: JSX.Element;
   isMobileMenuOpen?: boolean;
   onCloseMobileMenu?: () => void;
@@ -223,7 +224,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     closeContextMenu();
   };
   
-  // 批量复制选中设备信息
+  // 批量拷贝选中设备信息
   const handleContextMenuCopySelectedUdids = () => {
     const udids = props.selectedDevices().map(d => d.udid).join('\n');
     copyToClipboard(udids, '选中设备 UDID');
@@ -239,6 +240,39 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const handleContextMenuCopySelectedIps = () => {
     const ips = props.selectedDevices().map(d => d.system?.ip || '未知').join('\n');
     copyToClipboard(ips, '选中设备 IP');
+    closeContextMenu();
+  };
+  
+  // 拷贝最后日志
+  const handleContextMenuCopyLastLog = () => {
+    const device = contextMenuDevice();
+    if (device) {
+      const log = device.system?.log || '';
+      if (log) {
+        copyToClipboard(log, '最后日志');
+      } else {
+        showToastMessage('该设备暂无日志');
+      }
+    }
+    closeContextMenu();
+  };
+  
+  // 拷贝选中设备最后日志
+  const handleContextMenuCopySelectedLastLogs = () => {
+    const logs = props.selectedDevices()
+      .map(d => {
+        const name = d.system?.name || d.udid;
+        const log = d.system?.log || '';
+        return log ? `[${name}] ${log}` : '';
+      })
+      .filter(log => log) // 过滤掉空日志
+      .join('\n');
+    
+    if (logs) {
+      copyToClipboard(logs, '选中设备最后日志');
+    } else {
+      showToastMessage('选中设备暂无日志');
+    }
     closeContextMenu();
   };
   
@@ -486,7 +520,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     try {
       await navigator.clipboard.writeText(text);
       console.log(`${type} copied to clipboard: ${text}`);
-      showToastMessage(`${type} 已复制到剪贴板`);
+      showToastMessage(`${type} 已拷贝到剪贴板`);
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
       try {
@@ -498,10 +532,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         document.execCommand('copy');
         document.body.removeChild(textArea);
         console.log(`${type} copied to clipboard (fallback): ${text}`);
-        showToastMessage(`${type} 已复制到剪贴板`);
+        showToastMessage(`${type} 已拷贝到剪贴板`);
       } catch (fallbackErr) {
         console.error('Fallback copy failed:', fallbackErr);
-        showToastMessage('复制失败，请手动复制');
+        showToastMessage('拷贝失败，请手动拷贝');
       }
     }
   };
@@ -858,18 +892,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     props.onStopScript();
   };
   
-  const handleCopySelectedUDIDs = () => {
-    const selectedDevices = props.selectedDevices();
-    if (selectedDevices.length === 0) {
-      showToastMessage('请先选择设备');
-      return;
-    }
-    
-    const udids = selectedDevices.map(device => device.udid);
-    const udidText = udids.join('\n');
-    
-    copyToClipboard(udidText, `${udids.length}个UDID`);
-  };
+
 
   // 词典操作处理函数
   const handleDictionaryAccess = () => {
@@ -933,7 +956,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             onClick={() => setShowServerFileBrowser(true)}
             class={styles.toolbarActionButton}
           >
-            浏览服务器文件
+            服务器文件浏览
           </button>
           
           <div class={styles.scriptSelectGroup}>
@@ -1346,14 +1369,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                       
                       <Show when={visibleColumns().includes('name')}>
                         <div class={styles.tableCell}>
-                          <div 
-                            class={styles.deviceName}
-                            title={`点击复制设备名称: ${info.name}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyToClipboard(info.name, '设备名称');
-                            }}
-                          >
+                          <div class={styles.deviceName}>
                             {info.name}
                           </div>
                         </div>
@@ -1361,19 +1377,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                       
                       <Show when={visibleColumns().includes('udid')}>
                         <div class={styles.tableCell}>
-                          <div 
-                            class={styles.deviceUdid} 
-                            title={`点击复制 UDID，双击打开文件浏览器: ${device.udid}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyToClipboard(device.udid, 'UDID');
-                            }}
-                            onDblClick={(e) => {
-                              e.stopPropagation();
-                              const deviceName = info.name || '未知设备';
-                              props.onOpenFileBrowser(device.udid, deviceName);
-                            }}
-                          >
+                          <div class={styles.deviceUdid}>
                             {device.udid}
                           </div>
                         </div>
@@ -1381,14 +1385,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                       
                       <Show when={visibleColumns().includes('ip')}>
                         <div class={styles.tableCell}>
-                          <div 
-                            class={styles.deviceIp} 
-                            title={`点击复制 IP: ${device.system?.ip || '未知'}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyToClipboard(device.system?.ip || '未知', 'IP地址');
-                            }}
-                          >
+                          <div class={styles.deviceIp}>
                             {device.system?.ip || '未知'}
                           </div>
                         </div>
@@ -1396,14 +1393,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                       
                       <Show when={visibleColumns().includes('version')}>
                         <div class={styles.tableCell}>
-                          <div 
-                            class={styles.deviceVersion}
-                            title={`点击复制系统版本: ${info.version}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyToClipboard(info.version, '系统版本');
-                            }}
-                          >
+                          <div class={styles.deviceVersion}>
                             {info.version}
                           </div>
                         </div>
@@ -1414,11 +1404,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                           <div 
                             class={styles.batteryIndicator}
                             style={{ color: getBatteryColor(info.battery) }}
-                            title={`点击复制电量: ${info.battery}%`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyToClipboard(`${info.battery}%`, '电量');
-                            }}
                           >
                             {info.battery}%
                           </div>
@@ -1429,11 +1414,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         <div class={styles.tableCell}>
                           <div 
                             class={`${styles.runningStatus} ${info.running ? styles.running : styles.stopped}`}
-                            title={`点击复制设备上已选中脚本的名称: ${device.script?.select || '无脚本'}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyToClipboard(device.script?.select || '无脚本', '设备上已选中脚本的名称');
-                            }}
+                            title={device.script?.select || '无脚本'}
                           >
                             {info.running ? (info.paused ? '暂停中' : '运行中') : '已停止'}
                           </div>
@@ -1455,11 +1436,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         <div class={styles.tableCell}>
                           <div 
                             class={styles.lastLog} 
-                            title={`点击复制日志: ${device.system?.log || '无日志'}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyToClipboard(device.system?.log || '无日志', '最后日志');
-                            }}
+                            title={device.system?.log || '无日志'}
                           >
                             {device.system?.log ? 
                               (device.system.log.length > 50 ? 
@@ -1738,18 +1715,27 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               <Show when={props.selectedDevices().length > 1}>
                 <div class={styles.contextMenuSection}>
                   <div class={styles.contextMenuLabel}>选中的 {props.selectedDevices().length} 台设备</div>
-                  <button onClick={handleContextMenuCopySelectedUdids}>复制选中设备 UDID</button>
-                  <button onClick={handleContextMenuCopySelectedNames}>复制选中设备名称</button>
-                  <button onClick={handleContextMenuCopySelectedIps}>复制选中设备 IP</button>
+                  <button onClick={handleContextMenuCopySelectedUdids}>拷贝选中设备 UDID</button>
+                  <button onClick={handleContextMenuCopySelectedNames}>拷贝选中设备名称</button>
+                  <button onClick={handleContextMenuCopySelectedIps}>拷贝选中设备 IP</button>
+                  <button onClick={handleContextMenuCopySelectedLastLogs}>拷贝选中设备最后日志</button>
+                  <Show when={props.onOpenAddToGroupModal}>
+                    <button onClick={() => {
+                      closeContextMenu();
+                      props.onOpenAddToGroupModal?.();
+                    }}>添加到分组 ({props.selectedDevices().length})</button>
+                  </Show>
                 </div>
                 <div class={styles.contextMenuDivider}></div>
-                <div class={styles.contextMenuSection}>
-                  <div class={styles.contextMenuLabel}>{contextMenuDevice()?.system?.name || '未知设备'}</div>
-                </div>
               </Show>
-              <button onClick={handleContextMenuCopyUdid}>复制 UDID</button>
-              <button onClick={handleContextMenuCopyName}>复制设备名称</button>
-              <button onClick={handleContextMenuCopyIp}>复制 IP 地址</button>
+              
+              {/* 当前设备名称 */}
+              <div class={styles.contextMenuLabel}>{contextMenuDevice()?.system?.name || '未知设备'}</div>
+              
+              <button onClick={handleContextMenuCopyUdid}>拷贝 UDID</button>
+              <button onClick={handleContextMenuCopyName}>拷贝设备名称</button>
+              <button onClick={handleContextMenuCopyIp}>拷贝 IP 地址</button>
+              <button onClick={handleContextMenuCopyLastLog}>拷贝最后日志</button>
               <button onClick={handleContextMenuOpenFileBrowser}>浏览文件</button>
             </div>
           </div>

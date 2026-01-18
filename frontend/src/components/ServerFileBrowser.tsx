@@ -84,6 +84,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [showImagePreview, setShowImagePreview] = createSignal(false);
   const [previewImageUrl, setPreviewImageUrl] = createSignal('');
 
+  // 右键菜单
+  const [contextMenuFile, setContextMenuFile] = createSignal<ServerFileItem | null>(null);
+  const [contextMenuPosition, setContextMenuPosition] = createSignal({ x: 0, y: 0 });
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+
   // 加载文件列表
   const loadFiles = async () => {
     setIsLoading(true);
@@ -122,7 +127,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
-      if (showImagePreview()) {
+      if (contextMenuFile()) {
+        setContextMenuFile(null);
+      } else if (showImagePreview()) {
         setShowImagePreview(false);
       } else if (showEditorModal()) {
         setShowEditorModal(false);
@@ -130,6 +137,32 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         props.onClose();
       }
     }
+  };
+
+  // 右键菜单处理
+  const handleFileContextMenu = (e: MouseEvent, file: ServerFileItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenuFile(file);
+    setContextMenuPosition({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleFileTouchStart = (file: ServerFileItem) => {
+    longPressTimer = setTimeout(() => {
+      setContextMenuFile(file);
+      setContextMenuPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    }, 500);
+  };
+
+  const handleFileTouchEnd = () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  };
+
+  const closeContextMenu = () => {
+    setContextMenuFile(null);
   };
 
   onMount(() => {
@@ -175,15 +208,8 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     } else if (file.type === 'dir') {
       const newPath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
       handleNavigate(newPath);
-    } else {
-      // 点击文件 - 根据类型处理
-      const ext = file.name.split('.').pop()?.toLowerCase();
-      if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext || '')) {
-        handlePreviewImage(file);
-      } else if (['txt', 'lua', 'json', 'md', 'log', 'xml', 'html', 'css', 'js', 'ts'].includes(ext || '')) {
-        handleEditFile(file);
-      }
     }
+    // 文件点击不做处理，使用右键菜单操作
   };
 
   const toggleSelection = (name: string) => {
@@ -415,7 +441,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       <div class={styles.modalOverlay} onMouseDown={mainBackdropClose.onMouseDown} onMouseUp={mainBackdropClose.onMouseUp}>
         <div class={styles.modalContent} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
-            <h2>文件管理器</h2>
+            <h2>服务器文件浏览器</h2>
             <button class={styles.closeButton} onClick={props.onClose}>
               <IconXmark size={16} />
             </button>
@@ -550,13 +576,18 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 </Show>
                 <div class={`${styles.tableCell} ${styles.typeColumn}`}>类型</div>
                 <div class={`${styles.tableCell} ${styles.nameColumn}`}>名称</div>
-                <div class={`${styles.tableCell} ${styles.sizeColumn}`}>大小</div>
-                <div class={`${styles.tableCell} ${styles.actionsColumn}`}>操作</div>
+                <div class={`${styles.tableCell} ${styles.sizeColumn}`}>尺寸</div>
               </div>
               
               <For each={sortedFiles()}>
                 {(file) => (
-                  <div class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}>
+                  <div 
+                    class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}
+                    onContextMenu={(e) => handleFileContextMenu(e, file)}
+                    onTouchStart={() => handleFileTouchStart(file)}
+                    onTouchEnd={handleFileTouchEnd}
+                    onTouchMove={handleFileTouchEnd}
+                  >
                     <Show when={isSelectMode()}>
                       <div class={styles.tableCell} style={{ width: '40px' }}>
                         <input type="checkbox" class="themed-checkbox" checked={selectedItems().has(file.name)} onChange={() => toggleSelection(file.name)} />
@@ -573,31 +604,6 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                     <div class={`${styles.tableCell} ${styles.sizeColumn}`}>
                       {file.type === 'file' ? formatSize(file.size) : '-'}
                     </div>
-                    <Show when={!isSelectMode()}>
-                      <div class={`${styles.tableCell} ${styles.actionsColumn}`}>
-                        <Show when={file.type === 'file' && isTextFile(file.name)}>
-                          <button class={styles.actionBtn} onClick={() => handleEditFile(file)} title="编辑">
-                            <IconICursor size={14} />
-                          </button>
-                        </Show>
-                        <Show when={file.type === 'file' && isImageFile(file.name)}>
-                          <button class={styles.actionBtn} onClick={() => handlePreviewImage(file)} title="预览">
-                            <IconEye size={14} />
-                          </button>
-                        </Show>
-                        <button class={styles.actionBtn} onClick={() => handleRename(file)} title="重命名">
-                          <IconPen size={14} />
-                        </button>
-                        <Show when={file.type === 'file'}>
-                          <button class={styles.downloadButton} onClick={() => handleDownload(file)} title="下载">
-                            <IconDownload size={14} />
-                          </button>
-                        </Show>
-                        <button class={styles.deleteButton} onClick={() => handleDelete(file)} title="删除">
-                          <IconTrash size={14} />
-                        </button>
-                      </div>
-                    </Show>
                   </div>
                 )}
               </For>
@@ -641,6 +647,44 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
               <IconXmark size={16} />
             </button>
             <img src={previewImageUrl()} alt="Preview" class={styles.previewImage} />
+          </div>
+        </div>
+      </Show>
+
+      {/* 右键菜单 */}
+      <Show when={contextMenuFile()}>
+        <div class={styles.contextBackdrop} onClick={closeContextMenu}>
+          <div 
+            class={styles.contextMenu}
+            style={{ 
+              left: `${contextMenuPosition().x}px`, 
+              top: `${contextMenuPosition().y}px` 
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div class={styles.contextMenuLabel}>{contextMenuFile()?.name}</div>
+            <Show when={contextMenuFile()?.type === 'file' && isTextFile(contextMenuFile()!.name)}>
+              <button onClick={() => { handleEditFile(contextMenuFile()!); closeContextMenu(); }}>
+                <IconICursor size={14} /> 编辑
+              </button>
+            </Show>
+            <Show when={contextMenuFile()?.type === 'file' && isImageFile(contextMenuFile()!.name)}>
+              <button onClick={() => { handlePreviewImage(contextMenuFile()!); closeContextMenu(); }}>
+                <IconEye size={14} /> 预览
+              </button>
+            </Show>
+            <button onClick={() => { handleRename(contextMenuFile()!); closeContextMenu(); }}>
+              <IconPen size={14} /> 重命名
+            </button>
+            <Show when={contextMenuFile()?.type === 'file'}>
+              <button onClick={() => { handleDownload(contextMenuFile()!); closeContextMenu(); }}>
+                <IconDownload size={14} /> 下载
+              </button>
+            </Show>
+            <div class={styles.contextMenuDivider}></div>
+            <button onClick={() => { handleDelete(contextMenuFile()!); closeContextMenu(); }}>
+              <IconTrash size={14} /> 删除
+            </button>
           </div>
         </div>
       </Show>

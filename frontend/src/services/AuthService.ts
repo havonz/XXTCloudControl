@@ -69,7 +69,7 @@ export class AuthService {
     for (let i = 0; i < paddedLen; i += 64) {
       const w = new Uint32Array(64);
       
-      // 复制数据
+      // 拷贝数据
       for (let j = 0; j < 16; j++) {
         w[j] = view.getUint32(i + j * 4, false);
       }

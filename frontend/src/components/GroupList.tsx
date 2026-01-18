@@ -13,7 +13,6 @@ interface GroupListProps {
   deviceCount: number;
   allDevices?: Device[];
   onOpenNewGroupModal: () => void;
-  onOpenAddToGroupModal: () => void;
   selectedDeviceCount: number;
   onDeviceSelectionChange?: (deviceIds: Set<string>) => void; // 当分组选中改变时同步设备选中
 }
@@ -292,16 +291,7 @@ const GroupList: Component<GroupListProps> = (props) => {
         </Show>
       </ul>
 
-      <Show when={props.selectedDeviceCount > 0}>
-        <div class={styles.actions}>
-          <button 
-            class={styles.addToGroupButton}
-            onClick={props.onOpenAddToGroupModal}
-          >
-            添加到分组 ({props.selectedDeviceCount})
-          </button>
-        </div>
-      </Show>
+
 
       {/* Context Menu */}
       <Show when={contextMenu()}>

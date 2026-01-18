@@ -680,7 +680,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     const activeEl = document.activeElement;
     if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || (activeEl as HTMLElement)?.isContentEditable) return;
 
-    // 检测复制/剪切/粘贴快捷键
+    // 检测拷贝/剪切/粘贴快捷键
     if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
       e.preventDefault();
       // 发送 command up 事件以防止设备端按键卡住（因为弹出模态框会中断焦点）
@@ -737,7 +737,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (connectionState() !== 'connected') return;
     const activeEl = document.activeElement;
     if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || (activeEl as HTMLElement)?.isContentEditable) return;
-    // 忽略复制粘贴快捷键的 key up 事件（已在 keydown 拦截）
+    // 忽略拷贝粘贴快捷键的 key up 事件（已在 keydown 拦截）
     if ((e.metaKey || e.ctrlKey) && (e.code === 'KeyC' || e.code === 'KeyV')) return;
 
     // 使用 e.code 获取物理键码
@@ -804,7 +804,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     setClipboardLoading(true);
     setClipboardModalOpen(true);
     
-    // 使用 clipboard_request 触发设备端的复制操作
+    // 使用 clipboard_request 触发设备端的拷贝操作
     // 设备端会执行 Cmd+C 并自动读取剪贴板内容返回
     if (webrtcService) {
       webrtcService.sendClipboardRequest('copy');
@@ -895,7 +895,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     setClipboardModalOpen(false);
   };
 
-  // 剪贴板模态框 - 复制到系统剪贴板
+  // 剪贴板模态框 - 拷贝到系统剪贴板
   const handleCopyToSystemClipboard = async () => {
     const text = clipboardContent();
     const imageData = clipboardImageData();
@@ -908,7 +908,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
           setClipboardModalOpen(false);
           return;
         } else if (imageData) {
-          // 尝试复制图片到剪贴板
+          // 尝试拷贝图片到剪贴板
           const response = await fetch(`data:image/png;base64,${imageData}`);
           const blob = await response.blob();
           await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
@@ -938,15 +938,15 @@ export default function WebRTCControl(props: WebRTCControlProps) {
           return;
         }
       } catch (error) {
-        console.error('execCommand 复制失败:', error);
+        console.error('execCommand 拷贝失败:', error);
       }
     }
     
-    // 如果都失败了，提示用户手动复制
+    // 如果都失败了，提示用户手动拷贝
     if (imageData) {
-      alert('当前环境不支持自动复制图片，请手动右键保存图片');
+      alert('当前环境不支持自动拷贝图片，请手动右键保存图片');
     } else {
-      alert('复制失败，请手动选中文本后按 Ctrl/Cmd+C 复制');
+      alert('拷贝失败，请手动选中文本后按 Ctrl/Cmd+C 拷贝');
     }
   };
 
@@ -1326,7 +1326,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   <button class={`${styles.deviceButton} ${styles.btnWarning}`} onClick={handleLockScreen} title="锁定屏幕">
                     🔒 锁屏
                   </button>
-                  <button class={`${styles.deviceButton} ${styles.btnSuccess}`} onClick={handleCopyFromDevice} title="从设备复制">
+                  <button class={`${styles.deviceButton} ${styles.btnSuccess}`} onClick={handleCopyFromDevice} title="从设备拷贝">
                     📑 拷贝
                   </button>
                   <button class={`${styles.deviceButton} ${styles.btnPrimary}`} onClick={handlePasteToDevice} title="粘贴剪贴板内容到设备">
@@ -1404,7 +1404,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   onClick={handleCopyToSystemClipboard}
                   disabled={clipboardLoading() || (!clipboardContent() && !clipboardImageData())}
                 >
-                  📋 复制到剪贴板
+                  📋 拷贝到剪贴板
                 </button>
               </Show>
               <Show when={clipboardMode() === 'write'}>

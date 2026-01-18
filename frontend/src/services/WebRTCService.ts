@@ -481,7 +481,7 @@ export class WebRTCService {
   }
 
   /**
-   * 通过 DataChannel 发送剪贴板请求（复制或剪切）
+   * 通过 DataChannel 发送剪贴板请求（拷贝或剪切）
    * @param operation 'copy' 或 'cut'
    */
   sendClipboardRequest(operation: 'copy' | 'cut') {

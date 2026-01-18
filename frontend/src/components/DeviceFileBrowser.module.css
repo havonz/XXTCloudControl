@@ -393,6 +393,14 @@
   min-width: 0;
   cursor: pointer;
   text-align: left;
+  overflow: hidden;
+}
+
+.sizeColumn {
+  width: 80px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 0.8rem;
 }
 
 .actionsColumn {
@@ -757,4 +765,109 @@
   .editorFooter {
     transform: translateY(-20px); /* Adjust for mobile keyboard or bottom bar */
   }
+
+  /* Mobile context menu - bottom sheet style */
+  .contextBackdrop {
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+  }
+  
+  .contextMenu {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    width: 100%;
+    max-width: none;
+    padding: 16px 16px 32px 16px;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+    animation: contextSlideUp 0.3s ease;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+  }
+  
+  @keyframes contextSlideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  
+  .contextMenu button {
+    padding: 14px;
+    font-size: 15px;
+    border-radius: 10px;
+  }
+
+  .contextMenuLabel {
+    text-align: center;
+    max-width: none;
+    display: block;
+    width: 100%;
+  }
 }
+
+/* Context Menu Styles */
+.contextBackdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10000;
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 10001;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow), var(--shadow-pop);
+  min-width: 160px;
+  padding: 4px;
+}
+
+.contextMenu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.contextMenu button:hover {
+  background: var(--panel-2);
+}
+
+.contextMenu button:active {
+  transform: scale(0.98);
+  transition: all 0.1s ease;
+}
+
+.contextMenuDivider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 8px;
+}
+
+.contextMenuLabel {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
