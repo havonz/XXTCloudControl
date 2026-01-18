@@ -9,6 +9,11 @@ import {
   IconFolderOpen,
   IconRotate,
   IconSquareCheck,
+  IconCheckDouble,
+  IconCircleXmark,
+  IconCopy,
+  IconScissors,
+  IconPaste,
   IconUpload,
   IconDownload,
   IconTrash,
@@ -547,6 +552,46 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
             </div>
           </div>
           
+          <Show when={isSelectMode()}>
+            <div class={styles.selectToolbar}>
+              <div class={styles.selectInfo}>
+                <span class={styles.selectedCount}>已选择 {selectedItems().size} 项</span>
+              </div>
+              <div class={styles.selectActions}>
+                <button class={styles.selectAction} onClick={selectAll}>
+                  <IconCheckDouble size={14} />
+                  <span>全选</span>
+                </button>
+                <button class={styles.selectAction} onClick={clearSelection} disabled={selectedItems().size === 0}>
+                  <IconCircleXmark size={14} />
+                  <span>清除选择</span>
+                </button>
+                
+                <div class={styles.selectDivider} />
+                
+                <button class={styles.selectAction} onClick={() => {}} disabled={selectedItems().size === 0}>
+                  <IconCopy size={14} />
+                  <span>复制</span>
+                </button>
+                <button class={styles.selectAction} onClick={() => {}} disabled={selectedItems().size === 0}>
+                  <IconScissors size={14} />
+                  <span>剪切</span>
+                </button>
+                <button class={styles.selectAction} onClick={() => {}} disabled={true}>
+                  <IconPaste size={14} />
+                  <span>粘贴</span>
+                </button>
+                
+                <div class={styles.selectDivider} />
+                
+                <button class={styles.deleteAction} onClick={handleBatchDelete} disabled={selectedItems().size === 0}>
+                  <IconTrash size={14} />
+                  <span>删除</span>
+                </button>
+              </div>
+            </div>
+          </Show>
+
           {/* 面包屑导航 */}
           <div class={styles.breadcrumbs}>
             <button class={styles.breadcrumbItem} onClick={() => handleNavigate('')}>
@@ -570,18 +615,6 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
               )}
             </For>
           </div>
-          
-          <Show when={isSelectMode()}>
-            <div class={styles.selectToolbar}>
-              <span>已选 {selectedItems().size} 项</span>
-              <button class={styles.selectAction} onClick={selectAll}>全选</button>
-              <button class={styles.selectAction} onClick={clearSelection}>清除</button>
-              <button class={styles.deleteAction} onClick={handleBatchDelete} disabled={selectedItems().size === 0}>
-                <IconTrash size={14} />
-                <span>删除</span>
-              </button>
-            </div>
-          </Show>
           
           {/* 文件列表表格 */}
           <div class={`${styles.fileList} ${isDragOver() ? styles.dragOver : ''}`} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>

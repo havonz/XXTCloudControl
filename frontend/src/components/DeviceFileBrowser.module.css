@@ -210,49 +210,92 @@
 .selectToolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 1.5rem;
-  background: var(--success-bg);
-  border-bottom: 1px solid var(--success-border-muted);
+  justify-content: flex-start;
+  padding: 0.5rem 1.5rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.selectInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
   font-size: 0.85rem;
-  color: var(--text);
+}
+
+.selectedCount {
+  font-weight: 500;
+}
+
+.selectActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.selectDivider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
 }
 
 .selectAction {
-  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.35rem 0.65rem;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   color: var(--text);
   cursor: pointer;
   font-size: 0.8rem;
+  font-weight: 600;
   transition: all 0.2s ease;
+}
+
+.selectAction:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--primary);
+}
+
+.selectAction:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+}
+
+.selectAction:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .deleteAction {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
+  gap: 6px;
+  padding: 0.35rem 0.75rem;
   background: var(--danger-bg-strong);
-  border: none;
-  border-radius: 4px;
+  border: 1px solid var(--danger-border-muted);
+  border-radius: 8px;
   color: var(--danger);
   cursor: pointer;
   font-size: 0.8rem;
   font-weight: 700;
   transition: all 0.2s ease;
-  margin-left: auto;
 }
 
 .deleteAction:hover:not(:disabled) {
   background: var(--danger);
-  color: var(--text-on-gradient);
+  color: white;
+  border-color: var(--danger);
 }
 
 .deleteAction:active:not(:disabled) {
-  transform: scale(0.96);
-  transition: all 0.1s ease;
+  transform: translateY(1px) scale(0.98);
 }
 
 .deleteAction:disabled {

@@ -17,6 +17,11 @@ import {
   IconICursor,
   IconClipboardCheck,
   IconCircleCheck,
+  IconCheckDouble,
+  IconCircleXmark,
+  IconCopy,
+  IconScissors,
+  IconPaste,
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
 import { createBackdropClose } from '../hooks/useBackdropClose';
@@ -524,6 +529,54 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
             </div>
           </div>
 
+          <Show when={isSelectMode()}>
+            <div class={styles.selectToolbar}>
+              <div class={styles.selectInfo}>
+                <span class={styles.selectedCount}>已选择 {selectedItems().size} 项</span>
+              </div>
+              <div class={styles.selectActions}>
+                <button class={styles.selectAction} onClick={toggleAllSelection}>
+                  <IconCheckDouble size={14} />
+                  <span>{selectedItems().size === sortedFiles().length ? '取消全选' : '全选'}</span>
+                </button>
+                <button class={styles.selectAction} onClick={() => setSelectedItems(new Set())} disabled={selectedItems().size === 0}>
+                  <IconCircleXmark size={14} />
+                  <span>清除选择</span>
+                </button>
+                
+                <div class={styles.selectDivider} />
+                
+                <button class={styles.selectAction} onClick={() => {}} disabled={selectedItems().size === 0}>
+                  <IconCopy size={14} />
+                  <span>复制</span>
+                </button>
+                <button class={styles.selectAction} onClick={() => {}} disabled={selectedItems().size === 0}>
+                  <IconScissors size={14} />
+                  <span>剪切</span>
+                </button>
+                <button class={styles.selectAction} onClick={() => {}} disabled={true}>
+                  <IconPaste size={14} />
+                  <span>粘贴</span>
+                </button>
+                
+                <div class={styles.selectDivider} />
+                
+                <button 
+                  class={styles.deleteAction} 
+                  disabled={selectedItems().size === 0}
+                  onClick={async () => {
+                    if (await dialog.confirm(`确定要删除选中的 ${selectedItems().size} 个项目吗？`)) {
+                      await dialog.alert('批量删除功能待完善');
+                    }
+                  }}
+                >
+                  <IconTrash size={14} />
+                  <span>删除</span>
+                </button>
+              </div>
+            </div>
+          </Show>
+
           <div class={styles.breadcrumbs}>
             <button class={styles.breadcrumbItem} onClick={() => handleNavigate('/')}>
               <IconHouse size={14} />
@@ -546,27 +599,6 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
               )}
             </For>
           </div>
-
-          <Show when={isSelectMode()}>
-            <div class={styles.selectToolbar}>
-              <span>已选 {selectedItems().size} 项</span>
-              <button class={styles.selectAction} onClick={toggleAllSelection}>
-                {selectedItems().size === sortedFiles().length ? '取消全选' : '全选'}
-              </button>
-              <button 
-                class={styles.deleteAction} 
-                disabled={selectedItems().size === 0}
-                onClick={async () => {
-                  if (await dialog.confirm(`确定要删除选中的 ${selectedItems().size} 个项目吗？`)) {
-                    await dialog.alert('批量删除功能待完善');
-                  }
-                }}
-              >
-                <IconTrash size={14} />
-                <span>删除</span>
-              </button>
-            </div>
-          </Show>
 
           
           <div 
