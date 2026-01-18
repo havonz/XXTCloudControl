@@ -4,6 +4,7 @@ import { Select, createListCollection } from '@ark-ui/solid';
 import { createFormRunnerStore } from '../services/formRunnerStore';
 import { ConfigItem, ScriptInfo } from '../utils/scriptConfig';
 import { createBackdropClose } from '../hooks/useBackdropClose';
+import { IconXmark } from '../icons';
 import styles from './FormRunner.module.css';
 
 interface FormRunnerProps {
@@ -67,174 +68,173 @@ export default function FormRunner(props: FormRunnerProps) {
 
   return (
     <Show when={props.open}>
-      <div class={styles.backdrop}>
-        <div class={styles.modal}>
-          {/* Header */}
-          <div class={styles.header}>
-            <button 
-              type="button" 
-              class={styles.titleButton} 
-              onClick={() => hasScriptInfo() && setAboutOpen(true)}
-              style={{ cursor: hasScriptInfo() ? 'pointer' : 'default' }}
-            >
-              <span>{props.title || '脚本配置'}</span>
-            </button>
-            <div class={styles.headerActions}>
-              <Show when={props.onClose}>
-                <button type="button" class={styles.closeBtn} onClick={props.onClose}>
-                  <span>✕</span>
-                  <span>关闭</span>
-                </button>
-              </Show>
-            </div>
-          </div>
-          
-          {/* Content - scrollable area */}
-          <div class={styles.content}>
-            <div class={styles.scrollArea}>
-              <div class={styles.itemList}>
-                <Show when={formReady()}>
-                  <For each={props.items}>
-                    {(item, index) => {
-                      const key = store.keyOf(item, index());
-                      
-                      return (
-                        <div class={styles.field}>
-                          <Show when={item.caption && item.type !== 'Label'}>
-                            <label class={styles.fieldLabel}>{item.caption}</label>
-                          </Show>
-                          
-                          <Show when={item.type === 'Label'}>
-                            <div class={styles.labelText} style={{ "text-align": item.align || 'left' }}>
-                              {item.caption}
-                            </div>
-                          </Show>
-                          
-                          <Show when={item.type === 'Edit'}>
-                            <input
-                              type="text"
-                              placeholder={item.placeholder || '请输入'}
-                              value={getStringValue(key)}
-                              onInput={(e) => store.setValue(key, e.currentTarget.value)}
-                            />
-                          </Show>
-                          
-                          <Show when={item.type === 'ComboBox'}>
-                            {(() => {
-                              const collection = createMemo(() => createListCollection({ items: item.item }));
-                              const current = () => getStringValue(key);
-                              const value = () => current() ? [current()] : [];
-                              return (
-                                <Select.Root
-                                  collection={collection()}
-                                  value={value()}
-                                  onValueChange={(e) => store.setValue(key, (e.items?.[0] as string) ?? '')}
-                                >
-                                  <Select.Control>
-                                    <Select.Trigger class="cbx-select">
-                                      <span>{current() || '-- 请选择 --'}</span>
-                                      <span class="dropdown-arrow">▼</span>
-                                    </Select.Trigger>
-                                  </Select.Control>
-                                  <Portal>
-                                    <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
-                                      <Select.Content class="cbx-panel">
-                                        <Select.ItemGroup>
-                                          <For each={item.item}>{(opt) => (
-                                            <Select.Item item={opt} class="cbx-item">
-                                              <div class="cbx-item-content">
-                                                <Select.ItemIndicator>✓</Select.ItemIndicator>
-                                                <Select.ItemText>{opt}</Select.ItemText>
-                                              </div>
-                                            </Select.Item>
-                                          )}</For>
-                                        </Select.ItemGroup>
-                                      </Select.Content>
-                                    </Select.Positioner>
-                                  </Portal>
-                                  <Select.HiddenSelect />
-                                </Select.Root>
-                              );
-                            })()}
-                          </Show>
-                          
-                          <Show when={item.type === 'RadioGroup'}>
-                            {(() => {
-                              const n = item.numPerLine || 1;
-                              const cols = Math.max(1, n);
-                              const gridStyle = `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
-                              const current = () => getStringValue(key);
-                              return (
-                                <div class={styles.frGrid} style={gridStyle}>
-                                  <For each={item.item}>{(opt) => {
-                                    const active = () => current() === opt;
-                                    const onClick = () => store.setValue(key, opt);
-                                    return (
-                                      <div 
-                                        class={`${styles.frSeg} ${styles.frSegRg} ${active() ? styles.active : ''}`} 
-                                        role="button" 
-                                        onClick={onClick}
-                                      >
-                                        {opt}
-                                      </div>
-                                    );
-                                  }}</For>
-                                </div>
-                              );
-                            })()}
-                          </Show>
-                          
-                          <Show when={item.type === 'CheckBoxGroup'}>
-                            {(() => {
-                              const n = item.numPerLine || 1;
-                              const cols = Math.max(1, n);
-                              const gridStyle = `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
-                              const current = () => getArrayValue(key);
-                              return (
-                                <div class={styles.frGrid} style={gridStyle}>
-                                  <For each={item.item}>{(opt) => {
-                                    const active = () => current().includes(opt);
-                                    const toggle = () => {
-                                      store.setValue<string[]>(key, prev => {
-                                        const next = Array.isArray(prev) ? [...prev] : [];
-                                        const idx = next.indexOf(opt);
-                                        if (idx >= 0) next.splice(idx, 1);
-                                        else next.push(opt);
-                                        return next;
-                                      });
-                                    };
-                                    return (
-                                      <div 
-                                        class={`${styles.frSeg} ${styles.frSegCg} ${active() ? styles.active : ''}`} 
-                                        role="button" 
-                                        onClick={toggle}
-                                      >
-                                        {opt}
-                                      </div>
-                                    );
-                                  }}</For>
-                                </div>
-                              );
-                            })()}
-                          </Show>
-                        </div>
-                      );
-                    }}
-                  </For>
+      <Portal>
+        <div class={styles.backdrop}>
+          <div class={styles.modal}>
+            {/* Header */}
+            <div class={styles.header}>
+              <button 
+                type="button" 
+                class={styles.titleButton} 
+                onClick={() => hasScriptInfo() && setAboutOpen(true)}
+                style={{ cursor: hasScriptInfo() ? 'pointer' : 'default' }}
+              >
+                <span>{props.title || '脚本配置'}</span>
+              </button>
+              <div class={styles.headerActions}>
+                <Show when={props.onClose}>
+                  <button type="button" class={styles.closeButton} onClick={props.onClose}>
+                    <IconXmark size={16} />
+                  </button>
                 </Show>
               </div>
             </div>
+            
+            {/* Content - scrollable area */}
+            <div class={styles.content}>
+              <div class={styles.scrollArea}>
+                <div class={styles.itemList}>
+                  <Show when={formReady()}>
+                    <For each={props.items}>
+                      {(item, index) => {
+                        const key = store.keyOf(item, index());
+                        
+                        return (
+                          <div class={styles.field}>
+                            <Show when={item.caption && item.type !== 'Label'}>
+                              <label class={styles.fieldLabel}>{item.caption}</label>
+                            </Show>
+                            
+                            <Show when={item.type === 'Label'}>
+                              <div class={styles.labelText} style={{ "text-align": item.align || 'left' }}>
+                                {item.caption}
+                              </div>
+                            </Show>
+                            
+                            <Show when={item.type === 'Edit'}>
+                              <input
+                                type="text"
+                                placeholder={item.placeholder || '请输入'}
+                                value={getStringValue(key)}
+                                onInput={(e) => store.setValue(key, e.currentTarget.value)}
+                              />
+                            </Show>
+                            
+                            <Show when={item.type === 'ComboBox'}>
+                              {(() => {
+                                const collection = createMemo(() => createListCollection({ items: item.item }));
+                                const current = () => getStringValue(key);
+                                const value = () => current() ? [current()] : [];
+                                return (
+                                  <Select.Root
+                                    collection={collection()}
+                                    value={value()}
+                                    onValueChange={(e) => store.setValue(key, (e.items?.[0] as string) ?? '')}
+                                  >
+                                    <Select.Control>
+                                      <Select.Trigger class="cbx-select">
+                                        <span>{current() || '-- 请选择 --'}</span>
+                                        <span class="dropdown-arrow">▼</span>
+                                      </Select.Trigger>
+                                    </Select.Control>
+                                    <Portal>
+                                      <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
+                                        <Select.Content class="cbx-panel">
+                                          <Select.ItemGroup>
+                                            <For each={item.item}>{(opt) => (
+                                              <Select.Item item={opt} class="cbx-item">
+                                                <div class="cbx-item-content">
+                                                  <Select.ItemIndicator>✓</Select.ItemIndicator>
+                                                  <Select.ItemText>{opt}</Select.ItemText>
+                                                </div>
+                                              </Select.Item>
+                                            )}</For>
+                                          </Select.ItemGroup>
+                                        </Select.Content>
+                                      </Select.Positioner>
+                                    </Portal>
+                                    <Select.HiddenSelect />
+                                  </Select.Root>
+                                );
+                              })()}
+                            </Show>
+                            
+                            <Show when={item.type === 'RadioGroup'}>
+                              {(() => {
+                                const n = item.numPerLine || 1;
+                                const cols = Math.max(1, n);
+                                const gridStyle = `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
+                                const current = () => getStringValue(key);
+                                return (
+                                  <div class={styles.frGrid} style={gridStyle}>
+                                    <For each={item.item}>{(opt) => {
+                                      const active = () => current() === opt;
+                                      const onClick = () => store.setValue(key, opt);
+                                      return (
+                                        <div 
+                                          class={`${styles.frSeg} ${styles.frSegRg} ${active() ? styles.active : ''}`} 
+                                          role="button" 
+                                          onClick={onClick}
+                                        >
+                                          {opt}
+                                        </div>
+                                      );
+                                    }}</For>
+                                  </div>
+                                );
+                              })()}
+                            </Show>
+                            
+                            <Show when={item.type === 'CheckBoxGroup'}>
+                              {(() => {
+                                const n = item.numPerLine || 1;
+                                const cols = Math.max(1, n);
+                                const gridStyle = `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
+                                const current = () => getArrayValue(key);
+                                return (
+                                  <div class={styles.frGrid} style={gridStyle}>
+                                    <For each={item.item}>{(opt) => {
+                                      const active = () => current().includes(opt);
+                                      const toggle = () => {
+                                        store.setValue<string[]>(key, prev => {
+                                          const next = Array.isArray(prev) ? [...prev] : [];
+                                          const idx = next.indexOf(opt);
+                                          if (idx >= 0) next.splice(idx, 1);
+                                          else next.push(opt);
+                                          return next;
+                                        });
+                                      };
+                                      return (
+                                        <div 
+                                          class={`${styles.frSeg} ${styles.frSegCg} ${active() ? styles.active : ''}`} 
+                                          role="button" 
+                                          onClick={toggle}
+                                        >
+                                          {opt}
+                                        </div>
+                                      );
+                                    }}</For>
+                                  </div>
+                                );
+                              })()}
+                            </Show>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </Show>
+                </div>
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div class={styles.footer}>
+              <button type="button" onClick={handleSubmit}>保存配置</button>
+            </div>
           </div>
-          
-          {/* Footer */}
-          <div class={styles.footer}>
-            <button type="button" onClick={handleSubmit}>保存配置</button>
-          </div>
-        </div>
 
-        {/* About Dialog */}
-        <Show when={aboutOpen()}>
-          <Portal>
+          {/* About Dialog */}
+          <Show when={aboutOpen()}>
             <div class={styles.aboutBackdrop} onMouseDown={aboutBackdropClose.onMouseDown} onMouseUp={aboutBackdropClose.onMouseUp}>
               <div class={styles.aboutModal} onMouseDown={(e) => e.stopPropagation()}>
                 <div class={styles.aboutHeader}>
@@ -281,9 +281,9 @@ export default function FormRunner(props: FormRunnerProps) {
                 </div>
               </div>
             </div>
-          </Portal>
-        </Show>
-      </div>
+          </Show>
+        </div>
+      </Portal>
     </Show>
   );
 }
