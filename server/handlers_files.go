@@ -532,3 +532,304 @@ func serverFilesOpenLocalHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
+
+// copyDirRecursive recursively copies a directory
+func copyDirRecursive(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyDirRecursive(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// copyFile copies a single file
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return err
+	}
+
+	return os.Chmod(dst, srcInfo.Mode())
+}
+
+// serverFilesBatchCopyHandler handles POST /api/server-files/batch-copy
+func serverFilesBatchCopyHandler(c *gin.Context) {
+	var req struct {
+		Category    string   `json:"category"`    // Deprecated: for backwards compatibility
+		SrcCategory string   `json:"srcCategory"` // Source category (scripts/files/reports)
+		DstCategory string   `json:"dstCategory"` // Destination category
+		Items       []string `json:"items"`       // Items to copy (relative paths in source)
+		SrcPath     string   `json:"srcPath"`     // Source directory
+		DstPath     string   `json:"dstPath"`     // Destination directory
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if len(req.Items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no items to copy"})
+		return
+	}
+
+	// Support both old (category) and new (srcCategory/dstCategory) API
+	srcCategory := req.SrcCategory
+	dstCategory := req.DstCategory
+	if srcCategory == "" {
+		srcCategory = req.Category
+	}
+	if dstCategory == "" {
+		dstCategory = req.Category
+	}
+
+	srcDir, err := validatePath(srcCategory, req.SrcPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	dstDir, err := validatePath(dstCategory, req.DstPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create destination directory"})
+		return
+	}
+
+	successCount := 0
+	var errors []string
+
+	for _, item := range req.Items {
+		srcPath := filepath.Join(srcDir, item)
+		dstPath := filepath.Join(dstDir, item)
+
+		// Validate source path doesn't escape
+		srcBaseDir := filepath.Join(serverConfig.DataDir, srcCategory)
+		absSrcBaseDir, _ := filepath.Abs(srcBaseDir)
+		absSrcPath, _ := filepath.Abs(srcPath)
+		if !strings.HasPrefix(absSrcPath, absSrcBaseDir) {
+			errors = append(errors, fmt.Sprintf("%s: source path traversal detected", item))
+			continue
+		}
+
+		// Validate destination path doesn't escape
+		dstBaseDir := filepath.Join(serverConfig.DataDir, dstCategory)
+		absDstBaseDir, _ := filepath.Abs(dstBaseDir)
+		absDstPath, _ := filepath.Abs(dstPath)
+		if !strings.HasPrefix(absDstPath, absDstBaseDir) {
+			errors = append(errors, fmt.Sprintf("%s: destination path traversal detected", item))
+			continue
+		}
+
+		srcInfo, err := os.Stat(srcPath)
+		if os.IsNotExist(err) {
+			errors = append(errors, fmt.Sprintf("%s: not found", item))
+			continue
+		}
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", item, err))
+			continue
+		}
+
+		// Check if destination already exists
+		if _, err := os.Stat(dstPath); !os.IsNotExist(err) {
+			errors = append(errors, fmt.Sprintf("%s: already exists at destination", item))
+			continue
+		}
+
+		// Copy based on type
+		if srcInfo.IsDir() {
+			if err := copyDirRecursive(srcPath, dstPath); err != nil {
+				errors = append(errors, fmt.Sprintf("%s: %v", item, err))
+				continue
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				errors = append(errors, fmt.Sprintf("%s: %v", item, err))
+				continue
+			}
+		}
+
+		successCount++
+	}
+
+	fmt.Printf("📋 Batch copy: %d/%d items copied from %s/%s to %s/%s\n", successCount, len(req.Items), srcCategory, req.SrcPath, dstCategory, req.DstPath)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":      successCount == len(req.Items),
+		"successCount": successCount,
+		"totalCount":   len(req.Items),
+		"errors":       errors,
+	})
+}
+
+// serverFilesBatchMoveHandler handles POST /api/server-files/batch-move
+func serverFilesBatchMoveHandler(c *gin.Context) {
+	var req struct {
+		Category    string   `json:"category"`    // Deprecated: for backwards compatibility
+		SrcCategory string   `json:"srcCategory"` // Source category (scripts/files/reports)
+		DstCategory string   `json:"dstCategory"` // Destination category
+		Items       []string `json:"items"`       // Items to move (relative paths in source)
+		SrcPath     string   `json:"srcPath"`     // Source directory
+		DstPath     string   `json:"dstPath"`     // Destination directory
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if len(req.Items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no items to move"})
+		return
+	}
+
+	// Support both old (category) and new (srcCategory/dstCategory) API
+	srcCategory := req.SrcCategory
+	dstCategory := req.DstCategory
+	if srcCategory == "" {
+		srcCategory = req.Category
+	}
+	if dstCategory == "" {
+		dstCategory = req.Category
+	}
+
+	srcDir, err := validatePath(srcCategory, req.SrcPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	dstDir, err := validatePath(dstCategory, req.DstPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create destination directory"})
+		return
+	}
+
+	successCount := 0
+	var errors []string
+
+	for _, item := range req.Items {
+		srcPath := filepath.Join(srcDir, item)
+		dstPath := filepath.Join(dstDir, item)
+
+		// Validate source path doesn't escape
+		srcBaseDir := filepath.Join(serverConfig.DataDir, srcCategory)
+		absSrcBaseDir, _ := filepath.Abs(srcBaseDir)
+		absSrcPath, _ := filepath.Abs(srcPath)
+		if !strings.HasPrefix(absSrcPath, absSrcBaseDir) {
+			errors = append(errors, fmt.Sprintf("%s: source path traversal detected", item))
+			continue
+		}
+
+		// Validate destination path doesn't escape
+		dstBaseDir := filepath.Join(serverConfig.DataDir, dstCategory)
+		absDstBaseDir, _ := filepath.Abs(dstBaseDir)
+		absDstPath, _ := filepath.Abs(dstPath)
+		if !strings.HasPrefix(absDstPath, absDstBaseDir) {
+			errors = append(errors, fmt.Sprintf("%s: destination path traversal detected", item))
+			continue
+		}
+
+		// Check if source exists
+		if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+			errors = append(errors, fmt.Sprintf("%s: not found", item))
+			continue
+		}
+
+		// Check if destination already exists
+		if _, err := os.Stat(dstPath); !os.IsNotExist(err) {
+			errors = append(errors, fmt.Sprintf("%s: already exists at destination", item))
+			continue
+		}
+
+		// Move the file/directory (use copy+delete for cross-filesystem moves)
+		if err := os.Rename(srcPath, dstPath); err != nil {
+			// os.Rename fails across filesystems, so try copy+delete
+			srcInfo, statErr := os.Stat(srcPath)
+			if statErr != nil {
+				errors = append(errors, fmt.Sprintf("%s: %v", item, err))
+				continue
+			}
+			var copyErr error
+			if srcInfo.IsDir() {
+				copyErr = copyDirRecursive(srcPath, dstPath)
+			} else {
+				copyErr = copyFile(srcPath, dstPath)
+			}
+			if copyErr != nil {
+				errors = append(errors, fmt.Sprintf("%s: %v", item, copyErr))
+				continue
+			}
+			// Remove source after successful copy
+			if srcInfo.IsDir() {
+				os.RemoveAll(srcPath)
+			} else {
+				os.Remove(srcPath)
+			}
+		}
+
+		successCount++
+	}
+
+	fmt.Printf("✂️ Batch move: %d/%d items moved from %s/%s to %s/%s\n", successCount, len(req.Items), srcCategory, req.SrcPath, dstCategory, req.DstPath)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":      successCount == len(req.Items),
+		"successCount": successCount,
+		"totalCount":   len(req.Items),
+		"errors":       errors,
+	})
+}

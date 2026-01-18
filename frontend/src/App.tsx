@@ -560,6 +560,12 @@ const App: Component = () => {
     }
   };
 
+  const handleCopyFile = (deviceUdid: string, fromPath: string, toPath: string) => {
+    if (wsService) {
+      wsService.copyFile(deviceUdid, fromPath, toPath);
+    }
+  };
+
   const handleReadFile = (deviceUdid: string, path: string) => {
     if (wsService) {
       enqueuePendingFileGet({ kind: 'read', deviceUdid, path });
@@ -783,6 +789,7 @@ const App: Component = () => {
         onDownloadFile={handleDownloadFile}
         onDownloadLargeFile={handleDownloadLargeFile}
         onMoveFile={handleMoveFile}
+        onCopyFile={handleCopyFile}
         onReadFile={handleReadFile}
         onSelectScript={handleSelectScript}
         selectedScript={fileBrowserDevice() ? devices().find(d => d.udid === fileBrowserDevice()?.udid)?.script?.select : null}

@@ -509,6 +509,34 @@ export class WebSocketService {
     }
   }
 
+  // 复制文件
+  async copyFile(deviceUdid: string, fromPath: string, toPath: string): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
+      console.error('WebSocket未连接或未认证');
+      return;
+    }
+
+    try {
+      const message = AuthService.getInstance().createControlMessage(
+        this.password,
+        'control/command',
+        {
+          devices: [deviceUdid],
+          type: 'file/copy',
+          body: {
+            from: fromPath.trim(),
+            to: toPath.trim()
+          }
+        }
+      );
+      
+      this.send(message);
+
+    } catch (error) {
+      console.error('复制文件失败:', error);
+    }
+  }
+
   // 读取文本文件内容
   async readFile(deviceUdid: string, path: string): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {

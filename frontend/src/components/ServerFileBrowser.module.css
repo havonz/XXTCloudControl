@@ -246,6 +246,16 @@
   font-weight: 500;
 }
 
+.clipboardInfo {
+  padding: 0.2rem 0.5rem;
+  background: var(--primary-bg);
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
 .selectActions {
   display: flex;
   align-items: center;

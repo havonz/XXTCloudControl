@@ -51,6 +51,7 @@ export interface DeviceFileBrowserProps {
   onDownloadFile: (deviceUdid: string, path: string) => void;
   onDownloadLargeFile?: (deviceUdid: string, path: string, fileName: string) => Promise<void>; // For files > 128KB  
   onMoveFile: (deviceUdid: string, fromPath: string, toPath: string) => void;
+  onCopyFile: (deviceUdid: string, fromPath: string, toPath: string) => void;
   onReadFile: (deviceUdid: string, path: string) => void;
   onSelectScript: (deviceUdid: string, scriptName: string) => void;
   selectedScript: string | null | undefined;
@@ -71,6 +72,13 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const mainBackdropClose = createBackdropClose(() => props.onClose());
   const editorBackdropClose = createBackdropClose(() => setShowEditorModal(false));
   let dragCounter = 0;
+
+  // 剪贴板状态
+  const [clipboard, setClipboard] = createSignal<{
+    items: string[];  // 文件名列表
+    srcPath: string;  // 源目录路径
+    mode: 'copy' | 'cut';
+  } | null>(null);
 
   // 编辑器弹窗
   const [showEditorModal, setShowEditorModal] = createSignal(false);
@@ -439,6 +447,70 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     }
   };
 
+  // 复制选中的项目到剪贴板
+  const handleCopy = () => {
+    const selected = selectedItems();
+    if (selected.size === 0) return;
+    setClipboard({
+      items: Array.from(selected),
+      srcPath: currentPath(),
+      mode: 'copy'
+    });
+  };
+
+  // 剪切选中的项目到剪贴板
+  const handleCut = () => {
+    const selected = selectedItems();
+    if (selected.size === 0) return;
+    setClipboard({
+      items: Array.from(selected),
+      srcPath: currentPath(),
+      mode: 'cut'
+    });
+  };
+
+  // 粘贴剪贴板中的项目
+  const handlePaste = async () => {
+    const cb = clipboard();
+    if (!cb || cb.items.length === 0) return;
+    
+    // 不能粘贴到相同目录
+    if (cb.srcPath === currentPath()) {
+      await dialog.alert('不能粘贴到相同目录');
+      return;
+    }
+    
+    // 逐个执行复制或移动操作
+    for (const item of cb.items) {
+      const fromPath = cb.srcPath === '/' ? `/${item}` : `${cb.srcPath}/${item}`;
+      const toPath = currentPath() === '/' ? `/${item}` : `${currentPath()}/${item}`;
+      
+      if (cb.mode === 'copy') {
+        props.onCopyFile(props.deviceUdid, fromPath, toPath);
+      } else {
+        props.onMoveFile(props.deviceUdid, fromPath, toPath);
+      }
+    }
+    
+    // 剪切操作完成后清空剪贴板
+    if (cb.mode === 'cut') {
+      setClipboard(null);
+    }
+    
+    // 刷新文件列表
+    setTimeout(() => {
+      props.onListFiles(props.deviceUdid, currentPath());
+    }, 500 * cb.items.length);
+  };
+
+  // 检查是否可以粘贴
+  const canPaste = () => {
+    const cb = clipboard();
+    if (!cb || cb.items.length === 0) return false;
+    // 不能粘贴到源目录
+    return cb.srcPath !== currentPath();
+  };
+
   return (
     <>
     <Show when={props.isOpen}>
@@ -533,6 +605,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
             <div class={styles.selectToolbar}>
               <div class={styles.selectInfo}>
                 <span class={styles.selectedCount}>已选择 {selectedItems().size} 项</span>
+                <Show when={clipboard()}>
+                  <span class={styles.clipboardInfo}>
+                    剪贴板: {clipboard()!.items.length} 项 ({clipboard()!.mode === 'copy' ? '复制' : '剪切'})
+                  </span>
+                </Show>
               </div>
               <div class={styles.selectActions}>
                 <button class={styles.selectAction} onClick={toggleAllSelection}>
@@ -546,15 +623,15 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                 
                 <div class={styles.selectDivider} />
                 
-                <button class={styles.selectAction} onClick={() => {}} disabled={selectedItems().size === 0}>
+                <button class={styles.selectAction} onClick={handleCopy} disabled={selectedItems().size === 0}>
                   <IconCopy size={14} />
                   <span>复制</span>
                 </button>
-                <button class={styles.selectAction} onClick={() => {}} disabled={selectedItems().size === 0}>
+                <button class={styles.selectAction} onClick={handleCut} disabled={selectedItems().size === 0}>
                   <IconScissors size={14} />
                   <span>剪切</span>
                 </button>
-                <button class={styles.selectAction} onClick={() => {}} disabled={true}>
+                <button class={styles.selectAction} onClick={handlePaste} disabled={!canPaste()}>
                   <IconPaste size={14} />
                   <span>粘贴</span>
                 </button>
@@ -566,7 +643,18 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                   disabled={selectedItems().size === 0}
                   onClick={async () => {
                     if (await dialog.confirm(`确定要删除选中的 ${selectedItems().size} 个项目吗？`)) {
-                      await dialog.alert('批量删除功能待完善');
+                      // 批量删除
+                      for (const name of selectedItems()) {
+                        const fullPath = currentPath() === '/' 
+                          ? `/${name}` 
+                          : `${currentPath()}/${name}`;
+                        props.onDeleteFile(props.deviceUdid, fullPath);
+                      }
+                      setSelectedItems(new Set<string>());
+                      // 刷新文件列表
+                      setTimeout(() => {
+                        props.onListFiles(props.deviceUdid, currentPath());
+                      }, 500);
                     }
                   }}
                 >

@@ -79,6 +79,14 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [isSelectMode, setIsSelectMode] = createSignal(false);
   const [selectedItems, setSelectedItems] = createSignal<Set<string>>(new Set());
   
+  // 剪贴板状态
+  const [clipboard, setClipboard] = createSignal<{
+    items: string[];
+    category: 'scripts' | 'files' | 'reports';
+    srcPath: string;
+    mode: 'copy' | 'cut';
+  } | null>(null);
+  
   // 编辑器弹窗
   const [showEditorModal, setShowEditorModal] = createSignal(false);
   const [editorFileName, setEditorFileName] = createSignal('');
@@ -251,6 +259,85 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   const selectAll = () => setSelectedItems(new Set<string>(files().map(f => f.name)));
   const clearSelection = () => setSelectedItems(new Set<string>());
+
+  // 复制选中的项目到剪贴板
+  const handleCopy = () => {
+    const selected = selectedItems();
+    if (selected.size === 0) return;
+    setClipboard({
+      items: Array.from(selected),
+      category: currentCategory(),
+      srcPath: currentPath(),
+      mode: 'copy'
+    });
+  };
+
+  // 剪切选中的项目到剪贴板
+  const handleCut = () => {
+    const selected = selectedItems();
+    if (selected.size === 0) return;
+    setClipboard({
+      items: Array.from(selected),
+      category: currentCategory(),
+      srcPath: currentPath(),
+      mode: 'cut'
+    });
+  };
+
+  // 粘贴剪贴板中的项目
+  const handlePaste = async () => {
+    const cb = clipboard();
+    if (!cb || cb.items.length === 0) return;
+    
+    // 不能粘贴到相同目录（同一 category 且同一路径）
+    if (cb.category === currentCategory() && cb.srcPath === currentPath()) {
+      await dialog.alert('不能粘贴到相同目录');
+      return;
+    }
+    
+    try {
+      const endpoint = cb.mode === 'copy' 
+        ? `${props.serverBaseUrl}/api/server-files/batch-copy`
+        : `${props.serverBaseUrl}/api/server-files/batch-move`;
+        
+      const response = await authFetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          srcCategory: cb.category,
+          dstCategory: currentCategory(),
+          items: cb.items,
+          srcPath: cb.srcPath,
+          dstPath: currentPath()
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        await dialog.alert(`${cb.mode === 'copy' ? '复制' : '移动'}失败: ` + data.error);
+      } else if (data.errors && data.errors.length > 0) {
+        await dialog.alert(`部分操作失败 (${data.successCount}/${data.totalCount}):\n${data.errors.join('\n')}`);
+      }
+      
+      // 剪切操作完成后清空剪贴板
+      if (cb.mode === 'cut') {
+        setClipboard(null);
+      }
+      
+      loadFiles();
+    } catch (err) {
+      await dialog.alert(`${cb.mode === 'copy' ? '复制' : '移动'}失败: ` + (err as Error).message);
+    }
+  };
+
+  // 检查是否可以粘贴
+  const canPaste = () => {
+    const cb = clipboard();
+    if (!cb || cb.items.length === 0) return false;
+    // 不能粘贴到相同目录（同一 category 且同一路径）
+    return !(cb.category === currentCategory() && cb.srcPath === currentPath());
+  };
 
   const handleDownload = (file: ServerFileItem) => {
     const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
@@ -556,6 +643,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
             <div class={styles.selectToolbar}>
               <div class={styles.selectInfo}>
                 <span class={styles.selectedCount}>已选择 {selectedItems().size} 项</span>
+                <Show when={clipboard()}>
+                  <span class={styles.clipboardInfo}>
+                    剪贴板: {clipboard()!.items.length} 项 ({clipboard()!.mode === 'copy' ? '复制' : '剪切'})
+                  </span>
+                </Show>
               </div>
               <div class={styles.selectActions}>
                 <button class={styles.selectAction} onClick={selectAll}>
@@ -569,15 +661,15 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 
                 <div class={styles.selectDivider} />
                 
-                <button class={styles.selectAction} onClick={() => {}} disabled={selectedItems().size === 0}>
+                <button class={styles.selectAction} onClick={handleCopy} disabled={selectedItems().size === 0}>
                   <IconCopy size={14} />
                   <span>复制</span>
                 </button>
-                <button class={styles.selectAction} onClick={() => {}} disabled={selectedItems().size === 0}>
+                <button class={styles.selectAction} onClick={handleCut} disabled={selectedItems().size === 0}>
                   <IconScissors size={14} />
                   <span>剪切</span>
                 </button>
-                <button class={styles.selectAction} onClick={() => {}} disabled={true}>
+                <button class={styles.selectAction} onClick={handlePaste} disabled={!canPaste()}>
                   <IconPaste size={14} />
                   <span>粘贴</span>
                 </button>

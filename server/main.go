@@ -179,6 +179,8 @@ func main() {
 	r.GET("/api/server-files/download/*path", serverFilesDownloadHandler)
 	r.DELETE("/api/server-files/delete", serverFilesDeleteHandler)
 	r.POST("/api/server-files/open-local", serverFilesOpenLocalHandler)
+	r.POST("/api/server-files/batch-copy", serverFilesBatchCopyHandler)
+	r.POST("/api/server-files/batch-move", serverFilesBatchMoveHandler)
 
 	// Script management routes
 	r.GET("/api/scripts/selectable", selectableScriptsHandler)
