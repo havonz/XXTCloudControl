@@ -40,6 +40,7 @@ export {
   FaSolidXmark as IconXmark,
   FaSolidMoon as IconMoon,
   FaSolidSun as IconSun,
+  FaSolidClipboardCheck as IconClipboardCheck,
   FaRegularSquare as IconSquare,
   FaRegularSquareCheck as IconSquareCheck,
   FaRegularNewspaper as IconNewspaper,

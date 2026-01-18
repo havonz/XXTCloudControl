@@ -584,6 +584,12 @@ const App: Component = () => {
     }
   };
 
+  const handleSelectScript = (deviceUdid: string, scriptName: string) => {
+    if (wsService) {
+      wsService.selectScript([deviceUdid], scriptName);
+    }
+  };
+
   // Large file download handler (for files > 128KB)
   const handleDownloadLargeFile = async (deviceUdid: string, path: string, fileName: string) => {
     console.log(`📥 Large file download: ${path} from device ${deviceUdid}`);
@@ -778,6 +784,8 @@ const App: Component = () => {
         onDownloadLargeFile={handleDownloadLargeFile}
         onMoveFile={handleMoveFile}
         onReadFile={handleReadFile}
+        onSelectScript={handleSelectScript}
+        selectedScript={fileBrowserDevice() ? devices().find(d => d.udid === fileBrowserDevice()?.udid)?.script?.select : null}
         files={fileList()}
         isLoading={isLoadingFiles()}
         fileContent={fileContent()}

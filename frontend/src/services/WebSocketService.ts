@@ -641,6 +641,12 @@ export class WebSocketService {
       return;
     }
     
+    // 处理脚本选中消息
+    if (message.type === 'script/selected/put' && message.body?.name && message.udid) {
+      this.updateDeviceSelectedScript(message.udid, message.body.name);
+      return;
+    }
+    
     // 处理设备状态消息 - 实时更新设备数据
     if (message.type === 'app/state' && message.body?.system?.udid) {
       this.updateDevice(message.body);
@@ -744,6 +750,11 @@ export class WebSocketService {
         }
         this.devices[existingIndex].system.message = existingMsg;
       }
+
+      // 确保 script 对象完整同步
+      if (deviceData.script) {
+        this.devices[existingIndex].script = { ...deviceData.script };
+      }
       
       // 同步脚本状态到 system 中，以便界面正确显示
       if (deviceData.script) {
@@ -752,12 +763,20 @@ export class WebSocketService {
         }
         this.devices[existingIndex].system.running = deviceData.script.running || false;
         this.devices[existingIndex].system.paused = deviceData.script.paused || false;
+
+        // 如果选中脚本发生了变化，记录状态以便 UI 同步
+        this.devices[existingIndex].tempOldSelect = deviceData.script.select;
       }
       
       console.log(`设备 ${udid} 状态已更新`);
     } else {
       // 新设备，添加到列表
       const newDevice = { udid, ...deviceData };
+      
+      // 确保新设备的 script 对象也正确同步
+      if (deviceData.script) {
+        newDevice.script = { ...deviceData.script };
+      }
       
       // 同步脚本状态到 system 中
       if (deviceData.script) {
@@ -766,6 +785,7 @@ export class WebSocketService {
         }
         newDevice.system.running = deviceData.script.running || false;
         newDevice.system.paused = deviceData.script.paused || false;
+        (newDevice as any).tempOldSelect = deviceData.script.select;
       }
       
       this.devices.push(newDevice);
@@ -817,6 +837,28 @@ export class WebSocketService {
       this.notifyDeviceUpdate([...this.devices]);
     } else {
       console.log(`设备 ${udid} 不在列表中，无法更新脚本状态`);
+    }
+  }
+
+  private updateDeviceSelectedScript(udid: string, scriptName: string): void {
+    if (!udid) return;
+
+    const existingIndex = this.devices.findIndex(d => d.udid === udid);
+    if (existingIndex >= 0) {
+      const device = this.devices[existingIndex];
+      
+      if (!device.script) {
+        device.script = {};
+      }
+      device.script.select = scriptName;
+      
+      // 同步 tempOldSelect 以防心跳包触发多余消息逻辑
+      (device as any).tempOldSelect = scriptName;
+      
+      console.log(`设备 ${udid} 选中脚本已通过消息回复更新: ${scriptName}`);
+      
+      // 通知界面更新
+      this.notifyDeviceUpdate([...this.devices]);
     }
   }
 

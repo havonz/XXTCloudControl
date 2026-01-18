@@ -15,6 +15,8 @@ import {
   IconUpload,
   IconPen,
   IconICursor,
+  IconClipboardCheck,
+  IconCircleCheck,
 } from '../icons';
 import { renderFileIcon } from '../utils/fileIcons';
 import { createBackdropClose } from '../hooks/useBackdropClose';
@@ -45,6 +47,8 @@ export interface DeviceFileBrowserProps {
   onDownloadLargeFile?: (deviceUdid: string, path: string, fileName: string) => Promise<void>; // For files > 128KB  
   onMoveFile: (deviceUdid: string, fromPath: string, toPath: string) => void;
   onReadFile: (deviceUdid: string, path: string) => void;
+  onSelectScript: (deviceUdid: string, scriptName: string) => void;
+  selectedScript: string | null | undefined;
   files: FileItem[];
   isLoading: boolean;
   fileContent?: { path: string; content: string } | null;
@@ -210,6 +214,26 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const isTextFile = (name: string) => {
     const ext = name.split('.').pop()?.toLowerCase();
     return ['txt', 'lua', 'json', 'md', 'log', 'xml', 'html', 'css', 'js', 'ts', 'conf', 'ini', 'sh', 'py'].includes(ext || '');
+  };
+
+  // 判断是否可以作为脚本选中
+  const isSelectableScript = (file: FileItem) => {
+    const name = file.name.toLowerCase();
+    if (file.type === 'file') {
+      return name.endsWith('.lua') || name.endsWith('.xxt');
+    } else {
+      return name.endsWith('.xpp');
+    }
+  };
+
+  // 选中脚本
+  const handleSelectScript = (file: FileItem) => {
+    props.onSelectScript(props.deviceUdid, file.name);
+  };
+
+  // 判断是否为当前选中的脚本
+  const isSelectedScript = (file: FileItem) => {
+    return currentPath() === '/lua/scripts' && props.selectedScript === file.name;
   };
 
   // 重命名文件
@@ -587,8 +611,15 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                       </div>
                     </Show>
                     <div class={`${styles.tableCell} ${styles.typeColumn}`} onClick={() => handleFileClick(file)}>
-                      <span class={styles.fileIcon}>
-                        {renderFileIcon(file.name, { isDirectory: file.type === 'directory' })}
+                      <span class={styles.fileIconWrapper}>
+                        <span class={`${styles.fileIcon} ${isSelectedScript(file) ? styles.selectedFileIcon : ''}`}>
+                          {renderFileIcon(file.name, { isDirectory: file.type === 'directory' })}
+                        </span>
+                        <Show when={isSelectedScript(file)}>
+                          <span class={styles.selectionBadge}>
+                            <IconCircleCheck size={10} />
+                          </span>
+                        </Show>
                       </span>
                     </div>
                     <div class={`${styles.tableCell} ${styles.nameColumn}`} onClick={() => handleFileClick(file)}>
@@ -650,6 +681,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
           <Show when={contextMenuFile()?.type === 'file' && isTextFile(contextMenuFile()!.name)}>
             <button onClick={() => { handleEditFile(contextMenuFile()!); closeContextMenu(); }}>
               <IconICursor size={14} /> 编辑
+            </button>
+          </Show>
+          <Show when={contextMenuFile() && isSelectableScript(contextMenuFile()!)}>
+            <button onClick={() => { handleSelectScript(contextMenuFile()!); closeContextMenu(); }}>
+              <IconClipboardCheck size={14} /> 选中脚本
             </button>
           </Show>
           <button onClick={() => { handleRenameFile(contextMenuFile()!); closeContextMenu(); }}>
