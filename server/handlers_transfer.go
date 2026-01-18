@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -583,6 +584,7 @@ func sendFileUploadCommand(deviceSN string, uploadURL string, sourcePath string,
 
 // pushFileToDeviceHandler handles POST /api/transfer/push-to-device
 // High-level API that creates token and sends command in one call
+// Uses file/put for small files (<128KB) and transfer/fetch for large files
 func pushFileToDeviceHandler(c *gin.Context) {
 	var req struct {
 		DeviceSN      string `json:"deviceSN"`
@@ -620,7 +622,56 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		return
 	}
 
-	// Generate token
+	const LargeFileThreshold int64 = 128 * 1024 // 128KB
+	fileSize := info.Size()
+
+	// Small file: use file/put via WebSocket
+	if fileSize < LargeFileThreshold {
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
+			return
+		}
+
+		base64Data := base64.StdEncoding.EncodeToString(content)
+
+		// Send file/put command via WebSocket
+		mu.Lock()
+		conn, exists := deviceLinks[req.DeviceSN]
+		mu.Unlock()
+
+		if !exists {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "device not connected"})
+			return
+		}
+
+		putMsg := Message{
+			Type: "file/put",
+			Body: map[string]interface{}{
+				"path": req.TargetPath,
+				"data": base64Data,
+			},
+		}
+
+		if err := sendMessage(conn, putMsg); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send file to device"})
+			return
+		}
+
+		// Broadcast status to frontend
+		go broadcastDeviceMessage(req.DeviceSN, fmt.Sprintf("发送文件 %s", filepath.Base(req.Path)))
+
+		fmt.Printf("📤 Push file (small): %s → device %s:%s (%d bytes)\n", req.Path, req.DeviceSN, req.TargetPath, fileSize)
+
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"method":     "file/put",
+			"totalBytes": fileSize,
+		})
+		return
+	}
+
+	// Large file: use transfer/fetch (existing logic)
 	token := uuid.New().String()
 	expiresAt := time.Now().Add(5 * time.Minute)
 
@@ -656,6 +707,9 @@ func pushFileToDeviceHandler(c *gin.Context) {
 	}
 
 	// Send command to device
+	// Broadcast status to frontend
+	go broadcastDeviceMessage(req.DeviceSN, fmt.Sprintf("下载文件 %s", filepath.Base(req.Path)))
+
 	if err := sendFileDownloadCommand(req.DeviceSN, downloadURL, req.TargetPath, md5Hash, info.Size(), timeout); err != nil {
 		// Cleanup token on failure
 		transferTokensMu.Lock()
@@ -665,10 +719,11 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("📤 Push file initiated: %s → device %s:%s\n", req.Path, req.DeviceSN, req.TargetPath)
+	fmt.Printf("📤 Push file (large): %s → device %s:%s (%d bytes)\n", req.Path, req.DeviceSN, req.TargetPath, fileSize)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
+		"method":     "transfer/fetch",
 		"token":      token,
 		"totalBytes": info.Size(),
 		"md5":        md5Hash,

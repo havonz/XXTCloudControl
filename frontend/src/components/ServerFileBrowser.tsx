@@ -412,72 +412,85 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     setIsSendingToDevices(true);
     setShowSendToDeviceModal(false);
     
-    const SMALL_FILE_THRESHOLD = 128 * 1024; // 128KB
+    let sentCount = 0;
+    
+    // 递归获取目录中的所有文件
+    const getAllFilesInDir = async (dirPath: string, basePath: string): Promise<Array<{path: string, targetRelPath: string}>> => {
+      const result: Array<{path: string, targetRelPath: string}> = [];
+      
+      try {
+        const params = new URLSearchParams({
+          category: currentCategory(),
+          path: dirPath
+        });
+        const response = await authFetch(`${props.serverBaseUrl}/api/server-files/list?${params}`);
+        const data = await response.json();
+        
+        if (data.files) {
+          for (const file of data.files as ServerFileItem[]) {
+            const filePath = dirPath ? `${dirPath}/${file.name}` : file.name;
+            const relPath = basePath ? `${basePath}/${file.name}` : file.name;
+            
+            if (file.type === 'dir') {
+              // 递归处理子目录
+              const subFiles = await getAllFilesInDir(filePath, relPath);
+              result.push(...subFiles);
+            } else {
+              result.push({ path: filePath, targetRelPath: relPath });
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to list directory ${dirPath}:`, err);
+      }
+      
+      return result;
+    };
     
     try {
+      // 收集所有需要发送的文件
+      const filesToSend: Array<{path: string, targetRelPath: string}> = [];
+      
       for (const fileName of selectedFileNames) {
         const filePath = currentPath() ? `${currentPath()}/${fileName}` : fileName;
         const file = files().find(f => f.name === fileName);
         
         if (!file) continue;
         
-        // 跳过目录 - 暂时只支持文件
-        if (file.type === 'dir') continue;
-        
-        const fileSize = file.size || 0;
-        
+        if (file.type === 'dir') {
+          // 递归获取目录中的所有文件
+          const dirFiles = await getAllFilesInDir(filePath, fileName);
+          filesToSend.push(...dirFiles);
+        } else {
+          filesToSend.push({ path: filePath, targetRelPath: fileName });
+        }
+      }
+      
+      // 发送所有文件到设备
+      for (const fileInfo of filesToSend) {
         for (const device of devices) {
-          const targetPath = targetDevicePath() + fileName;
+          const targetPath = targetDevicePath() + fileInfo.targetRelPath;
           
-          if (fileSize < SMALL_FILE_THRESHOLD) {
-            // 小文件: 使用 file/put API
-            try {
-              // 读取文件内容
-              const readUrl = appendAuthQuery(
-                `${props.serverBaseUrl}/api/server-files/read/${currentCategory()}/${filePath}`
-              );
-              const readResponse = await authFetch(readUrl);
-              if (!readResponse.ok) throw new Error(`Failed to read file: ${readResponse.statusText}`);
-              
-              const arrayBuffer = await readResponse.arrayBuffer();
-              const base64Data = btoa(
-                new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-              );
-              
-              // 发送到设备
-              await authFetch(`${props.serverBaseUrl}/api/devices/${device.udid}/file-put`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  path: targetPath,
-                  data: base64Data
-                })
-              });
-            } catch (err) {
-              console.error(`Failed to send ${fileName} to ${device.udid}:`, err);
-            }
-          } else {
-            // 大文件: 使用 transfer/fetch API
-            try {
-              await authFetch(`${props.serverBaseUrl}/api/transfer/push-to-device`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  deviceSN: device.udid,
-                  category: currentCategory(),
-                  path: filePath,
-                  targetPath: targetPath,
-                  serverBaseUrl: props.serverBaseUrl
-                })
-              });
-            } catch (err) {
-              console.error(`Failed to push ${fileName} to ${device.udid}:`, err);
-            }
+          try {
+            await authFetch(`${props.serverBaseUrl}/api/transfer/push-to-device`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                deviceSN: device.udid,
+                category: currentCategory(),
+                path: fileInfo.path,
+                targetPath: targetPath,
+                serverBaseUrl: props.serverBaseUrl
+              })
+            });
+            sentCount++;
+          } catch (err) {
+            console.error(`Failed to push ${fileInfo.path} to ${device.udid}:`, err);
           }
         }
       }
       
-      await dialog.alert(`已发送 ${selectedFileNames.length} 个文件到 ${devices.length} 台设备`);
+      await dialog.alert(`已发送 ${sentCount} 个文件请求`);
     } catch (err) {
       await dialog.alert('发送失败: ' + (err as Error).message);
     } finally {
