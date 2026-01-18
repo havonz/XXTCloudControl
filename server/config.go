@@ -119,6 +119,16 @@ func initDataDirectories() error {
 		}
 	}
 
+	// Clean up temporary transfer files on startup
+	tempDir := filepath.Join(serverConfig.DataDir, "files", "_temp")
+	if err := os.RemoveAll(tempDir); err != nil {
+		fmt.Printf("⚠️ Failed to clean temp directory: %v\n", err)
+	} else {
+		// Recreate empty _temp directory
+		os.MkdirAll(tempDir, 0755)
+		fmt.Printf("🧹 Cleaned temp transfer directory: %s\n", tempDir)
+	}
+
 	fmt.Printf("✅ Data directories initialized: %s\n", serverConfig.DataDir)
 	fmt.Printf("   - Scripts: %s/scripts/\n", serverConfig.DataDir)
 	fmt.Printf("   - Files: %s/files/\n", serverConfig.DataDir)

@@ -53,6 +53,11 @@ func apiAuthMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		// Token-based transfer endpoints don't need auth (they use temporary tokens)
+		if strings.HasPrefix(path, "/api/transfer/download/") || strings.HasPrefix(path, "/api/transfer/upload/") {
+			c.Next()
+			return
+		}
 		if c.Request.Method == http.MethodOptions {
 			c.Next()
 			return

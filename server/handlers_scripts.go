@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // isSelectableScript checks if a file/directory is a selectable script
@@ -178,10 +180,14 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	}
 
 	type FileData struct {
-		Path string
-		Data string
+		Path       string // Target path on device
+		SourcePath string // Source path on server (for large file transfer)
+		Data       string // Base64 encoded data (empty for large files)
+		Size       int64  // File size in bytes
 	}
 	filesToSend := make([]FileData, 0)
+
+	const LargeFileThreshold int64 = 128 * 1024 // 128KB
 
 	if !isDir {
 		content, err := os.ReadFile(scriptPath)
@@ -189,24 +195,36 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script file"})
 			return
 		}
-		filesToSend = append(filesToSend, FileData{
-			Path: "lua/scripts/" + req.Name,
-			Data: base64.StdEncoding.EncodeToString(content),
-		})
+		fileSize := int64(len(content))
+		fd := FileData{
+			Path:       "lua/scripts/" + req.Name,
+			SourcePath: scriptPath,
+			Size:       fileSize,
+		}
+		if fileSize < LargeFileThreshold {
+			fd.Data = base64.StdEncoding.EncodeToString(content)
+		}
+		filesToSend = append(filesToSend, fd)
 	} else if isPiled {
 		err := filepath.Walk(scriptPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return err
 			}
 			relPath, _ := filepath.Rel(scriptPath, path)
-			content, err := os.ReadFile(path)
-			if err != nil {
-				return err
+			fileSize := info.Size()
+			fd := FileData{
+				Path:       strings.ReplaceAll(relPath, "\\", "/"),
+				SourcePath: path,
+				Size:       fileSize,
 			}
-			filesToSend = append(filesToSend, FileData{
-				Path: strings.ReplaceAll(relPath, "\\", "/"),
-				Data: base64.StdEncoding.EncodeToString(content),
-			})
+			if fileSize < LargeFileThreshold {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				fd.Data = base64.StdEncoding.EncodeToString(content)
+			}
+			filesToSend = append(filesToSend, fd)
 			return nil
 		})
 		if err != nil {
@@ -219,14 +237,20 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				return err
 			}
 			relPath, _ := filepath.Rel(scriptPath, path)
-			content, err := os.ReadFile(path)
-			if err != nil {
-				return err
+			fileSize := info.Size()
+			fd := FileData{
+				Path:       "lua/scripts/" + req.Name + "/" + strings.ReplaceAll(relPath, "\\", "/"),
+				SourcePath: path,
+				Size:       fileSize,
 			}
-			filesToSend = append(filesToSend, FileData{
-				Path: "lua/scripts/" + req.Name + "/" + strings.ReplaceAll(relPath, "\\", "/"),
-				Data: base64.StdEncoding.EncodeToString(content),
-			})
+			if fileSize < LargeFileThreshold {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				fd.Data = base64.StdEncoding.EncodeToString(content)
+			}
+			filesToSend = append(filesToSend, fd)
 			return nil
 		})
 		if err != nil {
@@ -242,43 +266,101 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		if conn, exists := deviceLinks[udid]; exists {
 			groupConfig := resolveDeviceScriptConfig(udid, req.Name, req.SelectedGroups)
 
+			// 广播状态: 正在发送文件
+			smallFiles := 0
+			largeFiles := 0
 			for _, f := range filesToSend {
-				finalData := f.Data
+				if f.Data == "" {
+					largeFiles++
+				} else {
+					smallFiles++
+				}
+			}
+			go broadcastDeviceMessage(udid, fmt.Sprintf("发送脚本 (%d小文件, %d大文件)", smallFiles, largeFiles))
 
-				// Check if this is main.json and we have group-specific config
-				// Use forward slashes for path comparison (iOS uses /)
-				normalizedPath := strings.ReplaceAll(f.Path, "\\", "/")
-				isMainJson := normalizedPath == "lua/scripts/main.json" ||
-					strings.HasSuffix(normalizedPath, "/main.json")
+			// Send small files via WebSocket, large files via HTTP
+			for _, f := range filesToSend {
+				// Handle main.json config merging for small files
+				if f.Data != "" {
+					finalData := f.Data
+					// Check if this is main.json and we have group-specific config
+					normalizedPath := strings.ReplaceAll(f.Path, "\\", "/")
+					isMainJson := normalizedPath == "lua/scripts/main.json" ||
+						strings.HasSuffix(normalizedPath, "/main.json")
 
-				if isMainJson && groupConfig != nil {
-					rawJson, decodeErr := base64.StdEncoding.DecodeString(f.Data)
-					if decodeErr == nil {
-						var mainObj map[string]interface{}
-						if json.Unmarshal(rawJson, &mainObj) == nil {
-							configObj, ok := mainObj["Config"].(map[string]interface{})
-							if !ok {
-								configObj = make(map[string]interface{})
+					if isMainJson && groupConfig != nil {
+						rawJson, decodeErr := base64.StdEncoding.DecodeString(f.Data)
+						if decodeErr == nil {
+							var mainObj map[string]interface{}
+							if json.Unmarshal(rawJson, &mainObj) == nil {
+								configObj, ok := mainObj["Config"].(map[string]interface{})
+								if !ok {
+									configObj = make(map[string]interface{})
+								}
+								for k, v := range groupConfig {
+									configObj[k] = v
+								}
+								mainObj["Config"] = configObj
+
+								newJson, _ := json.Marshal(mainObj)
+								finalData = base64.StdEncoding.EncodeToString(newJson)
 							}
-							for k, v := range groupConfig {
-								configObj[k] = v
-							}
-							mainObj["Config"] = configObj
-
-							newJson, _ := json.Marshal(mainObj)
-							finalData = base64.StdEncoding.EncodeToString(newJson)
 						}
 					}
-				}
 
-				putMsg := Message{
-					Type: "file/put",
-					Body: gin.H{
-						"path": f.Path,
-						"data": finalData,
-					},
+					putMsg := Message{
+						Type: "file/put",
+						Body: gin.H{
+							"path": f.Path,
+							"data": finalData,
+						},
+					}
+					go sendMessage(conn, putMsg)
+				} else {
+					// Large file: use HTTP transfer
+					go broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
+
+					// Calculate MD5
+					md5Hash, err := calculateFileMD5(f.SourcePath)
+					if err != nil {
+						fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
+						go broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
+						continue
+					}
+
+					// Create transfer token
+					token := uuid.New().String()
+					transferTokensMu.Lock()
+					transferTokens[token] = &TransferToken{
+						Type:       "download",
+						FilePath:   f.SourcePath,
+						TargetPath: f.Path,
+						DeviceSN:   udid,
+						ExpiresAt:  time.Now().Add(5 * time.Minute),
+						OneTime:    true,
+						TotalBytes: f.Size,
+						MD5:        md5Hash,
+					}
+					transferTokensMu.Unlock()
+
+					// Build download URL (device will download from server)
+					// Note: Device should know the server address, we use relative path
+					downloadURL := fmt.Sprintf("http://127.0.0.1:%d/api/transfer/download/%s",
+						serverConfig.Port, token)
+
+					// Send transfer/fetch command to device
+					fetchMsg := Message{
+						Type: "transfer/fetch",
+						Body: gin.H{
+							"url":     downloadURL,
+							"path":    f.Path,
+							"md5":     md5Hash,
+							"size":    f.Size,
+							"timeout": 300, // 5 minutes
+						},
+					}
+					go sendMessage(conn, fetchMsg)
 				}
-				go sendMessage(conn, putMsg)
 			}
 
 			runName := req.Name
@@ -290,16 +372,21 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				}
 			}
 
+			// 广播状态: 正在启动脚本
+			go broadcastDeviceMessage(udid, "启动脚本...")
+
 			runMsg := Message{
 				Type: "script/run",
 				Body: gin.H{
 					"name": runName,
 				},
 			}
-			go func(c *SafeConn, m Message) {
+			go func(c *SafeConn, m Message, deviceId string) {
 				time.Sleep(ScriptStartDelay)
 				sendMessage(c, m)
-			}(conn, runMsg)
+				// 脚本启动后更新状态并保持显示
+				broadcastDeviceMessage(deviceId, "脚本已启动")
+			}(conn, runMsg, udid)
 		}
 	}
 

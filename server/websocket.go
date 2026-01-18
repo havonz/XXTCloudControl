@@ -23,6 +23,51 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// getReadableCommandName returns a human-readable name for typical device commands
+func getReadableCommandName(cmdType string) string {
+	switch cmdType {
+	case "script/run":
+		return "运行脚本"
+	case "script/stop":
+		return "停止脚本"
+	case "device/reboot":
+		return "重启设备"
+	case "device/respring":
+		return "注销桌面"
+	case "device/home":
+		return "主屏幕"
+	case "device/lock":
+		return "锁定屏幕"
+	case "device/unlock":
+		return "解锁屏幕"
+	case "device/volume/up":
+		return "增加音量"
+	case "device/volume/down":
+		return "减少音量"
+	case "pasteboard/write":
+		return "写入剪贴板"
+	case "pasteboard/read":
+		return "读取剪贴板"
+	case "file/put":
+		return "上传文件"
+	case "file/delete":
+		return "删除文件"
+	case "file/get":
+		return "下载文件"
+	case "transfer/fetch":
+		return "拉取大文件"
+	case "app/install":
+		return "安装应用"
+	case "app/uninstall":
+		return "卸载应用"
+	case "app/open":
+		return "打开应用"
+	case "app/close":
+		return "关闭应用"
+	}
+	return ""
+}
+
 // isSignatureValid validates a timestamp-based signature
 func isSignatureValid(timestamp int64, sign string) bool {
 	if timestamp == 0 || sign == "" {
@@ -174,8 +219,13 @@ func handleMessage(conn *SafeConn, data Message) error {
 			Body: cmdBody.Body,
 		}
 
+		readableName := getReadableCommandName(cmdBody.Type)
+
 		for _, udid := range cmdBody.Devices {
 			if deviceConn, exists := deviceLinks[udid]; exists {
+				if readableName != "" {
+					go broadcastDeviceMessage(udid, readableName)
+				}
 				go func(dc *SafeConn) {
 					sendMessage(dc, cmdMsg)
 				}(deviceConn)
@@ -201,6 +251,10 @@ func handleMessage(conn *SafeConn, data Message) error {
 					cmdMsg := Message{
 						Type: cmd.Type,
 						Body: cmd.Body,
+					}
+					readableName := getReadableCommandName(cmd.Type)
+					if readableName != "" {
+						go broadcastDeviceMessage(udid, readableName)
 					}
 					go func(dc *SafeConn, msg Message) {
 						sendMessage(dc, msg)
@@ -316,6 +370,11 @@ func handleMessage(conn *SafeConn, data Message) error {
 				}(controllerConn, data)
 			}
 		}
+
+	case "register":
+		// Already handled by initial registration or specialized logic?
+		// Typically register is the first message.
+		return nil
 
 	default:
 		if len(controllers) > 0 {

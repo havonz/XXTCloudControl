@@ -204,6 +204,15 @@ func main() {
 	r.GET("/api/app-settings", getAppSettingsHandler)
 	r.POST("/api/app-settings", setAppSettingsHandler)
 
+	// File transfer routes (token-based, no auth required)
+	r.GET("/api/transfer/download/:token", transferDownloadHandler)
+	r.PUT("/api/transfer/upload/:token", transferUploadHandler)
+
+	// File transfer management routes (auth required)
+	r.POST("/api/transfer/create-token", createTransferTokenHandler)
+	r.POST("/api/transfer/push-to-device", pushFileToDeviceHandler)
+	r.POST("/api/transfer/pull-from-device", pullFileFromDeviceHandler)
+
 	// Static file serving (NoRoute for SPA support)
 	r.NoRoute(staticFileHandler)
 

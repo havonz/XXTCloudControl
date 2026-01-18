@@ -875,6 +875,25 @@
   transform: scale(1.02);
 }
 
+.deviceMessage {
+  font-size: 0.75rem;
+  color: var(--primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  max-width: 100%;
+}
+
+.deviceMessage:empty {
+  color: var(--text-muted);
+}
+
+.tableCell:has(.deviceMessage) {
+  justify-content: flex-start;
+}
+
 .checkmark {
   background: var(--success) !important;
   border: 2px solid var(--success) !important;

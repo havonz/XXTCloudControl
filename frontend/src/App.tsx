@@ -2,6 +2,7 @@ import { Component, createSignal, onCleanup, createMemo, createEffect, Show } fr
 import { WebSocketService, Device } from './services/WebSocketService';
 import { AuthService, LoginCredentials } from './services/AuthService';
 import { createGroupStore } from './services/GroupStore';
+import { FileTransferService } from './services/FileTransferService';
 import LoginForm from './components/LoginForm';
 import DeviceList from './components/DeviceList';
 import DeviceFileBrowser from './components/DeviceFileBrowser';
@@ -60,6 +61,7 @@ const App: Component = () => {
   let wsService: WebSocketService | null = null;
   const pendingFileGets = new Map<string, PendingFileGet[]>();
   const authService = AuthService.getInstance();
+  const fileTransferService = FileTransferService.getInstance();
 
   // Prevent browser default context menu and Cmd+A select all (except in input fields)
   const handleGlobalContextMenu = (e: MouseEvent) => {
@@ -148,7 +150,9 @@ const App: Component = () => {
           // 设置服务器信息用于设备绑定
           setServerHost(credentials.server.trim());
           setServerPort(credentials.port.trim());
-          setApiBaseUrl(authService.getHttpBaseUrl(credentials.server.trim(), credentials.port.trim()));
+          const httpBaseUrl = authService.getHttpBaseUrl(credentials.server.trim(), credentials.port.trim());
+          setApiBaseUrl(httpBaseUrl);
+          fileTransferService.setBaseUrl(httpBaseUrl);
           
           // 只在成功登录后保存服务器信息和密码hash
           // 保存服务器信息
@@ -240,9 +244,65 @@ const App: Component = () => {
           } else {
 
           }
-        } else if (message.type === 'screen/snapshot') {
-
-          // 屏幕截图响应会通过消息系统传递给DeviceList组件
+        } else if (message.type === 'transfer/progress') {
+          const { percent, currentBytes, totalBytes, targetPath } = message.body;
+          console.log(`⏳ Transfer progress (${targetPath}): ${percent.toFixed(1)}% (${currentBytes}/${totalBytes})`);
+          // Note: Device message update is now handled in WebSocketService.ts
+        } else if (message.type === 'device/message') {
+          // Note: Device message update is now handled in WebSocketService.ts
+        } else if (message.type === 'transfer/fetch/complete' || message.type === 'transfer/send/complete') {
+          // Note: Device message update is now handled in WebSocketService.ts
+          
+          if (message.error) {
+            console.error('❌ 大文件传输失败:', message.error);
+          } else {
+            console.log('✅ 大文件传输成功:', message.body);
+            
+            // 如果是从设备上传到服务器完成（设备主动发送 file/upload/complete）
+            // 服务器此时已经收到了文件，我们需要触发浏览器下载
+            if (message.type === 'transfer/send/complete' && message.body.savePath) {
+              const downloadPath = `/api/server-files/download/files/${message.body.savePath}`;
+              const fileName = message.body.sourcePath.split('/').pop() || 'downloaded_file';
+              const tempFilePath = message.body.savePath;
+              console.log(`💾 Triggering authenticated browser download: ${downloadPath}`);
+              
+              // Use authenticated fetch to download the file (wrapped in async IIFE)
+              (async () => {
+                try {
+                  const response = await fileTransferService.downloadFromServer(downloadPath);
+                  if (response.ok) {
+                    const blob = await response.blob();
+                    const blobUrl = URL.createObjectURL(blob);
+                    
+                    const link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.download = fileName;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    // Clean up blob URL
+                    URL.revokeObjectURL(blobUrl);
+                    console.log(`✅ File downloaded: ${fileName}`);
+                    
+                    // Clean up temp file on server
+                    await fileTransferService.deleteTempFile('files', tempFilePath);
+                    console.log(`🧹 Cleaned up temp file: ${tempFilePath}`);
+                  } else {
+                    console.error(`❌ Download failed: ${response.status} ${response.statusText}`);
+                  }
+                } catch (err) {
+                  console.error('❌ Download error:', err);
+                }
+              })();
+            }
+            
+            // 只在上传到设备完成时刷新文件列表（设备文件有变化）
+            // 下载时不需要刷新（设备文件没有变化）
+            if (message.type === 'transfer/fetch/complete' && fileBrowserOpen() && fileBrowserDevice()?.udid === message.udid) {
+              handleListFiles(message.udid, fileList()[0]?.path?.match(/(.*\/)/)?.[1] || '/');
+            }
+          }
         }
       });
       
@@ -504,6 +564,41 @@ const App: Component = () => {
     }
   };
 
+  // Large file upload handler (for files > 128KB)
+  const handleUploadLargeFile = async (deviceUdid: string, path: string, file: File) => {
+    console.log(`📤 Large file upload: ${file.name} (${file.size} bytes) to device ${deviceUdid}`);
+    
+    const result = await fileTransferService.uploadFileToDevice(
+      deviceUdid,
+      file,
+      path
+    );
+    
+    if (result.success) {
+      console.log(`✅ Large file upload initiated: token=${result.token}`);
+    } else {
+      console.error(`❌ Large file upload failed: ${result.error}`);
+    }
+  };
+
+  // Large file download handler (for files > 128KB)
+  const handleDownloadLargeFile = async (deviceUdid: string, path: string, fileName: string) => {
+    console.log(`📥 Large file download: ${path} from device ${deviceUdid}`);
+    
+    const result = await fileTransferService.downloadFileFromDevice(
+      deviceUdid,
+      path,
+      fileName
+    );
+    
+    if (result.success) {
+      console.log(`✅ Large file download initiated: token=${result.token}, savePath=${result.savePath}`);
+      // TODO: Listen for file/upload/complete WebSocket message, then download from server
+    } else {
+      console.error(`❌ Large file download failed: ${result.error}`);
+    }
+  };
+
   // Load groups and group settings when authenticated
   createEffect(() => {
     if (isAuthenticated()) {
@@ -655,7 +750,9 @@ const App: Component = () => {
         onDeleteFile={handleDeleteFile}
         onCreateDirectory={handleCreateDirectory}
         onUploadFile={handleUploadSingleFile}
+        onUploadLargeFile={handleUploadLargeFile}
         onDownloadFile={handleDownloadFile}
+        onDownloadLargeFile={handleDownloadLargeFile}
         onMoveFile={handleMoveFile}
         onReadFile={handleReadFile}
         files={fileList()}

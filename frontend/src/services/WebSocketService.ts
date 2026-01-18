@@ -643,8 +643,25 @@ export class WebSocketService {
     
     // 处理设备状态消息 - 实时更新设备数据
     if (message.type === 'app/state' && message.body?.system?.udid) {
-
       this.updateDevice(message.body);
+      return;
+    }
+
+    // 处理传输进度
+    if (message.type === 'transfer/progress' && message.body) {
+      this.handleTransferProgress(message.body);
+      return;
+    }
+
+    // 处理设备状态消息 (来自服务端的广播)
+    if (message.type === 'device/message' && message.body?.udid) {
+      this.updateDeviceMessage(message.body.udid, message.body.message);
+      return;
+    }
+
+    // 处理传输完成
+    if (message.type === 'transfer/fetch/complete' || message.type === 'transfer/send/complete') {
+      this.handleTransferComplete(message);
       return;
     }
 
@@ -711,11 +728,22 @@ export class WebSocketService {
 
     const existingIndex = this.devices.findIndex(d => d.udid === udid);
     if (existingIndex >= 0) {
+      // 提取现有的消息以便保留
+      const existingMsg = this.devices[existingIndex].system?.message;
+      
       // 更新现有设备的数据，保持原有的 udid 字段
       this.devices[existingIndex] = { 
         udid: this.devices[existingIndex].udid,
         ...deviceData 
       };
+
+      // 如果新数据中没有消息但旧数据中有，则尝试恢复（防止心跳覆盖）
+      if (existingMsg && (!deviceData.system || deviceData.system.message === undefined)) {
+        if (!this.devices[existingIndex].system) {
+          this.devices[existingIndex].system = {};
+        }
+        this.devices[existingIndex].system.message = existingMsg;
+      }
       
       // 同步脚本状态到 system 中，以便界面正确显示
       if (deviceData.script) {
@@ -789,6 +817,38 @@ export class WebSocketService {
       this.notifyDeviceUpdate([...this.devices]);
     } else {
       console.log(`设备 ${udid} 不在列表中，无法更新脚本状态`);
+    }
+  }
+
+  public updateDeviceMessage(udid: string, msg: string): void {
+    if (!udid) return;
+
+    const existingIndex = this.devices.findIndex(d => d.udid === udid);
+    if (existingIndex >= 0) {
+      if (!this.devices[existingIndex].system) {
+        this.devices[existingIndex].system = {};
+      }
+      this.devices[existingIndex].system.message = msg;
+      
+      this.notifyDeviceUpdate([...this.devices]);
+    }
+  }
+
+  private handleTransferProgress(body: any): void {
+    const { percent, deviceSN } = body;
+    if (deviceSN) {
+      this.updateDeviceMessage(deviceSN, `传输中 ${percent.toFixed(0)}%`);
+    }
+  }
+
+  private handleTransferComplete(message: any): void {
+    const deviceSN = message.body?.deviceSN || message.udid;
+    if (deviceSN) {
+      if (message.error) {
+        this.updateDeviceMessage(deviceSN, '传输失败');
+      } else {
+        this.updateDeviceMessage(deviceSN, '传输完成');
+      }
     }
   }
 

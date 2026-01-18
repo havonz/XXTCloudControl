@@ -47,7 +47,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [forceUpdate, setForceUpdate] = createSignal(0);
   
   // Column visibility state
-  const [visibleColumns, setVisibleColumns] = createSignal<string[]>(['name', 'udid', 'ip', 'version', 'battery', 'running', 'log']);
+  const [visibleColumns, setVisibleColumns] = createSignal<string[]>(['name', 'udid', 'ip', 'version', 'battery', 'running', 'message', 'log']);
   const [showColumnSettings, setShowColumnSettings] = createSignal(false);
 
   // Column widths state
@@ -59,6 +59,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     version: 80,
     battery: 80,
     running: 100,
+    message: 200,
     log: 400
   };
 
@@ -933,16 +934,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 <button 
                   class={styles.menuItem}
                   onClick={() => {
-                    setShowUploadModal(true);
-                    setShowMoreActions(false);
-                  }}
-                  disabled={props.selectedDevices().length === 0}
-                >
-                  上传文件
-                </button>
-                <button 
-                  class={styles.menuItem}
-                  onClick={() => {
                     handleOpenRealTimeControl();
                     setShowMoreActions(false);
                   }}
@@ -1011,6 +1002,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                       { id: 'version', label: '系统' },
                       { id: 'battery', label: '电量' },
                       { id: 'running', label: '脚本' },
+                      { id: 'message', label: '消息' },
                       { id: 'log', label: '最后日志' },
                     ]}>
                       {(col) => (
@@ -1187,6 +1179,20 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   </div>
                 </Show>
                 
+                <Show when={visibleColumns().includes('message')}>
+                  <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('message')}>
+                    消息
+                    <span class={styles.sortIndicator}>
+                      {sortField() === 'message' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                    </span>
+                    <div 
+                      class={styles.resizeHandle} 
+                      onMouseDown={(e) => handleResizeStart(e, 'message')}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                </Show>
+                
                 <Show when={visibleColumns().includes('log')}>
                   <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('log')}>
                     最后日志
@@ -1320,6 +1326,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                             }}
                           >
                             {info.running ? (info.paused ? '暂停中' : '运行中') : '已停止'}
+                          </div>
+                        </div>
+                      </Show>
+                      
+                      <Show when={visibleColumns().includes('message')}>
+                        <div class={styles.tableCell}>
+                          <div 
+                            class={styles.deviceMessage}
+                            title={device.system?.message || '无消息'}
+                          >
+                            {device.system?.message || ''}
                           </div>
                         </div>
                       </Show>

@@ -25,7 +25,11 @@ export interface FileItem {
   name: string;
   type: 'file' | 'directory';
   path?: string;
+  size?: number;
 }
+
+// Files larger than 128KB should use HTTP transfer instead of WebSocket
+const LARGE_FILE_THRESHOLD = 128 * 1024;
 
 export interface DeviceFileBrowserProps {
   deviceUdid: string;
@@ -36,7 +40,9 @@ export interface DeviceFileBrowserProps {
   onDeleteFile: (deviceUdid: string, path: string) => void;
   onCreateDirectory: (deviceUdid: string, path: string) => void;
   onUploadFile: (deviceUdid: string, path: string, file: File) => void;
+  onUploadLargeFile?: (deviceUdid: string, path: string, file: File) => Promise<void>; // For files > 128KB
   onDownloadFile: (deviceUdid: string, path: string) => void;
+  onDownloadLargeFile?: (deviceUdid: string, path: string, fileName: string) => Promise<void>; // For files > 128KB  
   onMoveFile: (deviceUdid: string, fromPath: string, toPath: string) => void;
   onReadFile: (deviceUdid: string, path: string) => void;
   files: FileItem[];
@@ -152,11 +158,19 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     }, 500);
   };
 
-  const handleDownloadFile = (file: FileItem) => {
+  const handleDownloadFile = async (file: FileItem) => {
     const fullPath = currentPath() === '/' 
       ? `/${file.name}` 
       : `${currentPath()}/${file.name}`;
-    props.onDownloadFile(props.deviceUdid, fullPath);
+    
+    // Use large file transfer for files > 128KB
+    const fileSize = file.size || 0;
+    if (fileSize > LARGE_FILE_THRESHOLD && props.onDownloadLargeFile) {
+      console.log(`📥 Large file detected (${fileSize} bytes), using HTTP transfer`);
+      await props.onDownloadLargeFile(props.deviceUdid, fullPath, file.name);
+    } else {
+      props.onDownloadFile(props.deviceUdid, fullPath);
+    }
   };
 
   // 判断是否为文本文件
@@ -298,18 +312,26 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
 
     if (scannedFiles.length > 0) {
       setIsUploading(true);
+      
       for (const { file, relativePath } of scannedFiles) {
         const fullPath = currentPath() === '/' 
           ? `/${relativePath}` 
           : `${currentPath()}/${relativePath}`;
-        props.onUploadFile(props.deviceUdid, fullPath, file);
+        
+        // Use large file transfer for files > 128KB
+        if (file.size > LARGE_FILE_THRESHOLD && props.onUploadLargeFile) {
+          console.log(`📤 Large file detected (${file.size} bytes), using HTTP transfer`);
+          await props.onUploadLargeFile(props.deviceUdid, fullPath, file);
+        } else {
+          props.onUploadFile(props.deviceUdid, fullPath, file);
+        }
       }
       
       // 刷新当前目录
       setTimeout(() => {
         setIsUploading(false);
         props.onListFiles(props.deviceUdid, currentPath());
-      }, 1500);
+      }, 2000);
     }
   };
 
