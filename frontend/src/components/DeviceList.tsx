@@ -315,12 +315,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   onMount(() => {
     document.addEventListener('click', handleClickOutside);
-    document.addEventListener('contextmenu', handleClickOutside);
   });
   
   onCleanup(() => {
     document.removeEventListener('click', handleClickOutside);
-    document.removeEventListener('contextmenu', handleClickOutside);
     if (longPressTimer) {
       clearTimeout(longPressTimer);
     }

@@ -820,14 +820,7 @@
   align-items: center;
   justify-content: center;
   min-height: 28px;
-  cursor: pointer;
   border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.tableCell:hover {
-  background: var(--hover-bg);
-  transform: scale(1.02);
 }
 
 .tableCell:last-child {
@@ -838,29 +831,15 @@
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--text);
-  cursor: pointer;
   padding: 0.1rem 0.3rem;
   border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.deviceName:hover {
-  background: var(--hover-bg);
-  transform: scale(1.02);
 }
 
 .deviceModel {
   font-size: 1rem;
   color: var(--text);
-  cursor: pointer;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.deviceModel:hover {
-  background: var(--hover-bg);
-  transform: scale(1.02);
 }
 
 .deviceVersion {
@@ -868,32 +847,16 @@
   color: var(--text);
   font-weight: 500;
   text-align: center;
-  cursor: pointer;
   padding: 0.1rem 0.3rem;
   border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.deviceVersion:hover {
-  background: var(--hover-bg);
-  color: var(--text);
-  transform: scale(1.02);
 }
 
 .deviceIp {
   font-size: 0.75rem;
   color: var(--text-secondary);
   font-family: monospace;
-  cursor: pointer;
   padding: 0.1rem 0.3rem;
   border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.deviceIp:hover {
-  background: var(--hover-bg);
-  color: var(--text);
-  transform: scale(1.02);
 }
 
 .batteryIndicator {
@@ -902,13 +865,6 @@
   padding: 0.1rem 0.3rem;
   border-radius: 4px;
   text-align: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.batteryIndicator:hover {
-  background: var(--hover-bg);
-  transform: scale(1.02);
 }
 
 .deviceUdid {
@@ -918,16 +874,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
   padding: 0.1rem 0.3rem;
   border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.deviceUdid:hover {
-  background: var(--hover-bg);
-  color: var(--text);
-  transform: scale(1.02);
 }
 
 .lastLog {
@@ -936,21 +884,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: help;
   padding: 0.1rem 0;
 }
 
 /* Make the last log column left-aligned */
 .tableCell:has(.lastLog) {
   justify-content: flex-start;
-}
-
-.lastLog:hover {
-  color: var(--text);
-  background: var(--hover-bg);
-  border-radius: 4px;
-  padding: 0.25rem 0.5rem;
-  transform: scale(1.02);
 }
 
 .deviceMessage {
@@ -1058,13 +997,6 @@
   font-size: 0.7rem;
   font-weight: 500;
   text-align: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.runningStatus:hover {
-  transform: scale(1.05);
-  box-shadow: var(--shadow);
 }
 
 .runningStatus.running {
