@@ -34,6 +34,7 @@ import styles from './ServerFileBrowser.module.css';
 import { authFetch, appendAuthQuery } from '../services/httpAuth';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
 import type { Device } from '../services/WebSocketService';
+import ContextMenu, { ContextMenuButton, ContextMenuDivider } from './ContextMenu';
 
 export interface ServerFileItem {
   name: string;
@@ -957,47 +958,42 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       </Show>
 
       {/* 右键菜单 */}
-      <Show when={contextMenuFile()}>
-        <div class={styles.contextBackdrop} onClick={closeContextMenu}>
-          <div 
-            class={styles.contextMenu}
-            style={{ 
-              left: `${contextMenuPosition().x}px`, 
-              top: `${contextMenuPosition().y}px` 
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div class={styles.contextMenuLabel}>{contextMenuFile()?.name}</div>
-            <Show when={contextMenuFile()?.type === 'file' && isTextFile(contextMenuFile()!.name)}>
-              <button onClick={() => { handleEditFile(contextMenuFile()!); closeContextMenu(); }}>
-                <IconICursor size={14} /> 编辑
-              </button>
-            </Show>
-            <Show when={contextMenuFile()?.type === 'file' && isImageFile(contextMenuFile()!.name)}>
-              <button onClick={() => { handlePreviewImage(contextMenuFile()!); closeContextMenu(); }}>
-                <IconEye size={14} /> 预览
-              </button>
-            </Show>
-            <button onClick={() => { handleRename(contextMenuFile()!); closeContextMenu(); }}>
-              <IconPen size={14} /> 重命名
-            </button>
-            <Show when={contextMenuFile()?.type === 'file'}>
-              <button onClick={() => { handleDownload(contextMenuFile()!); closeContextMenu(); }}>
-                <IconDownload size={14} /> 下载
-              </button>
-            </Show>
-            <Show when={props.selectedDevices && props.selectedDevices.length > 0}>
-              <button onClick={() => { handleSendSingleItemToDevices(contextMenuFile()!); closeContextMenu(); }}>
-                <IconPaperPlane size={14} /> 发送到设备
-              </button>
-            </Show>
-            <div class={styles.contextMenuDivider}></div>
-            <button onClick={() => { handleDelete(contextMenuFile()!); closeContextMenu(); }}>
-              <IconTrash size={14} /> 删除
-            </button>
-          </div>
-        </div>
-      </Show>
+      <ContextMenu
+        isOpen={!!contextMenuFile()}
+        position={contextMenuPosition()}
+        onClose={closeContextMenu}
+        label={contextMenuFile()?.name}
+      >
+        <>
+          <Show when={contextMenuFile()?.type === 'file' && isTextFile(contextMenuFile()!.name)}>
+            <ContextMenuButton icon={<IconICursor size={14} />} onClick={() => { handleEditFile(contextMenuFile()!); closeContextMenu(); }}>
+              编辑
+            </ContextMenuButton>
+          </Show>
+          <Show when={contextMenuFile()?.type === 'file' && isImageFile(contextMenuFile()!.name)}>
+            <ContextMenuButton icon={<IconEye size={14} />} onClick={() => { handlePreviewImage(contextMenuFile()!); closeContextMenu(); }}>
+              预览
+            </ContextMenuButton>
+          </Show>
+          <ContextMenuButton icon={<IconPen size={14} />} onClick={() => { handleRename(contextMenuFile()!); closeContextMenu(); }}>
+            重命名
+          </ContextMenuButton>
+          <Show when={contextMenuFile()?.type === 'file'}>
+            <ContextMenuButton icon={<IconDownload size={14} />} onClick={() => { handleDownload(contextMenuFile()!); closeContextMenu(); }}>
+              下载
+            </ContextMenuButton>
+          </Show>
+          <Show when={props.selectedDevices && props.selectedDevices.length > 0}>
+            <ContextMenuButton icon={<IconPaperPlane size={14} />} onClick={() => { handleSendSingleItemToDevices(contextMenuFile()!); closeContextMenu(); }}>
+              发送到设备
+            </ContextMenuButton>
+          </Show>
+          <ContextMenuDivider />
+          <ContextMenuButton icon={<IconTrash size={14} />} danger onClick={() => { handleDelete(contextMenuFile()!); closeContextMenu(); }}>
+            删除
+          </ContextMenuButton>
+        </>
+      </ContextMenu>
 
       {/* Send to Device Modal */}
       <Show when={showSendToDeviceModal()}>

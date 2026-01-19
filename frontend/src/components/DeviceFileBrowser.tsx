@@ -30,6 +30,7 @@ import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './DeviceFileBrowser.module.css';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
 import SendToCloudModal from './SendToCloudModal';
+import ContextMenu, { ContextMenuButton, ContextMenuDivider } from './ContextMenu';
 
 export interface FileItem {
   name: string;
@@ -1026,47 +1027,42 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     </Show>
 
     {/* 右键菜单 */}
-    <Show when={contextMenuFile()}>
-      <div class={styles.contextBackdrop} onClick={closeContextMenu}>
-        <div 
-          class={styles.contextMenu}
-          style={{ 
-            left: `${contextMenuPosition().x}px`, 
-            top: `${contextMenuPosition().y}px` 
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div class={styles.contextMenuLabel}>{contextMenuFile()?.name}</div>
-          <Show when={contextMenuFile()?.type === 'file' && isTextFile(contextMenuFile()!.name)}>
-            <button onClick={() => { handleEditFile(contextMenuFile()!); closeContextMenu(); }}>
-              <IconICursor size={14} /> 编辑
-            </button>
-          </Show>
-          <Show when={contextMenuFile() && isSelectableScript(contextMenuFile()!)}>
-            <button onClick={() => { handleSelectScript(contextMenuFile()!); closeContextMenu(); }}>
-              <IconClipboardCheck size={14} /> 选中脚本
-            </button>
-          </Show>
-          <button onClick={() => { handleRenameFile(contextMenuFile()!); closeContextMenu(); }}>
-            <IconPen size={14} /> 重命名
-          </button>
-          <Show when={contextMenuFile()?.type === 'file'}>
-            <button onClick={() => { handleDownloadFile(contextMenuFile()!); closeContextMenu(); }}>
-              <IconDownload size={14} /> 下载
-            </button>
-          </Show>
-          <Show when={props.onPullFileFromDevice && (contextMenuFile()?.type === 'file' || props.onListFilesAsync)}>
-            <button onClick={() => { handleSendSingleFileToCloud(contextMenuFile()!); closeContextMenu(); }}>
-              <IconUpload size={14} /> 发送到云控
-            </button>
-          </Show>
-          <div class={styles.contextMenuDivider}></div>
-          <button onClick={() => { handleDeleteFile(contextMenuFile()!); closeContextMenu(); }}>
-            <IconTrash size={14} /> 删除
-          </button>
-        </div>
-      </div>
-    </Show>
+    <ContextMenu
+      isOpen={!!contextMenuFile()}
+      position={contextMenuPosition()}
+      onClose={closeContextMenu}
+      label={contextMenuFile()?.name}
+    >
+      <>
+        <Show when={contextMenuFile()?.type === 'file' && isTextFile(contextMenuFile()!.name)}>
+          <ContextMenuButton icon={<IconICursor size={14} />} onClick={() => { handleEditFile(contextMenuFile()!); closeContextMenu(); }}>
+            编辑
+          </ContextMenuButton>
+        </Show>
+        <Show when={contextMenuFile() && isSelectableScript(contextMenuFile()!)}>
+          <ContextMenuButton icon={<IconClipboardCheck size={14} />} onClick={() => { handleSelectScript(contextMenuFile()!); closeContextMenu(); }}>
+            选中脚本
+          </ContextMenuButton>
+        </Show>
+        <ContextMenuButton icon={<IconPen size={14} />} onClick={() => { handleRenameFile(contextMenuFile()!); closeContextMenu(); }}>
+          重命名
+        </ContextMenuButton>
+        <Show when={contextMenuFile()?.type === 'file'}>
+          <ContextMenuButton icon={<IconDownload size={14} />} onClick={() => { handleDownloadFile(contextMenuFile()!); closeContextMenu(); }}>
+            下载
+          </ContextMenuButton>
+        </Show>
+        <Show when={props.onPullFileFromDevice && (contextMenuFile()?.type === 'file' || props.onListFilesAsync)}>
+          <ContextMenuButton icon={<IconUpload size={14} />} onClick={() => { handleSendSingleFileToCloud(contextMenuFile()!); closeContextMenu(); }}>
+            发送到云控
+          </ContextMenuButton>
+        </Show>
+        <ContextMenuDivider />
+        <ContextMenuButton icon={<IconTrash size={14} />} danger onClick={() => { handleDeleteFile(contextMenuFile()!); closeContextMenu(); }}>
+          删除
+        </ContextMenuButton>
+      </>
+    </ContextMenu>
 
     {/* 发送到云控模态框 */}
     <SendToCloudModal 

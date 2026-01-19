@@ -17,6 +17,7 @@ import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
 import ScriptConfigModal from './ScriptConfigModal';
 import { authFetch } from '../services/httpAuth';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
+import ContextMenu, { ContextMenuButton, ContextMenuDivider, ContextMenuSection } from './ContextMenu';
 
 
 interface DeviceListProps {
@@ -314,10 +315,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   onMount(() => {
     document.addEventListener('click', handleClickOutside);
+    document.addEventListener('contextmenu', handleClickOutside);
   });
   
   onCleanup(() => {
     document.removeEventListener('click', handleClickOutside);
+    document.removeEventListener('contextmenu', handleClickOutside);
     if (longPressTimer) {
       clearTimeout(longPressTimer);
     }
@@ -1741,47 +1744,41 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         />
         
         {/* Device Context Menu */}
-        <Show when={contextMenuDevice()}>
-          <div class={styles.contextBackdrop} onClick={closeContextMenu}>
-            <div 
-              class={styles.contextMenu}
-              style={{ 
-                left: `${contextMenuPosition().x}px`, 
-                top: `${contextMenuPosition().y}px` 
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* 批量操作区域 - 仅当选中多个设备时显示 */}
-              <Show when={props.selectedDevices().length > 1}>
-                <div class={styles.contextMenuSection}>
-                  <div class={styles.contextMenuLabel}>选中的 {props.selectedDevices().length} 台设备</div>
-                  <button onClick={handleContextMenuCopySelectedUdids}>拷贝选中设备 UDID</button>
-                  <button onClick={handleContextMenuCopySelectedNames}>拷贝选中设备名称</button>
-                  <button onClick={handleContextMenuCopySelectedIps}>拷贝选中设备 IP</button>
-                  <button onClick={handleContextMenuCopySelectedLastLogs}>拷贝选中设备最后日志</button>
-                  <button onClick={handleContextMenuCopySelectedScriptSelects}>拷贝选中设备的脚本文件名</button>
-                  <Show when={props.onOpenAddToGroupModal}>
-                    <button onClick={() => {
-                      closeContextMenu();
-                      props.onOpenAddToGroupModal?.();
-                    }}>添加到分组 ({props.selectedDevices().length})</button>
-                  </Show>
-                </div>
-                <div class={styles.contextMenuDivider}></div>
-              </Show>
-              
-              {/* 当前设备名称 */}
-              <div class={styles.contextMenuLabel}>{contextMenuDevice()?.system?.name || '未知设备'}</div>
-              
-              <button onClick={handleContextMenuCopyUdid}>拷贝 UDID</button>
-              <button onClick={handleContextMenuCopyName}>拷贝设备名称</button>
-              <button onClick={handleContextMenuCopyIp}>拷贝 IP 地址</button>
-              <button onClick={handleContextMenuCopyLastLog}>拷贝最后日志</button>
-              <button onClick={handleContextMenuCopyScriptSelect}>拷贝脚本文件名</button>
-              <button onClick={handleContextMenuOpenFileBrowser}>浏览设备文件</button>
-            </div>
-          </div>
-        </Show>
+        <ContextMenu
+          isOpen={!!contextMenuDevice()}
+          position={contextMenuPosition()}
+          onClose={closeContextMenu}
+        >
+          <>
+            {/* 批量操作区域 - 仅当选中多个设备时显示 */}
+            <Show when={props.selectedDevices().length > 1}>
+              <ContextMenuSection label={`选中的 ${props.selectedDevices().length} 台设备`}>
+                <ContextMenuButton onClick={handleContextMenuCopySelectedUdids}>拷贝选中设备 UDID</ContextMenuButton>
+                <ContextMenuButton onClick={handleContextMenuCopySelectedNames}>拷贝选中设备名称</ContextMenuButton>
+                <ContextMenuButton onClick={handleContextMenuCopySelectedIps}>拷贝选中设备 IP</ContextMenuButton>
+                <ContextMenuButton onClick={handleContextMenuCopySelectedLastLogs}>拷贝选中设备最后日志</ContextMenuButton>
+                <ContextMenuButton onClick={handleContextMenuCopySelectedScriptSelects}>拷贝选中设备的脚本文件名</ContextMenuButton>
+                <Show when={props.onOpenAddToGroupModal}>
+                  <ContextMenuButton onClick={() => {
+                    closeContextMenu();
+                    props.onOpenAddToGroupModal?.();
+                  }}>添加到分组 ({props.selectedDevices().length})</ContextMenuButton>
+                </Show>
+              </ContextMenuSection>
+              <ContextMenuDivider />
+            </Show>
+            
+            {/* 当前设备操作 */}
+            <ContextMenuSection label={contextMenuDevice()?.system?.name || '未知设备'}>
+              <ContextMenuButton onClick={handleContextMenuCopyUdid}>拷贝 UDID</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuCopyName}>拷贝设备名称</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuCopyIp}>拷贝 IP 地址</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuCopyLastLog}>拷贝最后日志</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuCopyScriptSelect}>拷贝脚本文件名</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuOpenFileBrowser}>浏览设备文件</ContextMenuButton>
+            </ContextMenuSection>
+          </>
+        </ContextMenu>
 
       {/* Script Configuration Modal */}
       <ScriptConfigModal

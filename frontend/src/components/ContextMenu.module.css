@@ -1,0 +1,137 @@
+/* Backdrop - covers entire screen */
+.contextBackdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10000;
+}
+
+.mobileBackdrop {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+/* Context Menu - Desktop */
+.contextMenu {
+  position: fixed;
+  z-index: 10001;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  min-width: 160px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Context Menu - Mobile (Bottom Sheet) */
+.mobileMenu {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: auto !important;
+  width: 100%;
+  max-width: none;
+  padding: 8px 8px 32px 8px;
+  padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+  animation: contextSlideUp 0.3s ease;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
+
+@keyframes contextSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* Menu Button */
+.menuButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.menuButton:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.menuButton:active:not(:disabled) {
+  transform: scale(0.98);
+  transition: all 0.1s ease;
+}
+
+.menuButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Danger Button */
+.dangerButton {
+  color: var(--danger);
+}
+
+.dangerButton:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+
+/* Menu Label */
+.contextMenuLabel {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Menu Divider */
+.contextMenuDivider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 8px;
+}
+
+/* Menu Section */
+.contextMenuSection {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Mobile-specific adjustments */
+@media (max-width: 768px) {
+  .menuButton {
+    padding: 10px 12px;
+    font-size: 14px;
+    border-radius: 10px;
+  }
+
+  .contextMenuLabel {
+    text-align: center;
+    max-width: none;
+    display: block;
+    width: 100%;
+  }
+}

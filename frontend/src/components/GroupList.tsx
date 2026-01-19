@@ -7,6 +7,7 @@ import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
 import { useGroupReorder } from '../hooks/useGroupReorder';
 import ScriptConfigModal from './ScriptConfigModal';
 import { authFetch } from '../services/httpAuth';
+import ContextMenu, { ContextMenuButton } from './ContextMenu';
 
 interface GroupListProps {
   groupStore: GroupStoreState;
@@ -294,22 +295,19 @@ const GroupList: Component<GroupListProps> = (props) => {
 
 
       {/* Context Menu */}
-      <Show when={contextMenu()}>
-        <div 
-          class={styles.contextBackdrop}
-          onClick={closeContextMenu}
-        />
-          <div 
-          class={styles.contextMenu}
-          style={{ left: `${contextMenu()?.x}px`, top: `${contextMenu()?.y}px` }}
-        >
-          <button onClick={handleRenameGroup}>重命名分组</button>
-          <button onClick={handleBindScript}>绑定脚本</button>
-          <button onClick={handleOpenGroupConfig}>分组配置</button>
-          <button onClick={handleRemoveSelectedFromGroup}>从分组移除选中设备</button>
-          <button onClick={handleDeleteGroup} class={styles.dangerButton}>删除分组</button>
-        </div>
-      </Show>
+      <ContextMenu
+        isOpen={!!contextMenu()}
+        position={{ x: contextMenu()?.x || 0, y: contextMenu()?.y || 0 }}
+        onClose={closeContextMenu}
+      >
+        <>
+          <ContextMenuButton onClick={handleRenameGroup}>重命名分组</ContextMenuButton>
+          <ContextMenuButton onClick={handleBindScript}>绑定脚本</ContextMenuButton>
+          <ContextMenuButton onClick={handleOpenGroupConfig}>分组配置</ContextMenuButton>
+          <ContextMenuButton onClick={handleRemoveSelectedFromGroup}>从分组移除选中设备</ContextMenuButton>
+          <ContextMenuButton onClick={handleDeleteGroup} danger>删除分组</ContextMenuButton>
+        </>
+      </ContextMenu>
 
       {/* Script Configuration Modal */}
       <ScriptConfigModal

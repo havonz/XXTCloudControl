@@ -1963,12 +1963,16 @@
     flex: none !important;
   }
   
-  .managementToolbar .toolbarButton,
-  .managementToolbar .columnSettingsContainer {
+  .managementToolbar .toolbarButton {
     width: 100% !important;
     min-width: 0 !important;
     margin: 0 !important;
     flex: none !important;
+  }
+  
+  /* Hide column settings on mobile since device list uses card view */
+  .managementToolbar .columnSettingsContainer {
+    display: none !important;
   }
 
   /* Right side of management toolbar (device count) should span full width or move below */
