@@ -1146,18 +1146,22 @@
     flex-wrap: wrap;
   }
 
+  /* 移动端底部按钮 - 5个一行 */
+  .deviceButton {
+    padding: 8px 6px;
+    font-size: 11px;
+    /* 5个按钮一行: (100% - 4个gap*6px) / 5 */
+    flex: 1 1 calc((100% - 24px) / 5);
+    min-width: 0;
+    max-width: calc((100% - 24px) / 5);
+    justify-content: center;
+  }
+
   /* 移动端主屏幕按钮单独一行 */
   .homeButton {
     flex: 0 0 100%;
+    max-width: 100%;
     order: 10;
-  }
-
-  .deviceButton {
-    padding: 8px 10px;
-    font-size: 11px;
-    flex: 1;
-    min-width: 70px;
-    justify-content: center;
   }
 
   .closeButton {
