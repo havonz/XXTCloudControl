@@ -1,5 +1,6 @@
-if sys.xtversion():compare_version("1.3.8") < 0 then
-	error('该例子仅支持 XXT 1.3.8 或更高版本')
+if sys.xtversion():compare_version("1.3.8-20260119000000") < 0 then
+	error('该例子仅支持 XXT 1.3.8-20260119000000 或更高版本')
+	return
 end
 
 dialog.engine = 'xui'

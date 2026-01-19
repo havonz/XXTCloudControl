@@ -155,8 +155,8 @@ func downloadBindScriptHandler(c *gin.Context) {
 
 	luaScript += `
 
-if sys.xtversion():compare_version("1.3.8") < 0 then
-	sys.alert('该脚本仅支持 XXT 1.3.8 或更高版本')
+if sys.xtversion():compare_version("1.3.8-20260119000000") < 0 then
+	sys.alert('该脚本仅支持 XXT 1.3.8-20260119000000 或更高版本')
 	return
 end
 
