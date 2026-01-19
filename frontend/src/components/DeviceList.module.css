@@ -224,6 +224,9 @@
 }
 
 .toolbarActionButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -261,6 +264,23 @@
   width: 10em; /* 固定10字宽度 */
 }
 
+/* Script control group: 配置、启动、停止 buttons */
+.scriptControlGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scriptControlButton {
+  /* Uses toolbarActionButton styles, no additional desktop styling needed */
+  flex-shrink: 0;
+}
+
+.hideOnMobile {
+  /* Visible on desktop, hidden on mobile via media query */
+  display: inline;
+}
+
 .moreActionsContainer {
   position: relative;
 }
@@ -282,6 +302,9 @@
 }
 
 .menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   border: none;
   border-radius: 6px;
@@ -428,6 +451,9 @@
 }
 
 .toolbarButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 12px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1869,6 +1895,27 @@
     margin-bottom: 4px;
   }
   
+  /* Script control group: icon-only compact buttons on mobile */
+  .scriptControlGroup {
+    display: flex;
+    gap: 2px;
+    flex: 1 1 calc(50% - 2px) !important;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+  
+  .scriptControlButton {
+    flex: 1 !important;
+    padding: 8px !important;
+    min-width: 0 !important;
+    width: auto !important;
+    justify-content: center !important;
+  }
+  
+  .hideOnMobile {
+    display: none !important;
+  }
+  
   .actionToolbarRow {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1887,12 +1934,18 @@
 
   .toolbarActionButton,
   .scriptSelectGroup,
-  .scriptActionButtons,
   .moreActionsContainer {
     width: 100% !important;
     min-width: 0 !important;
     margin: 0 !important;
     flex: none !important;
+  }
+  
+  /* Override for script control buttons inside group - must come after general toolbarActionButton */
+  .scriptControlGroup .scriptControlButton {
+    width: auto !important;
+    flex: 1 !important;
+    padding: 8px 6px !important;
   }
   
   .managementToolbar .toolbarButton {

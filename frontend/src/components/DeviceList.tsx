@@ -10,7 +10,24 @@ import DeviceBindingModal from './DeviceBindingModal';
 import DictionaryModal from './DictionaryModal';
 import { ScriptSelectionModal } from './ScriptSelectionModal';
 import ServerFileBrowser from './ServerFileBrowser';
-import { IconRotate } from '../icons';
+import { 
+  IconRotate, 
+  IconLink, 
+  IconFolderOpen, 
+  IconPlay, 
+  IconStop, 
+  IconGear, 
+  IconClipboardCheck, 
+  IconEllipsis, 
+  IconSliders, 
+  IconCheckDouble, 
+  IconArrowsRotate,
+  IconGamepad,
+  IconVideo,
+  IconBook,
+  IconRotateLeft,
+  IconListCheck
+} from '../icons';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
 import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
@@ -997,13 +1014,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             onClick={handleDeviceBinding}
             class={styles.toolbarActionButton}
           >
-            设备绑定到云控
+            <IconLink size={14} />
+            <span>设备绑定到云控</span>
           </button>
           <button 
             onClick={() => setShowServerFileBrowser(true)}
             class={styles.toolbarActionButton}
           >
-            服务器文件浏览
+            <IconFolderOpen size={14} />
+            <span>服务器文件浏览</span>
           </button>
           
           <div class={styles.scriptSelectGroup}>
@@ -1063,39 +1082,46 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               </button>
             </div>
 
-            <Show when={isConfigurable()}>
+            <div class={styles.scriptControlGroup}>
+              <Show when={isConfigurable()}>
+                <button 
+                  onClick={() => scriptConfigManager.openGlobalConfig(serverScriptName())}
+                  class={`${styles.toolbarActionButton} ${styles.scriptControlButton}`}
+                  title="配置"
+                >
+                  <IconGear size={14} />
+                  <span class={styles.hideOnMobile}>配置</span>
+                </button>
+              </Show>
+              
               <button 
-                onClick={() => scriptConfigManager.openGlobalConfig(serverScriptName())}
-                class={styles.toolbarActionButton}
-              >
-                配置
-              </button>
-            </Show>
-            
-            <div class={styles.scriptActionButtons}>
-              <button 
-                class={styles.toolbarActionButton}
+                class={`${styles.toolbarActionButton} ${styles.scriptControlButton}`}
                 disabled={props.selectedDevices().length === 0 || isSendingScript()}
                 onClick={handleSendAndStartScript}
+                title="启动脚本"
               >
-                {isSendingScript() ? '启动中...' : '启动脚本'}
+                <IconPlay size={14} />
+                <span class={styles.hideOnMobile}>{isSendingScript() ? '启动中...' : '启动脚本'}</span>
+              </button>
+            
+              <button 
+                onClick={handleStopScript}
+                class={`${styles.toolbarActionButton} ${styles.scriptControlButton}`}
+                disabled={props.selectedDevices().length === 0}
+                title="停止脚本"
+              >
+                <IconStop size={14} />
+                <span class={styles.hideOnMobile}>停止脚本</span>
               </button>
             </div>
-          
-          <button 
-            onClick={handleStopScript}
-            class={styles.toolbarActionButton}
-            disabled={props.selectedDevices().length === 0}
-          >
-            停止脚本
-          </button>
           
           <button 
             onClick={handleScriptSelection}
             class={styles.toolbarActionButton}
             disabled={props.selectedDevices().length === 0}
           >
-            选中脚本
+            <IconClipboardCheck size={14} />
+            <span>选中脚本</span>
           </button>
           
           <div class={styles.moreActionsContainer} ref={moreActionsRef}>
@@ -1103,7 +1129,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               class={styles.toolbarActionButton}
               onClick={() => setShowMoreActions(!showMoreActions())}
             >
-              更多操作 ▼
+              <IconEllipsis size={14} />
+              <span>更多操作</span>
             </button>
             <Show when={showMoreActions()}>
               <div class={styles.moreActionsMenu}>
@@ -1115,7 +1142,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
-                  实时控制
+                  <IconGamepad size={14} />
+                  <span>实时控制</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1125,7 +1153,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
-                  WebRTC控制
+                  <IconVideo size={14} />
+                  <span>WebRTC控制</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1135,7 +1164,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
-                  词典发送
+                  <IconBook size={14} />
+                  <span>词典发送</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1145,7 +1175,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
-                  注销设备
+                  <IconRotateLeft size={14} />
+                  <span>注销设备</span>
                 </button>
               </div>
             </Show>
@@ -1171,7 +1202,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   class={styles.toolbarButton}
                   onClick={() => setShowColumnSettings(!showColumnSettings())}
                 >
-                  表头设置
+                  <IconSliders size={14} />
+                  <span>表头设置</span>
                 </button>
                 <Show when={showColumnSettings()}>
                   <div class={styles.columnDropdown}>
@@ -1205,19 +1237,22 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 class={styles.toolbarButton}
                 disabled={props.isLoading}
               >
-                {props.isLoading ? '刷新中...' : '请求刷新'}
+                <IconArrowsRotate size={14} class={props.isLoading ? styles.spin : ''} />
+                <span>{props.isLoading ? '刷新中...' : '请求刷新'}</span>
               </button>
               <button 
                 onClick={handleSelectAll}
                 class={styles.toolbarButton}
               >
-                全选
+                <IconCheckDouble size={14} />
+                <span>全选</span>
               </button>
               <button 
                 onClick={handleInvertSelection}
                 class={styles.toolbarButton}
               >
-                反选
+                <IconListCheck size={14} />
+                <span>反选</span>
               </button>
             </div>
             <div class={styles.toolbarRight}>
