@@ -1,8 +1,11 @@
 import { Component, createSignal, createEffect, onCleanup } from 'solid-js';
 import { AuthService, LoginCredentials } from '../services/AuthService';
 import { useTheme } from './ThemeContext';
+import { useToast } from './ToastContext';
 import { IconMoon, IconSun } from '../icons';
 import styles from './LoginForm.module.css';
+
+const VERSION_CACHE_KEY = 'xxt_server_version';
 
 interface LoginFormProps {
   onLogin: (credentials: LoginCredentials) => void;
@@ -48,6 +51,7 @@ const parseServerPort = (value: string): { server: string; port: string } | null
 
 const LoginForm: Component<LoginFormProps> = (props) => {
   const { theme, toggleTheme } = useTheme();
+  const toast = useToast();
   // 使用当前页面的主机地址作为默认服务器地址
   const [server, setServer] = createSignal(window.location.hostname || 'localhost');
   const [port, setPort] = createSignal('46980');
@@ -161,6 +165,21 @@ const LoginForm: Component<LoginFormProps> = (props) => {
           const config = await response.json();
           if (config.version) {
             setServerVersion(config.version);
+            
+            // 版本检查：如果缓存版本存在且与服务器版本不同，触发刷新
+            const cachedVersion = localStorage.getItem(VERSION_CACHE_KEY);
+            if (cachedVersion && cachedVersion !== config.version) {
+              toast.showWarning(`检测到新版本 ${config.version}，3秒后自动刷新...`, 3000);
+              
+              // 清除缓存版本并在3秒后刷新
+              setTimeout(() => {
+                localStorage.removeItem(VERSION_CACHE_KEY);
+                window.location.reload();
+              }, 3000);
+            } else if (!cachedVersion) {
+              // 如果没有缓存版本，存储当前版本
+              localStorage.setItem(VERSION_CACHE_KEY, config.version);
+            }
           }
           if (config.serverTime) {
             const now = Math.floor(Date.now() / 1000);

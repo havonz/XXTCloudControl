@@ -97,6 +97,10 @@ func isLocalRequest(c *gin.Context) bool {
 }
 
 // configHandler handles the /api/config endpoint
+// This is the cloud control server's configuration API, returning server version, time, and WebSocket settings.
+// Note: This is NOT the same as the device-side XXT service's /api/config endpoint (e.g., http://127.0.0.1:46952/api/config),
+// which is used to configure device cloud control binding settings via PUT requests.
+// This endpoint does not require authentication and is used by the frontend before login.
 func configHandler(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 
