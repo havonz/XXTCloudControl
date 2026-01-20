@@ -155,7 +155,18 @@ func downloadBindScriptHandler(c *gin.Context) {
 		port = fmt.Sprintf("%d", serverConfig.Port)
 	}
 
-	luaScript := fmt.Sprintf(`local cloud_host = "%s";local cloud_port = %s;`, host, port)
+	// Detect WebSocket protocol based on request
+	// Priority: 1. Explicit proto query param, 2. X-Forwarded-Proto header, 3. Default to ws
+	wsProto := "ws"
+	proto := c.Query("proto")
+	if proto == "" {
+		proto = c.GetHeader("X-Forwarded-Proto")
+	}
+	if proto == "https" || proto == "wss" {
+		wsProto = "wss"
+	}
+
+	luaScript := fmt.Sprintf(`local cloud_host = "%s";local cloud_port = %s;local ws_proto = "%s";`, host, port, wsProto)
 
 	luaScript += `
 
@@ -168,7 +179,7 @@ local conf = json.decode(file.reads(XXT_CONF_FILE_NAME) or "")
 conf = type(conf) == 'table' and conf or {}
 conf.open_cloud_control = conf.open_cloud_control or {}
 
-local address = "ws://" .. cloud_host .. ":" .. cloud_port .. "/api/ws"
+local address = ws_proto .. "://" .. cloud_host .. ":" .. cloud_port .. "/api/ws"
 
 local xxt_port = tonumber(type(sys.port) == "function" and sys.port() or 46952) or 46952
 

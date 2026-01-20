@@ -35,7 +35,9 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
     const port = props.serverPort;
     const fileName = `加入或退出云控[${host}].lua`;
     const encodedFileName = encodeURIComponent(fileName);
-    const downloadUrl = encodeURIComponent(`${baseUrl()}/api/download-bind-script?host=${host}&port=${port}`);
+    // Pass proto param so backend generates correct ws/wss protocol
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const downloadUrl = encodeURIComponent(`${baseUrl()}/api/download-bind-script?host=${host}&port=${port}&proto=${proto}`);
     
     return `xxt://download/?path=${encodedFileName}&url=${downloadUrl}`;
   });
@@ -44,7 +46,9 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
   const downloadUrl = createMemo(() => {
     const host = hostOnly();
     const port = props.serverPort;
-    return `${baseUrl()}/api/download-bind-script?host=${host}&port=${port}`;
+    // Pass proto param so backend generates correct ws/wss protocol
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${baseUrl()}/api/download-bind-script?host=${host}&port=${port}&proto=${proto}`;
   });
 
   // 使用前端库生成二维码
