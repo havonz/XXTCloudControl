@@ -177,6 +177,7 @@ cython_debug/
 /device-client
 /build
 /server/data/
+/server/certs/
 /server/xxtcloudserver.json
 /assets/icons/
 /frontend/public/

@@ -220,13 +220,27 @@ func main() {
 
 	// Start server
 	addr := fmt.Sprintf("0.0.0.0:%d", serverConfig.Port)
-	fmt.Printf("Starting on: %s\n", addr)
 
-	printNetworkEndpoints(serverConfig.Port)
+	// Check if TLS is enabled and properly configured
+	tlsEnabled := serverConfig.TLSEnabled && serverConfig.TLSCertFile != "" && serverConfig.TLSKeyFile != ""
+
+	if tlsEnabled {
+		fmt.Printf("Starting HTTPS server on: %s\n", addr)
+		printNetworkEndpoints(serverConfig.Port, true)
+	} else {
+		fmt.Printf("Starting HTTP server on: %s\n", addr)
+		printNetworkEndpoints(serverConfig.Port, false)
+	}
 
 	fmt.Println("Press Ctrl+C to stop the server")
 
-	if err := r.Run(addr); err != nil {
-		log.Fatalf("Server failed to start: %v", err)
+	if tlsEnabled {
+		if err := r.RunTLS(addr, serverConfig.TLSCertFile, serverConfig.TLSKeyFile); err != nil {
+			log.Fatalf("HTTPS server failed to start: %v", err)
+		}
+	} else {
+		if err := r.Run(addr); err != nil {
+			log.Fatalf("HTTP server failed to start: %v", err)
+		}
 	}
 }

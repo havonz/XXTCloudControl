@@ -156,13 +156,16 @@ func downloadBindScriptHandler(c *gin.Context) {
 	}
 
 	// Detect WebSocket protocol based on request
-	// Priority: 1. Explicit proto query param, 2. X-Forwarded-Proto header, 3. Default to ws
+	// Priority: 1. Explicit proto query param, 2. X-Forwarded-Proto header (reverse proxy), 3. Server TLS config, 4. Default to ws
 	wsProto := "ws"
 	proto := c.Query("proto")
 	if proto == "" {
 		proto = c.GetHeader("X-Forwarded-Proto")
 	}
 	if proto == "https" || proto == "wss" {
+		wsProto = "wss"
+	} else if proto == "" && serverConfig.TLSEnabled && serverConfig.TLSCertFile != "" && serverConfig.TLSKeyFile != "" {
+		// Native TLS mode enabled
 		wsProto = "wss"
 	}
 
@@ -320,11 +323,18 @@ func setAppSettingsHandler(c *gin.Context) {
 }
 
 // printNetworkEndpoints prints available network endpoints
-func printNetworkEndpoints(port int) {
+func printNetworkEndpoints(port int, tlsEnabled bool) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		fmt.Printf("Failed to get network interfaces: %v\n", err)
 		return
+	}
+
+	httpScheme := "http"
+	wsScheme := "ws"
+	if tlsEnabled {
+		httpScheme = "https"
+		wsScheme = "wss"
 	}
 
 	fmt.Println("\n=== Available Network Endpoints ===")
@@ -360,15 +370,15 @@ func printNetworkEndpoints(port int) {
 					continue
 				}
 				fmt.Printf("Interface: %-15s IP: %-15s\n", iface.Name, ip.String())
-				fmt.Printf("  Frontend:    http://%s:%d/\n", ip.String(), port)
-				fmt.Printf("  WebSocket:   ws://%s:%d/api/ws\n", ip.String(), port)
+				fmt.Printf("  Frontend:    %s://%s:%d/\n", httpScheme, ip.String(), port)
+				fmt.Printf("  WebSocket:   %s://%s:%d/api/ws\n", wsScheme, ip.String(), port)
 				fmt.Println()
 			}
 		}
 	}
 
 	fmt.Printf("Local access:\n")
-	fmt.Printf("  Frontend:    http://localhost:%d/\n", port)
-	fmt.Printf("  WebSocket:   ws://localhost:%d/api/ws\n", port)
+	fmt.Printf("  Frontend:    %s://localhost:%d/\n", httpScheme, port)
+	fmt.Printf("  WebSocket:   %s://localhost:%d/api/ws\n", wsScheme, port)
 	fmt.Println("===================================")
 }

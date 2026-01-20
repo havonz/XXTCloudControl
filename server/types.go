@@ -37,6 +37,11 @@ type ServerConfig struct {
 	FrontendDir  string `json:"frontend_dir"`
 	DataDir      string `json:"data_dir"`
 
+	// TLS configuration for native HTTPS/WSS support
+	TLSEnabled  bool   `json:"tlsEnabled"`  // Enable TLS (HTTPS/WSS)
+	TLSCertFile string `json:"tlsCertFile"` // Path to TLS certificate file
+	TLSKeyFile  string `json:"tlsKeyFile"`  // Path to TLS private key file
+
 	// TURN server configuration
 	TURNEnabled       bool   `json:"turnEnabled"`       // Enable embedded TURN server
 	TURNPort          int    `json:"turnPort"`          // TURN UDP port (default: 3478)
