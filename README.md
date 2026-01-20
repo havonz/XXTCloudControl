@@ -89,6 +89,9 @@ go run . -set-password 12345678
   "ping_timeout": 10, // 当前版本未使用（保留）
   "frontend_dir": "./frontend", // 前端文件目录
   "data_dir": "./data", // 服务端数据目录
+  "tlsEnabled": false, // 是否启用 TLS（HTTPS/WSS）
+  "tlsCertFile": "./certs/server.crt", // TLS 证书文件路径
+  "tlsKeyFile": "./certs/server.key", // TLS 私钥文件路径
   "turnEnabled": true, // 是否启用 TURN 服务器
   "turnPort": 43478,   // TURN 服务器监听端口
   "turnPublicIP": "你的公网IP", // 你的公网IP
@@ -131,6 +134,64 @@ go run . -set-password 12345678
 
 > [!TIP]
 > 媒体中继优先使用 UDP。在 UDP 流量被严格限制的情况下，WebRTC 会自动回退到 TCP (端口 43478) 以确保桌面流能够正常传输。
+
+## TLS/HTTPS 配置 (可选)
+
+服务端支持原生 HTTPS/WSS，无需反向代理即可启用加密连接。同时也兼容通过 Nginx/Caddy 等反向代理的方式。
+
+### 1) 配置 TLS
+
+在 `xxtcloudserver.json` 中设置：
+
+```json
+{
+  "tlsEnabled": true,
+  "tlsCertFile": "./certs/server.crt",
+  "tlsKeyFile": "./certs/server.key"
+}
+```
+
+### 2) 生成本地测试证书
+
+```bash
+mkdir -p certs
+openssl req -x509 -newkey rsa:4096 -sha256 -days 365 -nodes \
+  -keyout certs/server.key -out certs/server.crt \
+  -subj "/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+```
+
+> [!WARNING]
+> 自签名证书仅适用于本地测试。生产环境请使用 Let's Encrypt 或其他 CA 签发的证书。
+
+### 3) 反向代理模式
+
+如果使用 Nginx/Caddy 等反向代理，服务端可保持 HTTP 模式运行，由代理处理 TLS 终止。此时绑定脚本会通过 `X-Forwarded-Proto` 请求头自动检测协议并生成正确的 `wss://` 地址。
+
+Nginx 配置示例：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
+    
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    
+    location / {
+        proxy_pass http://127.0.0.1:46980;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    location /api/ws {
+        proxy_pass http://127.0.0.1:46980;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
 
 ## 设备绑定方式
 
