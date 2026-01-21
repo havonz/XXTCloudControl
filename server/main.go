@@ -133,12 +133,14 @@ func main() {
 		log.Printf("Warning: Failed to load app settings: %v", err)
 	}
 
-	// Initialize TURN server if enabled and public IP is configured
-	if serverConfig.TURNEnabled && serverConfig.TURNPublicIP != "" {
+	// Initialize TURN server if enabled and either public IP or address is configured
+	turnAddrConfigured := serverConfig.TURNPublicIP != "" || serverConfig.TURNPublicAddr != ""
+	if serverConfig.TURNEnabled && turnAddrConfigured {
 		turnConfig := TURNConfig{
 			Enabled:       serverConfig.TURNEnabled,
 			Port:          serverConfig.TURNPort,
 			PublicIP:      serverConfig.TURNPublicIP,
+			PublicAddr:    serverConfig.TURNPublicAddr,
 			Realm:         serverConfig.TURNRealm,
 			SecretKey:     serverConfig.TURNSecretKey,
 			CredentialTTL: serverConfig.TURNCredentialTTL,
@@ -150,8 +152,8 @@ func main() {
 		} else {
 			defer StopTURNServer()
 		}
-	} else if serverConfig.TURNEnabled && serverConfig.TURNPublicIP == "" {
-		fmt.Println("ℹ️  TURN server enabled but turnPublicIP not configured, skipping...")
+	} else if serverConfig.TURNEnabled && !turnAddrConfigured {
+		fmt.Println("ℹ️  TURN server enabled but turnPublicIP/turnPublicAddr not configured, skipping...")
 	}
 
 	// Configure Gin

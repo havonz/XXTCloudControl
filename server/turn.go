@@ -20,7 +20,8 @@ import (
 type TURNConfig struct {
 	Enabled       bool   `json:"turnEnabled"`       // Whether TURN is enabled
 	Port          int    `json:"turnPort"`          // UDP port for TURN (default: 3478)
-	PublicIP      string `json:"turnPublicIP"`      // Public IP for TURN relay (required)
+	PublicIP      string `json:"turnPublicIP"`      // Public IP for TURN relay (validated as IP)
+	PublicAddr    string `json:"turnPublicAddr"`    // Public address for TURN relay (IP or domain, no validation)
 	Realm         string `json:"turnRealm"`         // TURN realm (default: "xxtcloud")
 	SecretKey     string `json:"turnSecretKey"`     // Shared secret for credential generation
 	CredentialTTL int    `json:"turnCredentialTTL"` // Credential TTL in seconds (default: 86400)
@@ -42,11 +43,12 @@ var DefaultTURNConfig = TURNConfig{
 
 // TURNServer wraps the pion/turn server
 type TURNServer struct {
-	config   TURNConfig
-	server   *turn.Server
-	mu       sync.RWMutex
-	running  bool
-	publicIP net.IP
+	config     TURNConfig
+	server     *turn.Server
+	mu         sync.RWMutex
+	running    bool
+	publicIP   net.IP // Used for pion/turn relay (nil if using domain)
+	publicAddr string // Used for ICE server URL generation (IP or domain)
 }
 
 // Global TURN server instance
@@ -58,13 +60,50 @@ func NewTURNServer(config TURNConfig) (*TURNServer, error) {
 		return nil, nil
 	}
 
-	if config.PublicIP == "" {
-		return nil, fmt.Errorf("TURN public IP is required when TURN is enabled")
-	}
+	var publicIP net.IP
+	var publicAddr string
 
-	publicIP := net.ParseIP(config.PublicIP)
-	if publicIP == nil {
-		return nil, fmt.Errorf("invalid TURN public IP: %s", config.PublicIP)
+	// Priority: PublicIP (with validation) > PublicAddr (no validation)
+	if config.PublicIP != "" {
+		publicIP = net.ParseIP(config.PublicIP)
+		if publicIP == nil {
+			return nil, fmt.Errorf("invalid TURN public IP: %s", config.PublicIP)
+		}
+		// Ensure IPv4 for TURN relay
+		if publicIP.To4() == nil {
+			return nil, fmt.Errorf("TURN public IP must be IPv4, got IPv6: %s", config.PublicIP)
+		}
+		publicAddr = config.PublicIP
+	} else if config.PublicAddr != "" {
+		// PublicAddr can be IP or domain, no validation
+		publicAddr = config.PublicAddr
+		// Try to parse as IP for pion/turn relay
+		publicIP = net.ParseIP(config.PublicAddr)
+		if publicIP != nil {
+			// It's an IP, ensure IPv4
+			if publicIP.To4() == nil {
+				return nil, fmt.Errorf("TURN public address must be IPv4: %s", config.PublicAddr)
+			}
+		} else {
+			// It's a domain, try to resolve
+			addrs, err := net.LookupIP(config.PublicAddr)
+			if err != nil || len(addrs) == 0 {
+				return nil, fmt.Errorf("cannot resolve TURN public address: %s", config.PublicAddr)
+			}
+			// Find IPv4 address (required for TURN relay)
+			for _, addr := range addrs {
+				if ipv4 := addr.To4(); ipv4 != nil {
+					publicIP = ipv4
+					break
+				}
+			}
+			if publicIP == nil {
+				return nil, fmt.Errorf("TURN address %s has no IPv4 record (only IPv6), which is not supported", config.PublicAddr)
+			}
+			log.Printf("Resolved TURN address %s to IPv4 %s", config.PublicAddr, publicIP)
+		}
+	} else {
+		return nil, fmt.Errorf("TURN public IP or address is required when TURN is enabled")
 	}
 
 	// Generate secret key if not provided
@@ -107,8 +146,9 @@ func NewTURNServer(config TURNConfig) (*TURNServer, error) {
 	}
 
 	return &TURNServer{
-		config:   config,
-		publicIP: publicIP,
+		config:     config,
+		publicIP:   publicIP,
+		publicAddr: publicAddr,
 	}, nil
 }
 
@@ -181,8 +221,8 @@ func (t *TURNServer) Start() error {
 	}
 
 	t.running = true
-	log.Printf("🔄 TURN server started on UDP/TCP port %d (Public IP: %s, Relay ports: %d-%d)\n",
-		t.config.Port, t.config.PublicIP, t.config.RelayPortMin, t.config.RelayPortMax)
+	log.Printf("🔄 TURN server started on UDP/TCP port %d (Public: %s, Relay IP: %s, Relay ports: %d-%d)\n",
+		t.config.Port, t.publicAddr, t.publicIP.String(), t.config.RelayPortMin, t.config.RelayPortMax)
 	return nil
 }
 
@@ -263,8 +303,8 @@ func (t *TURNServer) GetICEServerConfig() map[string]interface{} {
 
 	return map[string]interface{}{
 		"urls": []string{
-			fmt.Sprintf("turn:%s:%d", t.config.PublicIP, t.config.Port),
-			fmt.Sprintf("turn:%s:%d?transport=tcp", t.config.PublicIP, t.config.Port),
+			fmt.Sprintf("turn:%s:%d", t.publicAddr, t.config.Port),
+			fmt.Sprintf("turn:%s:%d?transport=tcp", t.publicAddr, t.config.Port),
 		},
 		"username":   username,
 		"credential": password,
@@ -272,17 +312,40 @@ func (t *TURNServer) GetICEServerConfig() map[string]interface{} {
 }
 
 // GetTURNICEServers returns ICE servers slice for injection into WebRTC start request
+// This merges local TURN server config with custom ICE servers from configuration
 func GetTURNICEServers() []map[string]interface{} {
-	if turnServer == nil || !turnServer.IsRunning() {
-		return nil
+	var iceServers []map[string]interface{}
+
+	// Add local TURN server if running
+	if turnServer != nil && turnServer.IsRunning() {
+		iceServer := turnServer.GetICEServerConfig()
+		if iceServer != nil {
+			iceServers = append(iceServers, iceServer)
+		}
 	}
 
-	iceServer := turnServer.GetICEServerConfig()
-	if iceServer == nil {
-		return nil
+	// Add custom ICE servers from config (skip invalid entries)
+	for _, custom := range serverConfig.CustomICEServers {
+		// Skip entries with empty or nil URLs
+		if len(custom.URLs) == 0 {
+			continue
+		}
+		server := map[string]interface{}{
+			"urls": custom.URLs,
+		}
+		if custom.Username != "" {
+			server["username"] = custom.Username
+		}
+		if custom.Credential != "" {
+			server["credential"] = custom.Credential
+		}
+		iceServers = append(iceServers, server)
 	}
 
-	return []map[string]interface{}{iceServer}
+	if len(iceServers) == 0 {
+		return nil
+	}
+	return iceServers
 }
 
 // InitTURNServer initializes the global TURN server from config

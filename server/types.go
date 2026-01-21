@@ -45,12 +45,16 @@ type ServerConfig struct {
 	// TURN server configuration
 	TURNEnabled       bool   `json:"turnEnabled"`       // Enable embedded TURN server
 	TURNPort          int    `json:"turnPort"`          // TURN UDP port (default: 3478)
-	TURNPublicIP      string `json:"turnPublicIP"`      // Public IP for TURN relay (required if enabled)
+	TURNPublicIP      string `json:"turnPublicIP"`      // Public IP for TURN relay (validated as IP)
+	TURNPublicAddr    string `json:"turnPublicAddr"`    // Public address for TURN relay (IP or domain, no validation)
 	TURNRealm         string `json:"turnRealm"`         // TURN realm (default: "xxtcloud")
 	TURNSecretKey     string `json:"turnSecretKey"`     // Secret key for credential generation
 	TURNCredentialTTL int    `json:"turnCredentialTTL"` // Credential TTL in seconds (default: 86400)
 	TURNRelayPortMin  int    `json:"turnRelayPortMin"`  // Minimum relay port (default: 49152)
 	TURNRelayPortMax  int    `json:"turnRelayPortMax"`  // Maximum relay port (default: 65535)
+
+	// Custom ICE servers (external STUN/TURN services)
+	CustomICEServers []ICEServer `json:"customIceServers"` // External ICE servers to merge with local TURN
 }
 
 // DefaultConfig returns the default server configuration
@@ -160,6 +164,13 @@ type GroupInfo struct {
 	DeviceIDs  []string `json:"deviceIds"`
 	SortOrder  int      `json:"sortOrder"`
 	ScriptPath string   `json:"scriptPath,omitempty"`
+}
+
+// ICEServer represents an ICE server configuration for WebRTC
+type ICEServer struct {
+	URLs       []string `json:"urls"`                 // Server URLs (stun: or turn:)
+	Username   string   `json:"username,omitempty"`   // Username for TURN
+	Credential string   `json:"credential,omitempty"` // Credential for TURN
 }
 
 // GroupScriptConfig represents script configuration for a group

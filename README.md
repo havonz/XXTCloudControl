@@ -94,12 +94,14 @@ go run . -set-password 12345678
   "tlsKeyFile": "./certs/server.key", // TLS 私钥文件路径
   "turnEnabled": true, // 是否启用 TURN 服务器
   "turnPort": 43478,   // TURN 服务器监听端口
-  "turnPublicIP": "你的公网IP", // 你的公网IP
+  "turnPublicIP": "你的公网IP", // 公网 IP（需验证格式）
+  "turnPublicAddr": "turn.example.com", // 公网地址（IP 或域名，无验证）
   "turnRealm": "xxtcloud", // TURN realm
   "turnSecretKey": "你的密钥", // TURN REST 密钥（留空会自动生成）
   "turnCredentialTTL": 86400, // TURN 凭据有效期（秒）
   "turnRelayPortMin": 49152, // TURN 服务器中继端口范围起始
-  "turnRelayPortMax": 65535  // TURN 服务器中继端口范围结束
+  "turnRelayPortMax": 65535, // TURN 服务器中继端口范围结束
+  "customIceServers": [] // 自定义 ICE 服务器列表（见下文）
 }
 ```
 
@@ -109,10 +111,88 @@ go run . -set-password 12345678
 
 ## WebRTC 穿透 (TURN) 配置
 
-为了支持外网环境下的实时桌面控制，服务端内置了支持 UDP/TCP 的 TURN 服务器。当 `turnEnabled` 为 `true` 且 `turnPublicIP` 不为空时会自动激活。
-`turnSecretKey` 为空时会在启动时自动生成临时密钥（重启会变化），如需稳定的 TURN 凭据请手动配置。
+为了支持外网环境下的实时桌面控制，服务端内置了支持 UDP/TCP 的 TURN 服务器。
 
-### 1) 快捷设置命令
+### TURN 地址配置
+
+服务端支持两种公网地址配置方式：
+
+| 字段 | 格式 | 验证 | 适用场景 |
+|------|------|------|----------|
+| `turnPublicIP` | 仅 IPv4 地址 | `net.ParseIP()` 验证 | 有固定公网 IP |
+| `turnPublicAddr` | IPv4 或域名 | 域名自动 DNS 解析 | 使用域名访问 |
+
+> [!IMPORTANT]
+> **仅支持 IPv4**：TURN 服务器目前仅支持 IPv4 地址。IPv6 地址或仅有 AAAA 记录的域名会导致启动失败。
+>
+> 如果两者都配置，`turnPublicIP` 优先。只需配置其中一个即可启用内置 TURN。
+
+配置示例：
+
+```json
+// 方式 1: 使用 IP
+{
+  "turnEnabled": true,
+  "turnPublicIP": "203.0.113.1"
+}
+
+// 方式 2: 使用域名
+{
+  "turnEnabled": true,
+  "turnPublicAddr": "turn.example.com"
+}
+```
+
+### 自定义 ICE 服务器
+
+除了使用内置 TURN 服务，你还可以配置外部 STUN/TURN 服务器。这在以下场景很有用：
+
+- 不想在本地启用 TURN 服务，而是使用第三方 TURN 服务（如 [Metered](https://www.metered.ca/tools/openrelay/)）
+- 需要将本地 TURN 与外部服务合并使用，增强穿透能力
+
+配置示例：
+
+```json
+{
+  "turnEnabled": false,
+  "customIceServers": [
+    {
+      "urls": ["stun:stun.relay.metered.ca:80"]
+    },
+    {
+      "urls": ["turn:global.relay.metered.ca:80"],
+      "username": "your-username",
+      "credential": "your-credential"
+    },
+    {
+      "urls": ["turn:global.relay.metered.ca:80?transport=tcp"],
+      "username": "your-username",
+      "credential": "your-credential"
+    },
+    {
+      "urls": ["turn:global.relay.metered.ca:443"],
+      "username": "your-username",
+      "credential": "your-credential"
+    },
+    {
+      "urls": ["turns:global.relay.metered.ca:443?transport=tcp"],
+      "username": "your-username",
+      "credential": "your-credential"
+    }
+  ]
+}
+```
+
+**合并行为：**
+
+| 本地 TURN | 自定义 ICE Servers | 结果 |
+|-----------|-------------------|------|
+| 启用 | 无 | 仅使用本地 TURN |
+| 禁用 | 有 | 仅使用自定义 ICE Servers |
+| 启用 | 有 | **合并**：本地 TURN + 自定义 ICE Servers |
+| 禁用 | 无 | 无 ICE 服务器，WebRTC 仅尝试直连 |
+
+### 快捷设置命令
 
 ```bash
 # 设置公网 IP 并启用
@@ -122,7 +202,10 @@ go run . -set-password 12345678
 ./xxtcloudserver -set-turn-port 3478
 ```
 
-### 2) 管理员防火墙配置
+> [!TIP]
+> `turnSecretKey` 为空时会在启动时自动生成临时密钥（重启会变化），如需稳定的 TURN 凭据请手动配置。
+
+### 管理员防火墙配置
 
 服务器管理员需要在云安全组/防火墙中开放以下端口：
 
