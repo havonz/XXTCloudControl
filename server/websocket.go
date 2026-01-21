@@ -446,18 +446,18 @@ func handleDisconnection(conn *SafeConn) {
 	}
 }
 
-// startStatusRequestTimer starts the periodic status request timer
-func startStatusRequestTimer() {
+// startPingTimer starts the periodic WebSocket PING timer
+func startPingTimer() {
 	pingIntervalDuration := time.Duration(serverConfig.PingInterval) * time.Second
-	statusTicker = time.NewTicker(pingIntervalDuration)
+	pingTicker = time.NewTicker(pingIntervalDuration)
 
 	go func() {
 		for {
 			select {
-			case <-statusTicker.C:
-				sendStatusRequestToAllDevices()
-			case <-stopTicker:
-				statusTicker.Stop()
+			case <-pingTicker.C:
+				sendPingToAllDevices()
+			case <-stopPing:
+				pingTicker.Stop()
 				return
 			}
 		}
@@ -466,19 +466,76 @@ func startStatusRequestTimer() {
 	fmt.Printf("Ping timer started (interval: %v)\n", pingIntervalDuration)
 }
 
-// stopStatusRequestTimer stops the periodic status request timer
-func stopStatusRequestTimer() {
-	if statusTicker != nil {
+// stopPingTimer stops the periodic WebSocket PING timer
+func stopPingTimer() {
+	if pingTicker != nil {
 		select {
-		case stopTicker <- true:
+		case stopPing <- true:
 		default:
 		}
 	}
 	fmt.Println("Ping timer stopped")
 }
 
-// sendStatusRequestToAllDevices sends status requests to all connected devices
-func sendStatusRequestToAllDevices() {
+// startStateRefreshTimer starts the periodic app/state request timer
+func startStateRefreshTimer() {
+	stateIntervalDuration := time.Duration(serverConfig.StateInterval) * time.Second
+	stateRefreshTicker = time.NewTicker(stateIntervalDuration)
+
+	go func() {
+		for {
+			select {
+			case <-stateRefreshTicker.C:
+				sendStateRequestToAllDevices()
+			case <-stopStateRefresh:
+				stateRefreshTicker.Stop()
+				return
+			}
+		}
+	}()
+
+	fmt.Printf("State refresh timer started (interval: %v)\n", stateIntervalDuration)
+}
+
+// stopStateRefreshTimer stops the periodic app/state request timer
+func stopStateRefreshTimer() {
+	if stateRefreshTicker != nil {
+		select {
+		case stopStateRefresh <- true:
+		default:
+		}
+	}
+	fmt.Println("State refresh timer stopped")
+}
+
+// sendStateRequestToAllDevices sends app/state requests to all connected devices
+func sendStateRequestToAllDevices() {
+	mu.RLock()
+	deviceCount := len(deviceLinks)
+	mu.RUnlock()
+
+	if deviceCount == 0 {
+		return
+	}
+
+	stateMsg := Message{
+		Type: "app/state",
+		Body: "",
+	}
+
+	mu.RLock()
+	for udid, deviceConn := range deviceLinks {
+		go func(dc *SafeConn, deviceUDID string) {
+			if err := sendMessage(dc, stateMsg); err != nil {
+				log.Printf("Failed to send state request to device %s: %v", deviceUDID, err)
+			}
+		}(deviceConn, udid)
+	}
+	mu.RUnlock()
+}
+
+// sendPingToAllDevices sends WebSocket PING to all connected devices
+func sendPingToAllDevices() {
 	checkAndUpdateDeviceLife()
 
 	mu.RLock()
@@ -489,16 +546,11 @@ func sendStatusRequestToAllDevices() {
 		return
 	}
 
-	statusMsg := Message{
-		Type: "app/state",
-		Body: "",
-	}
-
 	mu.RLock()
 	for udid, deviceConn := range deviceLinks {
 		go func(dc *SafeConn, deviceUDID string) {
-			if err := sendMessage(dc, statusMsg); err != nil {
-				log.Printf("Failed to send status request to device %s: %v", deviceUDID, err)
+			if err := dc.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+				log.Printf("Failed to send ping to device %s: %v", deviceUDID, err)
 			}
 		}(deviceConn, udid)
 	}

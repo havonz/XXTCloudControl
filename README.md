@@ -85,8 +85,9 @@ go run . -set-password 12345678
 {
   "port": 46980, // WebSocket 服务端口
   "passhash": "hex-string", // 密码的 HMAC-SHA256 哈希值
-  "ping_interval": 15, // 服务端发送 ping 请求的间隔（秒）
-  "ping_timeout": 10, // 当前版本未使用（保留）
+  "ping_interval": 15, // 服务端发送 WebSocket PING 心跳的间隔（秒）
+  "ping_timeout": 10, // 设备连续未响应次数阈值，超过则断开连接
+  "state_interval": 45, // 服务端请求设备状态 (app/state) 的间隔（秒）
   "frontend_dir": "./frontend", // 前端文件目录
   "data_dir": "./data", // 服务端数据目录
   "tlsEnabled": false, // 是否启用 TLS（HTTPS/WSS）
@@ -106,7 +107,9 @@ go run . -set-password 12345678
 ```
 
 - `passhash` 为 `hmacSHA256("XXTouch", password)` 的结果，不是明文密码。
-- `ping_interval` 会触发服务端发送 `app/state` 请求，设备需回应以保持在线。
+- `ping_interval` 控制心跳检测频率，服务端每隔该时间向设备发送 WebSocket PING 帧，用于检测设备在线状态。
+- `state_interval` 控制状态刷新频率，服务端每隔该时间向设备发送 `app/state` 请求以获取最新设备状态。
+- `ping_timeout` 表示设备连续未响应的次数阈值（基于 `ping_interval` 的周期），超过后服务端断开该设备连接。
 - `data_dir` 默认生成 `scripts/`、`files/`、`reports/` 以及分组/脚本配置等持久化数据。
 
 ## WebRTC 穿透 (TURN) 配置

@@ -31,12 +31,13 @@ var AllowedCategories = []string{"scripts", "files", "reports"}
 
 // ServerConfig represents the server configuration
 type ServerConfig struct {
-	Port         int    `json:"port"`
-	Passhash     string `json:"passhash"`
-	PingInterval int    `json:"ping_interval"`
-	PingTimeout  int    `json:"ping_timeout"`
-	FrontendDir  string `json:"frontend_dir"`
-	DataDir      string `json:"data_dir"`
+	Port          int    `json:"port"`
+	Passhash      string `json:"passhash"`
+	PingInterval  int    `json:"ping_interval"`
+	PingTimeout   int    `json:"ping_timeout"`
+	StateInterval int    `json:"state_interval"` // Interval in seconds for requesting app/state from devices
+	FrontendDir   string `json:"frontend_dir"`
+	DataDir       string `json:"data_dir"`
 
 	// TLS configuration for native HTTPS/WSS support
 	TLSEnabled  bool   `json:"tlsEnabled"`  // Enable TLS (HTTPS/WSS)
@@ -60,12 +61,13 @@ type ServerConfig struct {
 
 // DefaultConfig returns the default server configuration
 var DefaultConfig = ServerConfig{
-	Port:         46980,
-	Passhash:     "",
-	PingInterval: 15,
-	PingTimeout:  10,
-	FrontendDir:  "./frontend",
-	DataDir:      "./data",
+	Port:          46980,
+	Passhash:      "",
+	PingInterval:  15,
+	PingTimeout:   10,
+	StateInterval: 45,
+	FrontendDir:   "./frontend",
+	DataDir:       "./data",
 
 	// TURN defaults (user only needs to fill TURNPublicIP to enable)
 	TURNEnabled:      true,
@@ -221,8 +223,10 @@ var (
 	mu sync.RWMutex
 
 	// Timer control
-	statusTicker *time.Ticker
-	stopTicker   chan bool
+	pingTicker         *time.Ticker
+	stopPing           chan bool
+	stateRefreshTicker *time.Ticker
+	stopStateRefresh   chan bool
 
 	// Device groups
 	deviceGroups   = make([]GroupInfo, 0)
@@ -238,5 +242,6 @@ var (
 )
 
 func init() {
-	stopTicker = make(chan bool)
+	stopPing = make(chan bool)
+	stopStateRefresh = make(chan bool)
 }

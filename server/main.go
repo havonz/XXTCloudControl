@@ -106,9 +106,13 @@ func main() {
 		return
 	}
 
-	// Start status request timer
-	startStatusRequestTimer()
-	defer stopStatusRequestTimer()
+	// Start ping timer
+	startPingTimer()
+	defer stopPingTimer()
+
+	// Start state refresh timer
+	startStateRefreshTimer()
+	defer stopStateRefreshTimer()
 
 	// Check if frontend directory exists
 	if _, err := os.Stat(serverConfig.FrontendDir); os.IsNotExist(err) {
