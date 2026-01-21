@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -168,9 +169,29 @@ type GroupInfo struct {
 
 // ICEServer represents an ICE server configuration for WebRTC
 type ICEServer struct {
-	URLs       []string `json:"urls"`                 // Server URLs (stun: or turn:)
-	Username   string   `json:"username,omitempty"`   // Username for TURN
-	Credential string   `json:"credential,omitempty"` // Credential for TURN
+	URLs       FlexibleURLs `json:"urls"`                 // Server URLs (stun: or turn:), can be string or []string
+	Username   string       `json:"username,omitempty"`   // Username for TURN
+	Credential string       `json:"credential,omitempty"` // Credential for TURN
+}
+
+// FlexibleURLs supports both string and []string in JSON
+type FlexibleURLs []string
+
+// UnmarshalJSON implements custom unmarshaling for FlexibleURLs
+func (f *FlexibleURLs) UnmarshalJSON(data []byte) error {
+	// Try as string first
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*f = []string{single}
+		return nil
+	}
+	// Try as array
+	var array []string
+	if err := json.Unmarshal(data, &array); err != nil {
+		return err
+	}
+	*f = array
+	return nil
 }
 
 // GroupScriptConfig represents script configuration for a group

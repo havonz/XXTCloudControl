@@ -150,6 +150,9 @@ go run . -set-password 12345678
 - 不想在本地启用 TURN 服务，而是使用第三方 TURN 服务（如 [Metered](https://www.metered.ca/tools/openrelay/)）
 - 需要将本地 TURN 与外部服务合并使用，增强穿透能力
 
+> [!WARNING]
+> **安全提示**：`customIceServers` 中的配置（包括 `username` 和 `credential`）会在 WebRTC 连接时发送给设备端，**不是保密信息**。请使用支持临时凭据的 TURN 服务，或确保凭据可公开共享。
+
 配置示例：
 
 ```json
