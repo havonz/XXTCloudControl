@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,50 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow cross-origin
 	},
+}
+
+const binaryHeaderSize = 24
+
+func parseBinaryHeader(data []byte) (string, uint32, uint32, bool) {
+	if len(data) < binaryHeaderSize {
+		return "", 0, 0, false
+	}
+	reqID := hex.EncodeToString(data[:16])
+	seq := binary.BigEndian.Uint32(data[16:20])
+	total := binary.BigEndian.Uint32(data[20:24])
+	return reqID, seq, total, true
+}
+
+func sendBinaryMessage(conn *SafeConn, payload []byte) error {
+	if conn == nil {
+		return nil
+	}
+	return conn.WriteMessage(websocket.BinaryMessage, payload)
+}
+
+func toInt(value interface{}) (int, bool) {
+	switch v := value.(type) {
+	case float64:
+		return int(v), true
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case json.Number:
+		iv, err := v.Int64()
+		if err == nil {
+			return int(iv), true
+		}
+	case string:
+		if v == "" {
+			return 0, false
+		}
+		iv, err := strconv.Atoi(v)
+		if err == nil {
+			return iv, true
+		}
+	}
+	return 0, false
 }
 
 // addLogSubscriberLocked registers a controller as a log subscriber for a device.
@@ -203,7 +248,7 @@ func handleWebSocketConnection(c *gin.Context) {
 	fmt.Printf("New connection from: %s\n", safeConn.RemoteAddr())
 
 	for {
-		_, messageBytes, err := safeConn.ReadMessage()
+		messageType, messageBytes, err := safeConn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("WebSocket error: %v", err)
@@ -212,6 +257,15 @@ func handleWebSocketConnection(c *gin.Context) {
 		}
 
 		resetDeviceLife(safeConn)
+
+		if messageType == websocket.BinaryMessage {
+			handleBinaryMessage(safeConn, messageBytes)
+			continue
+		}
+
+		if messageType != websocket.TextMessage {
+			continue
+		}
 
 		var data Message
 		if err := json.Unmarshal(messageBytes, &data); err != nil {
@@ -400,6 +454,57 @@ func handleMessage(conn *SafeConn, data Message) error {
 			}
 		}
 
+	case "control/http-bin":
+		if !isDataValid(data) {
+			conn.Close()
+			return nil
+		}
+		controllers[conn] = true
+
+		var httpReq HTTPProxyRequestBin
+		bodyBytes, _ := json.Marshal(data.Body)
+		if err := json.Unmarshal(bodyBytes, &httpReq); err != nil {
+			log.Printf("[http-bin] Failed to parse request: %v", err)
+			return err
+		}
+		if httpReq.RequestID == "" {
+			return fmt.Errorf("http-bin missing requestId")
+		}
+
+		binaryRoutes[httpReq.RequestID] = &BinaryRoute{
+			Controller: conn,
+			Devices:    httpReq.Devices,
+		}
+
+		httpBody := map[string]interface{}{
+			"requestId": httpReq.RequestID,
+			"method":    httpReq.Method,
+			"path":      httpReq.Path,
+			"query":     httpReq.Query,
+			"headers":   httpReq.Headers,
+			"port":      httpReq.Port,
+			"bodySize":  httpReq.BodySize,
+			"chunkSize": httpReq.ChunkSize,
+		}
+
+		httpMsg := Message{
+			Type: "http/request-bin",
+			Body: httpBody,
+		}
+
+		for _, udid := range httpReq.Devices {
+			if deviceConn, exists := deviceLinks[udid]; exists {
+				log.Printf("[http-bin] Sending http/request-bin to device %s", udid)
+				go func(dc *SafeConn, u string) {
+					if err := sendMessage(dc, httpMsg); err != nil {
+						log.Printf("[http-bin] Failed to send to device %s: %v", u, err)
+					}
+				}(deviceConn, udid)
+			} else {
+				log.Printf("[http-bin] Device %s not found in deviceLinks", udid)
+			}
+		}
+
 	case "control/log/subscribe":
 		if !isDataValid(data) {
 			conn.Close()
@@ -447,6 +552,42 @@ func handleMessage(conn *SafeConn, data Message) error {
 				}
 			}
 		}
+
+	case "http/response-bin":
+		if len(controllers) == 0 {
+			return nil
+		}
+		requestId := ""
+		bodySize := -1
+		if bodyMap, ok := data.Body.(map[string]interface{}); ok {
+			if rid, ok := bodyMap["requestId"].(string); ok {
+				requestId = rid
+			}
+			if sizeVal, ok := toInt(bodyMap["bodySize"]); ok {
+				bodySize = sizeVal
+			}
+		}
+
+		if requestId != "" {
+			if route, exists := binaryRoutes[requestId]; exists && route.Controller != nil {
+				if err := sendMessage(route.Controller, data); err == nil {
+					if bodySize == 0 {
+						delete(binaryRoutes, requestId)
+					}
+					return nil
+				}
+			}
+		}
+
+		for controllerConn := range controllers {
+			go func(cc *SafeConn, msg Message) {
+				sendMessage(cc, msg)
+			}(controllerConn, data)
+		}
+		if requestId != "" && bodySize == 0 {
+			delete(binaryRoutes, requestId)
+		}
+		return nil
 
 	case "app/state":
 		bodyMap, ok := data.Body.(map[string]interface{})
@@ -521,6 +662,49 @@ func handleMessage(conn *SafeConn, data Message) error {
 	return nil
 }
 
+// handleBinaryMessage forwards binary body chunks between controller and device.
+func handleBinaryMessage(conn *SafeConn, payload []byte) {
+	reqID, seq, total, ok := parseBinaryHeader(payload)
+	if !ok {
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if controllers[conn] {
+		route := binaryRoutes[reqID]
+		if route == nil {
+			return
+		}
+		for _, udid := range route.Devices {
+			if deviceConn, exists := deviceLinks[udid]; exists {
+				go func(dc *SafeConn) {
+					sendBinaryMessage(dc, payload)
+				}(deviceConn)
+			}
+		}
+		return
+	}
+
+	if _, exists := deviceLinksMap[conn]; exists {
+		if route, ok := binaryRoutes[reqID]; ok && route.Controller != nil {
+			go func(cc *SafeConn) {
+				sendBinaryMessage(cc, payload)
+			}(route.Controller)
+		} else {
+			for controllerConn := range controllers {
+				go func(cc *SafeConn) {
+					sendBinaryMessage(cc, payload)
+				}(controllerConn)
+			}
+		}
+		if total > 0 && seq+1 >= total {
+			delete(binaryRoutes, reqID)
+		}
+	}
+}
+
 // sendMessage sends a message to a WebSocket connection
 func sendMessage(conn *SafeConn, msg Message) error {
 	data, err := json.Marshal(msg)
@@ -547,6 +731,11 @@ func handleDisconnection(conn *SafeConn) {
 				}(deviceConn)
 			}
 		}
+		for id, route := range binaryRoutes {
+			if route != nil && route.Controller == conn {
+				delete(binaryRoutes, id)
+			}
+		}
 		delete(controllers, conn)
 		return
 	}
@@ -564,6 +753,16 @@ func handleDisconnection(conn *SafeConn) {
 		delete(deviceLinks, udid)
 		delete(deviceLife, udid)
 		delete(logSubscriptions, udid)
+		for id, route := range binaryRoutes {
+			if route != nil {
+				for _, deviceID := range route.Devices {
+					if deviceID == udid {
+						delete(binaryRoutes, id)
+						break
+					}
+				}
+			}
+		}
 
 		if len(controllers) > 0 {
 			disconnectMsg := Message{

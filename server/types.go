@@ -157,6 +157,25 @@ type HTTPProxyRequest struct {
 	Port      int                    `json:"port,omitempty"` // target HTTP port (default: 46952)
 }
 
+// HTTPProxyRequestBin represents an HTTP proxy request with binary body
+type HTTPProxyRequestBin struct {
+	Devices   []string               `json:"devices"`
+	RequestID string                 `json:"requestId"` // hex-encoded 16-byte id
+	Method    string                 `json:"method"`
+	Path      string                 `json:"path"`
+	Query     map[string]interface{} `json:"query,omitempty"`
+	Headers   map[string]string      `json:"headers,omitempty"`
+	Port      int                    `json:"port,omitempty"`    // target HTTP port (default: 46952)
+	BodySize  int                    `json:"bodySize,omitempty"` // raw body length
+	ChunkSize int                    `json:"chunkSize,omitempty"`
+}
+
+// BinaryRoute tracks binary http forwarding routes
+type BinaryRoute struct {
+	Controller *SafeConn
+	Devices    []string
+}
+
 // ServerFileItem represents a file or directory in the server file browser
 type ServerFileItem struct {
 	Name    string `json:"name"`
@@ -224,6 +243,7 @@ var (
 	controllers      = make(map[*SafeConn]bool)
 	deviceLife       = make(map[string]int)
 	logSubscriptions = make(map[string]map[*SafeConn]bool)
+	binaryRoutes     = make(map[string]*BinaryRoute)
 
 	// Mutex for device state
 	mu sync.RWMutex
