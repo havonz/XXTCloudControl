@@ -10,6 +10,7 @@ import DeviceBindingModal from './DeviceBindingModal';
 import DictionaryModal from './DictionaryModal';
 import { ScriptSelectionModal } from './ScriptSelectionModal';
 import ServerFileBrowser from './ServerFileBrowser';
+import LogStreamModal from './LogStreamModal';
 import { 
   IconRotate, 
   IconLink, 
@@ -145,6 +146,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [showRespringConfirm, setShowRespringConfirm] = createSignal(false);
   const [showScriptSelectionModal, setShowScriptSelectionModal] = createSignal(false);
   const [showServerFileBrowser, setShowServerFileBrowser] = createSignal(false);
+  const [showLogStreamModal, setShowLogStreamModal] = createSignal(false);
+  const [logStreamDevice, setLogStreamDevice] = createSignal<Device | null>(null);
   const [showUploadModal, setShowUploadModal] = createSignal(false);
   const [modalUploadPath, setModalUploadPath] = createSignal('/lua/scripts');
   const [modalUploadFiles, setModalUploadFiles] = createSignal<ScannedFile[]>([]);
@@ -241,6 +244,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     if (device) {
       const name = device.system?.name || '未知设备';
       props.onOpenFileBrowser(device.udid, name);
+    }
+    closeContextMenu();
+  };
+
+  const handleContextMenuOpenLogStream = () => {
+    const device = contextMenuDevice();
+    if (device) {
+      setLogStreamDevice(device);
+      setShowLogStreamModal(true);
     }
     closeContextMenu();
   };
@@ -1775,6 +1787,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
           selectedDevices={props.selectedDevices()}
         />
+
+        <LogStreamModal
+          isOpen={showLogStreamModal()}
+          device={logStreamDevice()}
+          onClose={() => {
+            setShowLogStreamModal(false);
+            setLogStreamDevice(null);
+          }}
+          webSocketService={props.webSocketService}
+        />
         
         {/* Device Context Menu */}
         <ContextMenu
@@ -1809,6 +1831,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               <ContextMenuButton onClick={handleContextMenuCopyLastLog}>拷贝最后日志</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuCopyScriptSelect}>拷贝脚本文件名</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuOpenFileBrowser}>浏览设备文件</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuOpenLogStream}>查看实时日志</ContextMenuButton>
             </ContextMenuSection>
           </>
         </ContextMenu>

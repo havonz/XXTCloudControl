@@ -23,6 +23,65 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// addLogSubscriberLocked registers a controller as a log subscriber for a device.
+// Caller must hold mu.Lock.
+func addLogSubscriberLocked(udid string, conn *SafeConn) bool {
+	if udid == "" || conn == nil {
+		return false
+	}
+	subs := logSubscriptions[udid]
+	if subs == nil {
+		subs = make(map[*SafeConn]bool)
+		logSubscriptions[udid] = subs
+	}
+	if subs[conn] {
+		return false
+	}
+	wasEmpty := len(subs) == 0
+	subs[conn] = true
+	return wasEmpty
+}
+
+// removeLogSubscriberLocked removes a controller from a device's log subscription.
+// Caller must hold mu.Lock.
+func removeLogSubscriberLocked(udid string, conn *SafeConn) bool {
+	if udid == "" || conn == nil {
+		return false
+	}
+	subs, ok := logSubscriptions[udid]
+	if !ok {
+		return false
+	}
+	if !subs[conn] {
+		return false
+	}
+	delete(subs, conn)
+	if len(subs) == 0 {
+		delete(logSubscriptions, udid)
+		return true
+	}
+	return false
+}
+
+// removeLogSubscriberFromAllLocked removes a controller from all device log subscriptions.
+// Caller must hold mu.Lock.
+func removeLogSubscriberFromAllLocked(conn *SafeConn) []string {
+	if conn == nil {
+		return nil
+	}
+	emptied := make([]string, 0)
+	for udid, subs := range logSubscriptions {
+		if subs[conn] {
+			delete(subs, conn)
+			if len(subs) == 0 {
+				delete(logSubscriptions, udid)
+				emptied = append(emptied, udid)
+			}
+		}
+	}
+	return emptied
+}
+
 // getReadableCommandName returns a human-readable name for typical device commands
 func getReadableCommandName(cmdType string) string {
 	switch cmdType {
@@ -341,6 +400,54 @@ func handleMessage(conn *SafeConn, data Message) error {
 			}
 		}
 
+	case "control/log/subscribe":
+		if !isDataValid(data) {
+			conn.Close()
+			return nil
+		}
+		controllers[conn] = true
+
+		var req LogSubscribeRequest
+		bodyBytes, _ := json.Marshal(data.Body)
+		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+			return err
+		}
+
+		for _, udid := range req.Devices {
+			first := addLogSubscriberLocked(udid, conn)
+			if first {
+				if deviceConn, exists := deviceLinks[udid]; exists {
+					go func(dc *SafeConn) {
+						sendMessage(dc, Message{Type: "system/log/subscribe"})
+					}(deviceConn)
+				}
+			}
+		}
+
+	case "control/log/unsubscribe":
+		if !isDataValid(data) {
+			conn.Close()
+			return nil
+		}
+		controllers[conn] = true
+
+		var req LogSubscribeRequest
+		bodyBytes, _ := json.Marshal(data.Body)
+		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+			return err
+		}
+
+		for _, udid := range req.Devices {
+			last := removeLogSubscriberLocked(udid, conn)
+			if last {
+				if deviceConn, exists := deviceLinks[udid]; exists {
+					go func(dc *SafeConn) {
+						sendMessage(dc, Message{Type: "system/log/unsubscribe"})
+					}(deviceConn)
+				}
+			}
+		}
+
 	case "app/state":
 		bodyMap, ok := data.Body.(map[string]interface{})
 		if !ok {
@@ -361,6 +468,11 @@ func handleMessage(conn *SafeConn, data Message) error {
 		deviceLinksMap[conn] = udid
 		deviceTable[udid] = data.Body
 		deviceLife[udid] = DefaultDeviceLife
+		if subs, ok := logSubscriptions[udid]; ok && len(subs) > 0 {
+			go func(dc *SafeConn) {
+				sendMessage(dc, Message{Type: "system/log/subscribe"})
+			}(conn)
+		}
 
 		if len(controllers) > 0 {
 			data.UDID = udid
@@ -374,6 +486,19 @@ func handleMessage(conn *SafeConn, data Message) error {
 	case "register":
 		// Already handled by initial registration or specialized logic?
 		// Typically register is the first message.
+		return nil
+
+	case "system/log/push":
+		if udid, exists := deviceLinksMap[conn]; exists {
+			if subs, ok := logSubscriptions[udid]; ok && len(subs) > 0 {
+				data.UDID = udid
+				for controllerConn := range subs {
+					go func(cc *SafeConn, msg Message) {
+						sendMessage(cc, msg)
+					}(controllerConn, data)
+				}
+			}
+		}
 		return nil
 
 	default:
@@ -414,6 +539,14 @@ func handleDisconnection(conn *SafeConn) {
 
 	if _, isController := controllers[conn]; isController {
 		fmt.Printf("Controller %s disconnected\n", conn.RemoteAddr())
+		emptied := removeLogSubscriberFromAllLocked(conn)
+		for _, udid := range emptied {
+			if deviceConn, exists := deviceLinks[udid]; exists {
+				go func(dc *SafeConn) {
+					sendMessage(dc, Message{Type: "system/log/unsubscribe"})
+				}(deviceConn)
+			}
+		}
 		delete(controllers, conn)
 		return
 	}
@@ -430,6 +563,7 @@ func handleDisconnection(conn *SafeConn) {
 		delete(deviceTable, udid)
 		delete(deviceLinks, udid)
 		delete(deviceLife, udid)
+		delete(logSubscriptions, udid)
 
 		if len(controllers) > 0 {
 			disconnectMsg := Message{

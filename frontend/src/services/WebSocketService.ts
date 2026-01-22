@@ -209,6 +209,64 @@ export class WebSocketService {
     }
   }
 
+  async subscribeDeviceLogs(deviceUdids: string[]): Promise<void> {
+    if (!this.password) {
+      console.error('未设置密码，无法订阅日志');
+      return;
+    }
+
+    if (!deviceUdids || deviceUdids.length === 0) {
+      console.error('未选择设备，无法订阅日志');
+      return;
+    }
+
+    try {
+      const { AuthService } = await import('./AuthService');
+      const authService = AuthService.getInstance();
+
+      const message = authService.createControlMessage(
+        this.password,
+        'control/log/subscribe',
+        {
+          devices: deviceUdids
+        }
+      );
+
+      this.send(message);
+    } catch (error) {
+      console.error('订阅日志失败:', error);
+    }
+  }
+
+  async unsubscribeDeviceLogs(deviceUdids: string[]): Promise<void> {
+    if (!this.password) {
+      console.error('未设置密码，无法取消订阅日志');
+      return;
+    }
+
+    if (!deviceUdids || deviceUdids.length === 0) {
+      console.error('未选择设备，无法取消订阅日志');
+      return;
+    }
+
+    try {
+      const { AuthService } = await import('./AuthService');
+      const authService = AuthService.getInstance();
+
+      const message = authService.createControlMessage(
+        this.password,
+        'control/log/unsubscribe',
+        {
+          devices: deviceUdids
+        }
+      );
+
+      this.send(message);
+    } catch (error) {
+      console.error('取消订阅日志失败:', error);
+    }
+  }
+
   async startScript(deviceUdids: string[], scriptName: string): Promise<void> {
     if (!this.password) {
       console.error('未设置密码，无法启动脚本');
@@ -739,6 +797,13 @@ export class WebSocketService {
       this.updateDeviceSelectedScript(message.udid, message.body.name);
       return;
     }
+
+    // 处理实时日志推送
+    if (message.type === 'system/log/push' && message.udid && message.body?.chunk) {
+      this.updateDeviceLog(message.udid, message.body.chunk);
+      this.notifyMessage(message);
+      return;
+    }
     
     // 处理设备状态消息 - 实时更新设备数据
     if (message.type === 'app/state' && message.body?.system?.udid) {
@@ -992,6 +1057,25 @@ export class WebSocketService {
       }
       this.devices[existingIndex].system.message = msg;
       
+      this.notifyDeviceUpdate([...this.devices]);
+    }
+  }
+
+  private updateDeviceLog(udid: string, chunk: string): void {
+    if (!udid || typeof chunk !== 'string') return;
+
+    const lines = chunk.split(/\r?\n/).filter(line => line.length > 0);
+    const lastLine = lines.length > 0 ? lines[lines.length - 1] : chunk.trim();
+    if (lastLine === '') {
+      return;
+    }
+
+    const existingIndex = this.devices.findIndex(d => d.udid === udid);
+    if (existingIndex >= 0) {
+      if (!this.devices[existingIndex].system) {
+        this.devices[existingIndex].system = {};
+      }
+      this.devices[existingIndex].system.log = lastLine;
       this.notifyDeviceUpdate([...this.devices]);
     }
   }

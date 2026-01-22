@@ -173,8 +173,8 @@ func downloadBindScriptHandler(c *gin.Context) {
 
 	luaScript += `
 
-if sys.xtversion():compare_version("1.3.8-20260119000000") < 0 then
-	sys.alert('该脚本仅支持 XXT 1.3.8-20260119000000 或更高版本')
+if sys.xtversion():compare_version("1.3.8-20260122000000") < 0 then
+	sys.alert('该脚本仅支持 XXT 1.3.8-20260122000000 或更高版本')
 	return
 end
 
@@ -187,7 +187,7 @@ local address = ws_proto .. "://" .. cloud_host .. ":" .. cloud_port .. "/api/ws
 local xxt_port = tonumber(type(sys.port) == "function" and sys.port() or 46952) or 46952
 
 if conf.open_cloud_control.enable then
-	if sys.alert("当前设备已被以下云控控制\n\n"..tostring(conf.open_cloud_control.address).."\n\n你是否需要解除设备被控状态？", 10, "是否解除被控", "取消", "解除被控") == 1 then
+	if sys.alert("当前设备已被以下云控控制\nThis device is currently controlled by:\n\n"..tostring(conf.open_cloud_control.address).."\n\n你是否需要解除设备被控状态？\nDo you want to unbind from this cloud control?", 30, "是否解除被控 / Unbind?", "取消 / Cancel", "解除被控 / Unbind") == 1 then
 		local c, h, r = http.put('http://127.0.0.1:'..xxt_port..'/api/config', 5, {}, json.encode{
 			cloud = {
 				enable = false,
@@ -195,11 +195,11 @@ if conf.open_cloud_control.enable then
 			}
 		})
 		if c < 300 then
-			sys.alert("已从云控解除被控状态", 10)
+			sys.alert("已从云控解除被控状态\nSuccessfully unbound from cloud control.", 10)
 		end
 	end
 else
-	if sys.alert("你确认要将设备加入到以下云控的并被其控制？\n\n"..address.."\n\n⚠️你必须确定该云控是可信的，否则设备将被恶意控制！", 10, "是否加入", "取消", "加入并被控") == 1 then
+	if sys.alert("你确认要将设备加入到以下云控并被其控制？\nAre you sure you want to bind this device to the following cloud control?\n\n"..address.."\n\n⚠️你必须确定该云控是可信的，否则设备将被恶意控制！\n⚠️ Make sure this cloud control is trusted, or your device may be maliciously controlled!", 30, "是否加入 / Bind?", "取消 / Cancel", "加入并被控 / Bind") == 1 then
 		local c, h, r = http.put('http://127.0.0.1:'..xxt_port..'/api/config', 5, {}, json.encode{
 			cloud = {
 				enable = true,
@@ -207,10 +207,12 @@ else
 			}
 		})
 		if c < 300 then
-			sys.alert("已设置绑定到云控", 10)
+			sys.alert("已设置绑定到云控\nSuccessfully bound to cloud control.", 10)
 		end
 	end
 end
+
+os.exit()
 `
 
 	c.Header("Content-Type", "text/lua")

@@ -128,6 +128,11 @@ type ControlCommand struct {
 	Body    interface{} `json:"body,omitempty"`
 }
 
+// LogSubscribeRequest represents log subscription control for devices
+type LogSubscribeRequest struct {
+	Devices []string `json:"devices"`
+}
+
 // ControlCommands represents multiple control commands
 type ControlCommands struct {
 	Devices  []string  `json:"devices"`
@@ -213,11 +218,12 @@ type AppSettings struct {
 // Global state variables
 var (
 	// Device management
-	deviceTable    = make(map[string]interface{})
-	deviceLinks    = make(map[string]*SafeConn)
-	deviceLinksMap = make(map[*SafeConn]string)
-	controllers    = make(map[*SafeConn]bool)
-	deviceLife     = make(map[string]int)
+	deviceTable      = make(map[string]interface{})
+	deviceLinks      = make(map[string]*SafeConn)
+	deviceLinksMap   = make(map[*SafeConn]string)
+	controllers      = make(map[*SafeConn]bool)
+	deviceLife       = make(map[string]int)
+	logSubscriptions = make(map[string]map[*SafeConn]bool)
 
 	// Mutex for device state
 	mu sync.RWMutex
