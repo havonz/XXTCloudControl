@@ -27,7 +27,6 @@ import {
   IconGamepad,
   IconVideo,
   IconBook,
-  IconRotateLeft,
   IconListCheck,
   IconLock,
   IconUnlock,
@@ -842,9 +841,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   };
 
   const getBatteryColor = (battery: number) => {
-    if (battery > 50) return 'var(--success)';
-    if (battery > 20) return 'var(--warning)';
-    return 'var(--danger)';
+    if (battery > 80) return 'var(--battery-5)';
+    if (battery > 60) return 'var(--battery-4)';
+    if (battery > 40) return 'var(--battery-3)';
+    if (battery > 20) return 'var(--battery-2)';
+    return 'var(--battery-1)';
   };
 
 

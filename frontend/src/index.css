@@ -42,6 +42,13 @@
   --warning-bg: rgba(217, 119, 6, 0.1);
   --info: #3b82f6;
   --info-bg: rgba(59, 130, 246, 0.1);
+
+  /* Battery Levels */
+  --battery-5: #16a34a; /* Green */
+  --battery-4: #65a30d; /* Lime */
+  --battery-3: #ca8a04; /* Yellow */
+  --battery-2: #ea580c; /* Orange */
+  --battery-1: #dc2626; /* Red */
   
   /* Interactive states */
   --hover-bg: rgba(0, 0, 0, 0.04);
@@ -156,6 +163,13 @@
   --warning-bg: rgba(245, 158, 11, 0.15);
   --info: #3b82f6;
   --info-bg: rgba(59, 130, 246, 0.15);
+
+  /* Battery Levels */
+  --battery-5: #22c55e; /* Green */
+  --battery-4: #84cc16; /* Lime */
+  --battery-3: #eab308; /* Yellow */
+  --battery-2: #f97316; /* Orange */
+  --battery-1: #ef4444; /* Red */
   
   /* Interactive states */
   --hover-bg: rgba(255, 255, 255, 0.05);
