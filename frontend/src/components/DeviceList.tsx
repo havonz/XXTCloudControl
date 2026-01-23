@@ -9,6 +9,7 @@ import styles from './DeviceList.module.css';
 import DeviceBindingModal from './DeviceBindingModal';
 import DictionaryModal from './DictionaryModal';
 import { ScriptSelectionModal } from './ScriptSelectionModal';
+import { ScriptUploadModal } from './ScriptUploadModal';
 import ServerFileBrowser from './ServerFileBrowser';
 import LogStreamModal from './LogStreamModal';
 import { 
@@ -35,7 +36,8 @@ import {
   IconPause,
   IconPowerOff,
   IconAnglesRight,
-  IconLoader
+  IconLoader,
+  IconUpload
 } from '../icons';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
@@ -156,6 +158,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [showDictionaryModal, setShowDictionaryModal] = createSignal(false);
   const [showRespringConfirm, setShowRespringConfirm] = createSignal(false);
   const [showScriptSelectionModal, setShowScriptSelectionModal] = createSignal(false);
+  const [showScriptUploadModal, setShowScriptUploadModal] = createSignal(false);
   const [showServerFileBrowser, setShowServerFileBrowser] = createSignal(false);
   const [showLogStreamModal, setShowLogStreamModal] = createSignal(false);
   const [logStreamDevice, setLogStreamDevice] = createSignal<Device | null>(null);
@@ -995,6 +998,31 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     setShowUploadModal(false);
   };
   
+  const handleUploadScript = async (scriptName: string) => {
+    try {
+      const deviceUdids = props.selectedDevices().map(d => d.udid);
+      const response = await authFetch('/api/scripts/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          devices: deviceUdids,
+          name: scriptName,
+          selectedGroups: ['__all__'],
+        }),
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        showToastMessage(`脚本已上传到 ${deviceUdids.length} 台设备: ${scriptName}`);
+      } else {
+        showToastMessage(`上传失败: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('上传脚本失败:', error);
+      showToastMessage('上传脚本失败');
+    }
+  };
+  
   const handleStopScript = () => {
     if (props.selectedDevices().length === 0) {
       console.warn('请先选择要控制的设备');
@@ -1164,14 +1192,31 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               </button>
             </div>
           
-          <button 
-            onClick={handleScriptSelection}
-            class={styles.toolbarActionButton}
-            disabled={props.selectedDevices().length === 0}
-          >
-            <IconClipboardCheck size={14} />
-            <span>选中脚本</span>
-          </button>
+            <div class={styles.scriptSelectionGroup}>
+              <button 
+                onClick={() => {
+                  if (props.selectedDevices().length === 0) {
+                    showToastMessage('请先选择设备');
+                    return;
+                  }
+                  setShowScriptUploadModal(true);
+                }}
+                class={styles.toolbarActionButton}
+                disabled={props.selectedDevices().length === 0}
+              >
+                <IconUpload size={14} />
+                <span>上传脚本</span>
+              </button>
+
+              <button 
+                onClick={handleScriptSelection}
+                class={styles.toolbarActionButton}
+                disabled={props.selectedDevices().length === 0}
+              >
+                <IconClipboardCheck size={14} />
+                <span>选中脚本</span>
+              </button>
+            </div>
           
           <div class={styles.moreActionsContainer} ref={moreActionsRef}>
             <button 
@@ -1884,6 +1929,20 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               isOpen={isOpen}
               onClose={() => setShowScriptSelectionModal(false)}
               onSelectScript={handleSelectScript}
+              selectedDeviceCount={props.selectedDevices().length}
+              serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
+            />
+          );
+        })()}
+
+        {/* 脚本上传弹窗 */}
+        {(() => {
+          const isOpen = showScriptUploadModal(); // 必要的响应式读取
+          return (
+            <ScriptUploadModal
+              isOpen={isOpen}
+              onClose={() => setShowScriptUploadModal(false)}
+              onUploadScript={handleUploadScript}
               selectedDeviceCount={props.selectedDevices().length}
               serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
             />

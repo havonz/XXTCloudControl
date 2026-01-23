@@ -260,6 +260,12 @@
   gap: 4px;
 }
 
+.scriptSelectionGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .scriptSelectWrapper {
   width: 10em; /* 固定10字宽度 */
 }
@@ -1934,11 +1940,21 @@
 
   .toolbarActionButton,
   .scriptSelectGroup,
+  .scriptSelectionGroup,
   .moreActionsContainer {
     width: 100% !important;
     min-width: 0 !important;
     margin: 0 !important;
     flex: none !important;
+  }
+
+  .scriptSelectionGroup {
+    display: flex !important;
+    gap: 4px !important;
+  }
+
+  .scriptSelectionGroup .toolbarActionButton {
+    flex: 1 !important;
   }
   
   /* Override for script control buttons inside group - must come after general toolbarActionButton */

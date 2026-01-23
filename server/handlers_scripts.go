@@ -154,6 +154,229 @@ func resolveDeviceScriptConfig(udid string, scriptName string, selectedGroups []
 	return nil
 }
 
+// scriptsSendHandler handles POST /api/scripts/send
+// Like scriptsSendAndStartHandler but only sends files, does not run the script
+func scriptsSendHandler(c *gin.Context) {
+	var req struct {
+		Devices        []string `json:"devices"`
+		Name           string   `json:"name"`
+		SelectedGroups []string `json:"selectedGroups"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if len(req.Devices) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "devices are required"})
+		return
+	}
+
+	if req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "script name is required"})
+		return
+	}
+
+	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
+	scriptPath := filepath.Join(scriptsDir, req.Name)
+
+	fileInfo, err := os.Stat(scriptPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "script not found"})
+		return
+	}
+
+	isDir := fileInfo.IsDir()
+	isPiled := false
+	if isDir {
+		if _, err := os.Stat(filepath.Join(scriptPath, "lua", "scripts")); err == nil {
+			isPiled = true
+		}
+	}
+
+	type FileData struct {
+		Path       string
+		SourcePath string
+		Data       string
+		Size       int64
+	}
+	filesToSend := make([]FileData, 0)
+
+	const LargeFileThreshold int64 = 128 * 1024
+
+	if !isDir {
+		content, err := os.ReadFile(scriptPath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script file"})
+			return
+		}
+		fileSize := int64(len(content))
+		fd := FileData{
+			Path:       "lua/scripts/" + req.Name,
+			SourcePath: scriptPath,
+			Size:       fileSize,
+		}
+		if fileSize < LargeFileThreshold {
+			fd.Data = base64.StdEncoding.EncodeToString(content)
+		}
+		filesToSend = append(filesToSend, fd)
+	} else if isPiled {
+		err := filepath.Walk(scriptPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			relPath, _ := filepath.Rel(scriptPath, path)
+			fileSize := info.Size()
+			fd := FileData{
+				Path:       strings.ReplaceAll(relPath, "\\", "/"),
+				SourcePath: path,
+				Size:       fileSize,
+			}
+			if fileSize < LargeFileThreshold {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				fd.Data = base64.StdEncoding.EncodeToString(content)
+			}
+			filesToSend = append(filesToSend, fd)
+			return nil
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script directory"})
+			return
+		}
+	} else {
+		err := filepath.Walk(scriptPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			relPath, _ := filepath.Rel(scriptPath, path)
+			fileSize := info.Size()
+			fd := FileData{
+				Path:       "lua/scripts/" + req.Name + "/" + strings.ReplaceAll(relPath, "\\", "/"),
+				SourcePath: path,
+				Size:       fileSize,
+			}
+			if fileSize < LargeFileThreshold {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				fd.Data = base64.StdEncoding.EncodeToString(content)
+			}
+			filesToSend = append(filesToSend, fd)
+			return nil
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script directory"})
+			return
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	for _, udid := range req.Devices {
+		if conn, exists := deviceLinks[udid]; exists {
+			groupConfig := resolveDeviceScriptConfig(udid, req.Name, req.SelectedGroups)
+
+			smallFiles := 0
+			largeFiles := 0
+			for _, f := range filesToSend {
+				if f.Data == "" {
+					largeFiles++
+				} else {
+					smallFiles++
+				}
+			}
+			go broadcastDeviceMessage(udid, fmt.Sprintf("上传脚本 (%d小文件, %d大文件)", smallFiles, largeFiles))
+
+			for _, f := range filesToSend {
+				if f.Data != "" {
+					finalData := f.Data
+					normalizedPath := strings.ReplaceAll(f.Path, "\\", "/")
+					isMainJson := normalizedPath == "lua/scripts/main.json" ||
+						strings.HasSuffix(normalizedPath, "/main.json")
+
+					if isMainJson && groupConfig != nil {
+						rawJson, decodeErr := base64.StdEncoding.DecodeString(f.Data)
+						if decodeErr == nil {
+							var mainObj map[string]interface{}
+							if json.Unmarshal(rawJson, &mainObj) == nil {
+								configObj, ok := mainObj["Config"].(map[string]interface{})
+								if !ok {
+									configObj = make(map[string]interface{})
+								}
+								for k, v := range groupConfig {
+									configObj[k] = v
+								}
+								mainObj["Config"] = configObj
+
+								newJson, _ := json.Marshal(mainObj)
+								finalData = base64.StdEncoding.EncodeToString(newJson)
+							}
+						}
+					}
+
+					putMsg := Message{
+						Type: "file/put",
+						Body: gin.H{
+							"path": f.Path,
+							"data": finalData,
+						},
+					}
+					go sendMessage(conn, putMsg)
+				} else {
+					go broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
+
+					md5Hash, err := calculateFileMD5(f.SourcePath)
+					if err != nil {
+						fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
+						go broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
+						continue
+					}
+
+					token := uuid.New().String()
+					transferTokensMu.Lock()
+					transferTokens[token] = &TransferToken{
+						Type:       "download",
+						FilePath:   f.SourcePath,
+						TargetPath: f.Path,
+						DeviceSN:   udid,
+						ExpiresAt:  time.Now().Add(5 * time.Minute),
+						OneTime:    true,
+						TotalBytes: f.Size,
+						MD5:        md5Hash,
+					}
+					transferTokensMu.Unlock()
+
+					downloadURL := fmt.Sprintf("http://127.0.0.1:%d/api/transfer/download/%s",
+						serverConfig.Port, token)
+
+					fetchMsg := Message{
+						Type: "transfer/fetch",
+						Body: gin.H{
+							"url":     downloadURL,
+							"path":    f.Path,
+							"md5":     md5Hash,
+							"size":    f.Size,
+							"timeout": 300,
+						},
+					}
+					go sendMessage(conn, fetchMsg)
+				}
+			}
+
+			// Broadcast completion message (no script start)
+			go broadcastDeviceMessage(udid, "脚本已上传")
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(filesToSend)})
+}
+
 // scriptsSendAndStartHandler handles POST /api/scripts/send-and-start
 func scriptsSendAndStartHandler(c *gin.Context) {
 	var req struct {

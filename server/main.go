@@ -191,6 +191,7 @@ func main() {
 
 	// Script management routes
 	r.GET("/api/scripts/selectable", selectableScriptsHandler)
+	r.POST("/api/scripts/send", scriptsSendHandler)
 	r.POST("/api/scripts/send-and-start", scriptsSendAndStartHandler)
 	r.GET("/api/scripts/config-status", scriptConfigStatusHandler)
 	r.GET("/api/scripts/config", scriptConfigGetHandler)
