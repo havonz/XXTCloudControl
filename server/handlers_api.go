@@ -15,30 +15,41 @@ import (
 )
 
 // getRequestSignature extracts signature from request headers or query params
-func getRequestSignature(c *gin.Context) (int64, string, error) {
+func getRequestSignature(c *gin.Context) (int64, string, string, error) {
 	ts := c.GetHeader("X-XXT-TS")
+	nonce := c.GetHeader("X-XXT-Nonce")
 	sign := c.GetHeader("X-XXT-Sign")
-	if ts == "" || sign == "" {
-		ts = c.Query("ts")
-		sign = c.Query("sign")
+	if ts == "" || nonce == "" || sign == "" {
+		ts = c.Query(authQueryTSKey)
+		nonce = c.Query(authQueryNonceKey)
+		sign = c.Query(authQuerySignKey)
 	}
-	if ts == "" || sign == "" {
-		return 0, "", fmt.Errorf("missing signature")
+	if ts == "" || nonce == "" || sign == "" {
+		return 0, "", "", fmt.Errorf("missing signature")
 	}
 	parsedTS, err := strconv.ParseInt(ts, 10, 64)
 	if err != nil {
-		return 0, "", fmt.Errorf("invalid timestamp")
+		return 0, "", "", fmt.Errorf("invalid timestamp")
 	}
-	return parsedTS, sign, nil
+	return parsedTS, nonce, sign, nil
 }
 
 // isRequestAuthorized checks if the request has valid authorization
 func isRequestAuthorized(c *gin.Context) bool {
-	ts, sign, err := getRequestSignature(c)
+	ts, nonce, sign, err := getRequestSignature(c)
 	if err != nil {
 		return false
 	}
-	return isSignatureValid(ts, sign)
+	var bodyBytes []byte
+	contentType := c.GetHeader("Content-Type")
+	if !strings.HasPrefix(contentType, "multipart/form-data") {
+		bodyBytes, c.Request.Body, err = readRequestBodyBytes(c.Request.Body)
+		if err != nil {
+			return false
+		}
+	}
+	canonicalPath := canonicalRequestPath(c.Request.URL)
+	return verifyHTTPRequestSignature(ts, nonce, sign, c.Request.Method, canonicalPath, bodyBytes)
 }
 
 // apiAuthMiddleware provides API authentication middleware
@@ -76,7 +87,7 @@ func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-XXT-TS, X-XXT-Sign")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-XXT-TS, X-XXT-Nonce, X-XXT-Sign")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusOK)

@@ -3,6 +3,9 @@ import solid from 'vite-plugin-solid';
 
 export default defineConfig({
   plugins: [solid()],
+  define: {
+    'import.meta.env.VITE_XXT_AUTH_DEBUG': '"1"',
+  },
   server: {
     port: 3000,
     https: false, // 可以设置为 true 启用HTTPS，但需要证书

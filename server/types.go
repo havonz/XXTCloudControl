@@ -117,6 +117,7 @@ type Message struct {
 	Body      interface{} `json:"body,omitempty"`
 	RequestID string      `json:"requestId,omitempty"`
 	TS        int64       `json:"ts,omitempty"`
+	Nonce     string      `json:"nonce,omitempty"`
 	Sign      string      `json:"sign,omitempty"`
 	UDID      string      `json:"udid,omitempty"`
 	Error     string      `json:"error,omitempty"`

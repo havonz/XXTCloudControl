@@ -304,11 +304,11 @@ server {
 ## WebSocket 约定
 
 - WebSocket 地址：`ws://<host>:<port>/api/ws`
-- 控制端消息需包含 `ts`/`sign`，时间戳允许 ±10 秒漂移。
+- 控制端消息需包含 `ts`/`nonce`/`sign`，时间戳允许 ±60 秒漂移，`nonce` 在 120 秒内不可重复。
 
 ## 鉴权与签名算法（HTTP/WS 通用）
 
-本项目的鉴权不使用固定 token，而是使用「短时效动态签名」：客户端每次请求携带当前秒级时间戳 `ts` 与签名 `sign`，服务端在允许的时间窗口内校验签名正确性。
+本项目的鉴权不使用固定 token，而是使用「短时效动态签名」：客户端每次请求携带当前秒级时间戳 `ts`、随机 `nonce` 与签名 `sign`，服务端在允许的时间窗口内校验签名正确性，并做 nonce 去重。
 
 ### 1) 密码与 passhash
 
@@ -318,15 +318,39 @@ server {
 
 ### 2) sign 计算方式
 
-控制签名使用 `passhash` 作为 HMAC key，对时间戳字符串做二次 HMAC：
+控制签名使用 `passhash` 作为 HMAC key，对规范化后的基串做 HMAC：
 
-- `sign = HMAC-SHA256(key=passhash, message=str(ts))`，结果为 hex 字符串。
+#### HTTP 基串
+
+```
+base = ts "\n" nonce "\n" METHOD "\n" PATH_AND_QUERY "\n" bodyHash
+```
+
+- `METHOD`：请求方法（GET/POST/PUT/DELETE…）
+- `PATH_AND_QUERY`：`path` + 排序后的 query（去除 `ts/nonce/sign`）
+- `bodyHash`：
+  - 普通请求体：`SHA-256(bodyBytes)` 的 hex
+  - 空 body 或 multipart（`multipart/form-data`）暂不参与：`bodyHash = ""`
+
+#### WebSocket 基串
+
+```
+base = ts "\n" nonce "\n" type "\n" bodyHash
+```
+
+- `type`：消息类型（如 `control/devices`）
+- `bodyHash`：对 `body` 的 JSON 结果做 `SHA-256`（hex）；没有 body 则为空字符串
+
+最终签名：
+
+- `sign = HMAC-SHA256(key=passhash, message=base)`，结果为 hex 字符串。
 
 > 注意：这里的 `key=passhash` 指的是 **passhash 的 hex 字符串本身**（按字符串字节参与 HMAC），不是把 hex 解码为 32 字节后再参与计算。
 
 ### 3) 服务端校验规则
 
-- 允许的时间漂移：`ts` 在服务端当前时间 `±10` 秒内才会继续校验。
+- 允许的时间漂移：`ts` 在服务端当前时间 `±60` 秒内才会继续校验。
+- `nonce` 在 `120` 秒内不可重复（重复视为重放）。
 - 校验失败返回 `401 Unauthorized`（HTTP）或直接关闭连接（WebSocket 控制端消息）。
 
 ### 4) HTTP API 鉴权方案
@@ -346,10 +370,11 @@ HTTP 请求可用两种携带方式（二选一）：
 
 1. **请求头（推荐）**
    - `X-XXT-TS: <ts>`
+   - `X-XXT-Nonce: <nonce>`
    - `X-XXT-Sign: <sign>`
 
 2. **Query 参数（适用于下载/`window.open`/`img` 等无法方便加自定义 header 的场景）**
-   - `?ts=<ts>&sign=<sign>`
+   - `?ts=<ts>&nonce=<nonce>&sign=<sign>`
 
 示例：
 
@@ -357,12 +382,13 @@ HTTP 请求可用两种携带方式（二选一）：
 # 查询分组（header 方式）
 curl -sS \
   -H "X-XXT-TS: 1700000000" \
+  -H "X-XXT-Nonce: <nonce>" \
   -H "X-XXT-Sign: <hex-sign>" \
   http://127.0.0.1:46980/api/groups
 
 # 下载服务器文件（query 方式）
 curl -L -o out.bin \
-  "http://127.0.0.1:46980/api/server-files/download/scripts/demo.lua?ts=1700000000&sign=<hex-sign>"
+  "http://127.0.0.1:46980/api/server-files/download/scripts/demo.lua?ts=1700000000&nonce=<nonce>&sign=<hex-sign>"
 ```
 
 ### 控制端通用消息格式
@@ -370,6 +396,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command|control/commands|control/devices|control/refresh",
   "body": {}
@@ -383,6 +410,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/http",
   "body": {
@@ -419,6 +447,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/devices"
 }
@@ -440,6 +469,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/refresh"
 }
@@ -451,6 +481,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/commands",
   "body": {
@@ -471,6 +502,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -488,6 +520,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -505,6 +538,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -521,6 +555,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -537,6 +572,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -554,6 +590,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -571,6 +608,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -589,6 +627,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -602,6 +641,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -615,6 +655,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -632,6 +673,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -648,6 +690,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -667,6 +710,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -680,6 +724,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -699,6 +744,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -716,6 +762,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -733,6 +780,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -751,6 +799,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {
@@ -767,6 +816,7 @@ curl -L -o out.bin \
 ```json
 {
   "ts": 1700000000,
+  "nonce": "<nonce>",
   "sign": "hex-sign",
   "type": "control/command",
   "body": {

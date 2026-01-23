@@ -187,7 +187,9 @@ const LoginForm: Component<LoginFormProps> = (props) => {
           
           if (info.serverTime) {
             const now = Math.floor(Date.now() / 1000);
-            setTimeOffset(info.serverTime - now);
+            const offset = info.serverTime - now;
+            setTimeOffset(offset);
+            authService.setServerTimeOffset(offset);
             setServerUnixTime(info.serverTime);
           }
         }

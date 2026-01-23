@@ -1,4 +1,4 @@
-import { authFetch, withAuthHeaders } from './httpAuth';
+import { authFetch } from './httpAuth';
 
 const LARGE_FILE_THRESHOLD = 128 * 1024; // 128KB
 
@@ -166,9 +166,8 @@ export class FileTransferService {
       formData.append('category', 'files');
       formData.append('path', '_temp');
       
-      const uploadResponse = await fetch(`${this.baseUrl}/api/server-files/upload`, {
+      const uploadResponse = await authFetch(`${this.baseUrl}/api/server-files/upload`, {
         method: 'POST',
-        headers: withAuthHeaders(),
         body: formData,
       });
       
@@ -267,4 +266,3 @@ export class FileTransferService {
 }
 
 export default FileTransferService;
-

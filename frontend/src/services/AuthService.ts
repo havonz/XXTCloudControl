@@ -20,6 +20,7 @@ export class AuthService {
   private static instance: AuthService;
   private isAuthenticated: boolean = false;
   private currentCredentials: LoginCredentials | null = null;
+  private serverTimeOffsetSec: number = 0;
 
   static getInstance(): AuthService {
     if (!AuthService.instance) {
@@ -29,6 +30,33 @@ export class AuthService {
   }
 
   private constructor() {}
+
+  /**
+   * 设置服务端时间偏移（serverTime - localTime，单位秒）
+   */
+  setServerTimeOffset(offsetSeconds: number) {
+    if (Number.isFinite(offsetSeconds)) {
+      this.serverTimeOffsetSec = Math.round(offsetSeconds);
+    }
+  }
+
+  /**
+   * 获取用于签名的时间戳（本地时间 + 服务端偏移）
+   */
+  getServerTimestamp(): number {
+    return Math.floor(Date.now() / 1000) + this.serverTimeOffsetSec;
+  }
+
+  private isAuthDebugEnabled(): boolean {
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('xxt_auth_debug') === '1') {
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+    return Boolean(import.meta?.env?.VITE_XXT_AUTH_DEBUG);
+  }
 
   /**
    * 纯JavaScript SHA-256实现（完全不依赖crypto API）
@@ -174,27 +202,99 @@ export class AuthService {
   }
 
   /**
-   * 生成控制命令的签名
+   * 计算 SHA-256 十六进制摘要
    */
-  generateSignature(password: string, timestamp: number): string {
-    let passhash: string;
-    
-    // 检查是否是预计算的密码hash
-    if (password.startsWith('__STORED_PASSHASH__')) {
-      // 直接使用存储的passhash，不再重新计算
-      passhash = password.substring('__STORED_PASSHASH__'.length);
+  public sha256HexFromBytes(data: Uint8Array): string {
+    const hash = this.sha256(data);
+    return Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
 
-    } else {
-      // passhash = hmacSHA256("XXTouch", password)
-      passhash = this.hmacSHA256("XXTouch", password);
+  /**
+   * 计算字符串的 SHA-256 十六进制摘要
+   */
+  public sha256HexFromString(value: string): string {
+    return this.sha256HexFromBytes(new TextEncoder().encode(value));
+  }
 
+  /**
+   * 生成随机 nonce（32 字节十六进制）
+   */
+  public generateNonce(): string {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  /**
+   * 生成稳定 JSON 字符串（按 key 排序）
+   */
+  public stableStringify(value: any): string {
+    if (value === null) return 'null';
+    const type = typeof value;
+    if (type === 'number') return Number.isFinite(value) ? String(value) : 'null';
+    if (type === 'boolean') return String(value);
+    if (type === 'string') return JSON.stringify(value);
+    if (type !== 'object') return JSON.stringify(value);
+    if (typeof value.toJSON === 'function') {
+      return this.stableStringify(value.toJSON());
     }
-    
-    // sign = hmacSHA256(passhash, 秒级时间戳转换成字符串)
-    const sign = this.hmacSHA256(passhash, timestamp.toString());
-    
+    if (Array.isArray(value)) {
+      return `[${value.map(item => this.stableStringify(item)).join(',')}]`;
+    }
+    const keys = Object.keys(value).sort();
+    const parts: string[] = [];
+    for (const key of keys) {
+      const v = value[key];
+      if (typeof v === 'undefined') continue;
+      parts.push(`${JSON.stringify(key)}:${this.stableStringify(v)}`);
+    }
+    return `{${parts.join(',')}}`;
+  }
 
-    return sign;
+  private getPasshash(password: string): string {
+    if (password.startsWith('__STORED_PASSHASH__')) {
+      return password.substring('__STORED_PASSHASH__'.length);
+    }
+    return this.hmacSHA256('XXTouch', password);
+  }
+
+  private buildHttpSignatureBase(ts: number, nonce: string, method: string, path: string, bodyHash: string): string {
+    return `${ts}\n${nonce}\n${method}\n${path}\n${bodyHash}`;
+  }
+
+  private buildMessageSignatureBase(ts: number, nonce: string, type: string, bodyHash: string): string {
+    return `${ts}\n${nonce}\n${type}\n${bodyHash}`;
+  }
+
+  /**
+   * 生成 HTTP 请求签名
+   */
+  public generateHttpSignature(
+    password: string,
+    timestamp: number,
+    nonce: string,
+    method: string,
+    path: string,
+    bodyHash: string
+  ): string {
+    const passhash = this.getPasshash(password);
+    const base = this.buildHttpSignatureBase(timestamp, nonce, method, path, bodyHash);
+    return this.hmacSHA256(passhash, base);
+  }
+
+  /**
+   * 生成 WebSocket 消息签名
+   */
+  public generateMessageSignature(
+    password: string,
+    timestamp: number,
+    nonce: string,
+    type: string,
+    bodyHash: string
+  ): string {
+    const passhash = this.getPasshash(password);
+    const base = this.buildMessageSignatureBase(timestamp, nonce, type, bodyHash);
+    return this.hmacSHA256(passhash, base);
   }
 
   /**
@@ -202,8 +302,8 @@ export class AuthService {
    * 对于 control/command 类型的消息，会自动生成 requestId 用于请求-响应匹配
    */
   createControlMessage(password: string, type: string, body?: any): any {
-    const timestamp = Math.floor(Date.now() / 1000);
-    const signature = this.generateSignature(password, timestamp);
+    const timestamp = this.getServerTimestamp();
+    const nonce = this.generateNonce();
     
     // 对于 control/command 消息，自动生成 requestId
     let finalBody = body;
@@ -213,9 +313,26 @@ export class AuthService {
         requestId: body.requestId || crypto.randomUUID()
       };
     }
+
+    const bodyHash = finalBody === undefined ? '' : this.sha256HexFromString(this.stableStringify(finalBody));
+    const signature = this.generateMessageSignature(password, timestamp, nonce, type, bodyHash);
+    if (this.isAuthDebugEnabled()) {
+      try {
+        console.log('[auth][ws] signature', {
+          type,
+          ts: timestamp,
+          nonce,
+          bodyHash,
+          sign: signature,
+        });
+      } catch {
+        // ignore
+      }
+    }
     
     return {
       ts: timestamp,
+      nonce: nonce,
       sign: signature,
       type: type,
       body: finalBody

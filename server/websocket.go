@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -172,27 +170,9 @@ func getReadableCommandName(cmdType string) string {
 	return ""
 }
 
-// isSignatureValid validates a timestamp-based signature
-func isSignatureValid(timestamp int64, sign string) bool {
-	if timestamp == 0 || sign == "" {
-		return false
-	}
-
-	currentTime := time.Now().Unix()
-	if timestamp < currentTime-10 || timestamp > currentTime+10 {
-		return false
-	}
-
-	h := hmac.New(sha256.New, passhash)
-	h.Write([]byte(strconv.FormatInt(timestamp, 10)))
-	expectedSign := hex.EncodeToString(h.Sum(nil))
-
-	return hmac.Equal([]byte(expectedSign), []byte(sign))
-}
-
 // isDataValid validates message signature
 func isDataValid(data Message) bool {
-	return isSignatureValid(data.TS, data.Sign)
+	return verifyMessageSignature(data)
 }
 
 // resetDeviceLife resets a device's life counter to default
