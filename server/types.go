@@ -113,19 +113,21 @@ func (sc *SafeConn) RemoteAddr() string {
 
 // Message represents a WebSocket message
 type Message struct {
-	Type  string      `json:"type"`
-	Body  interface{} `json:"body,omitempty"`
-	TS    int64       `json:"ts,omitempty"`
-	Sign  string      `json:"sign,omitempty"`
-	UDID  string      `json:"udid,omitempty"`
-	Error string      `json:"error,omitempty"`
+	Type      string      `json:"type"`
+	Body      interface{} `json:"body,omitempty"`
+	RequestID string      `json:"requestId,omitempty"`
+	TS        int64       `json:"ts,omitempty"`
+	Sign      string      `json:"sign,omitempty"`
+	UDID      string      `json:"udid,omitempty"`
+	Error     string      `json:"error,omitempty"`
 }
 
 // ControlCommand represents a single control command
 type ControlCommand struct {
-	Devices []string    `json:"devices"`
-	Type    string      `json:"type"`
-	Body    interface{} `json:"body,omitempty"`
+	Devices   []string    `json:"devices"`
+	Type      string      `json:"type"`
+	Body      interface{} `json:"body,omitempty"`
+	RequestID string      `json:"requestId,omitempty"`
 }
 
 // LogSubscribeRequest represents log subscription control for devices
@@ -165,7 +167,7 @@ type HTTPProxyRequestBin struct {
 	Path      string                 `json:"path"`
 	Query     map[string]interface{} `json:"query,omitempty"`
 	Headers   map[string]string      `json:"headers,omitempty"`
-	Port      int                    `json:"port,omitempty"`    // target HTTP port (default: 46952)
+	Port      int                    `json:"port,omitempty"`     // target HTTP port (default: 46952)
 	BodySize  int                    `json:"bodySize,omitempty"` // raw body length
 	ChunkSize int                    `json:"chunkSize,omitempty"`
 }

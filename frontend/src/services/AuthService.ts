@@ -199,16 +199,26 @@ export class AuthService {
 
   /**
    * 创建控制命令消息
+   * 对于 control/command 类型的消息，会自动生成 requestId 用于请求-响应匹配
    */
   createControlMessage(password: string, type: string, body?: any): any {
     const timestamp = Math.floor(Date.now() / 1000);
     const signature = this.generateSignature(password, timestamp);
     
+    // 对于 control/command 消息，自动生成 requestId
+    let finalBody = body;
+    if (type === 'control/command' && body && typeof body === 'object') {
+      finalBody = {
+        ...body,
+        requestId: body.requestId || crypto.randomUUID()
+      };
+    }
+    
     return {
       ts: timestamp,
       sign: signature,
       type: type,
-      body: body
+      body: finalBody
     };
   }
 

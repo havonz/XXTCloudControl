@@ -11,6 +11,14 @@ export interface Device {
 // Pending file list request callback type
 type FileListCallback = (files: Array<{name: string; type: 'file' | 'directory'; size?: number}>) => void;
 
+// Pending request for requestId-based matching
+interface PendingRequest<T = any> {
+  resolve: (value: T) => void;
+  reject: (reason?: any) => void;
+  timeout: ReturnType<typeof setTimeout>;
+  type: string; // The expected response type
+}
+
 export class WebSocketService {
   private ws: WebSocket | null = null;
   private url: string;
@@ -24,8 +32,11 @@ export class WebSocketService {
   private deviceCallbacks: ((devices: Device[]) => void)[] = [];
   private authCallbacks: ((success: boolean, error?: string) => void)[] = [];
   
-  // Pending file list requests by deviceUdid
+  // Pending file list requests by deviceUdid (legacy, kept for compatibility)
   private pendingFileListCallbacks: Map<string, FileListCallback[]> = new Map();
+  
+  // Pending requests by requestId for precise request-response matching
+  private pendingRequestsById: Map<string, PendingRequest> = new Map();
   
   private devices: Device[] = [];
   private password: string = '';
@@ -267,6 +278,64 @@ export class WebSocketService {
     }
   }
 
+  /**
+   * 发送命令并等待响应（基于 requestId 匹配）
+   * @param deviceUdids 目标设备列表
+   * @param commandType 命令类型，如 'file/list', 'script/run' 等
+   * @param body 命令参数
+   * @param timeoutMs 超时时间（毫秒），默认 10000
+   * @returns Promise 解析为响应消息
+   */
+  async sendCommandAsync(
+    deviceUdids: string[],
+    commandType: string,
+    body?: any,
+    timeoutMs: number = 10000
+  ): Promise<any> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
+      throw new Error('WebSocket未连接或未认证');
+    }
+
+    return new Promise((resolve, reject) => {
+      const message = AuthService.getInstance().createControlMessage(
+        this.password,
+        'control/command',
+        {
+          devices: deviceUdids,
+          type: commandType,
+          body: body
+        }
+      );
+
+      const requestId = message.body?.requestId;
+      if (!requestId) {
+        reject(new Error('未能生成 requestId'));
+        return;
+      }
+
+      // 设置超时
+      const timeout = setTimeout(() => {
+        this.pendingRequestsById.delete(requestId);
+        reject(new Error(`命令超时: ${commandType}`));
+      }, timeoutMs);
+
+      // 注册 pending request
+      this.pendingRequestsById.set(requestId, {
+        resolve,
+        reject,
+        timeout,
+        type: commandType
+      });
+
+      // 发送消息
+      if (!this.send(message)) {
+        clearTimeout(timeout);
+        this.pendingRequestsById.delete(requestId);
+        reject(new Error('发送消息失败'));
+      }
+    });
+  }
+
   async startScript(deviceUdids: string[], scriptName: string): Promise<void> {
     if (!this.password) {
       console.error('未设置密码，无法启动脚本');
@@ -469,62 +538,34 @@ export class WebSocketService {
   }
 
   // 列出文件目录 (Promise 版本，用于递归扫描)
+  // 使用 sendCommandAsync 实现精确的 requestId 匹配
   async listFilesAsync(deviceUdid: string, path: string): Promise<Array<{name: string; type: 'file' | 'directory'; size?: number}>> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
-      console.error('WebSocket未连接或未认证');
+    try {
+      const response = await this.sendCommandAsync(
+        [deviceUdid],
+        'file/list',
+        { path: path.trim() },
+        10000
+      );
+      
+      // 转换文件类型格式
+      if (response.body && Array.isArray(response.body)) {
+        return response.body.map((f: any) => ({
+          name: f.name,
+          type: f.type === 'dir' ? 'directory' as const : 'file' as const,
+          size: f.size
+        }));
+      }
+      
+      // 如果有错误，返回空数组
+      if (response.error) {
+        console.warn(`listFilesAsync 失败: ${response.error}`);
+      }
+      return [];
+    } catch (error) {
+      console.error('获取文件列表失败:', error);
       return [];
     }
-
-    return new Promise((resolve) => {
-      // 注册回调
-      const callbacks = this.pendingFileListCallbacks.get(deviceUdid) || [];
-      callbacks.push(resolve);
-      this.pendingFileListCallbacks.set(deviceUdid, callbacks);
-
-      // 设置超时
-      const timeout = setTimeout(() => {
-        // 移除回调
-        const cbs = this.pendingFileListCallbacks.get(deviceUdid) || [];
-        const idx = cbs.indexOf(resolve);
-        if (idx >= 0) cbs.splice(idx, 1);
-        if (cbs.length === 0) {
-          this.pendingFileListCallbacks.delete(deviceUdid);
-        }
-        console.warn(`listFilesAsync 超时: ${deviceUdid}:${path}`);
-        resolve([]);
-      }, 10000);
-
-      try {
-        const message = AuthService.getInstance().createControlMessage(
-          this.password,
-          'control/command',
-          {
-            devices: [deviceUdid],
-            type: 'file/list',
-            body: {
-              path: path.trim()
-            }
-          }
-        );
-        
-        this.send(message);
-
-        // 保存timeout引用以便在响应时清除
-        (resolve as any)._timeout = timeout;
-
-      } catch (error) {
-        console.error('获取文件列表失败:', error);
-        clearTimeout(timeout);
-        // 移除回调
-        const cbs = this.pendingFileListCallbacks.get(deviceUdid) || [];
-        const idx = cbs.indexOf(resolve);
-        if (idx >= 0) cbs.splice(idx, 1);
-        if (cbs.length === 0) {
-          this.pendingFileListCallbacks.delete(deviceUdid);
-        }
-        resolve([]);
-      }
-    });
   }
 
   // 删除文件
@@ -769,6 +810,18 @@ export class WebSocketService {
 
   private handleMessage(message: any): void {
 
+    // 首先检查是否有匹配的 pending request（基于 requestId）
+    if (message.requestId) {
+      const pending = this.pendingRequestsById.get(message.requestId);
+      if (pending) {
+        // 清除超时
+        clearTimeout(pending.timeout);
+        this.pendingRequestsById.delete(message.requestId);
+        // 解析 Promise
+        pending.resolve(message);
+        // 继续处理消息（如更新设备状态等）
+      }
+    }
     
     // 处理设备断开连接消息
     if (message.type === 'device/disconnect' && message.body) {

@@ -328,8 +328,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 
 		cmdMsg := Message{
-			Type: cmdBody.Type,
-			Body: cmdBody.Body,
+			Type:      cmdBody.Type,
+			Body:      cmdBody.Body,
+			RequestID: cmdBody.RequestID,
 		}
 
 		readableName := getReadableCommandName(cmdBody.Type)
