@@ -403,6 +403,68 @@ export class WebSocketService {
     }
   }
 
+  async pauseScript(deviceUdids: string[]): Promise<void> {
+    if (!this.password) {
+      console.error('未设置密码，无法暂停脚本');
+      return;
+    }
+
+    if (!deviceUdids || deviceUdids.length === 0) {
+      console.error('未选择设备，无法暂停脚本');
+      return;
+    }
+
+    try {
+      const { AuthService } = await import('./AuthService');
+      const authService = AuthService.getInstance();
+      
+      const message = authService.createControlMessage(
+        this.password,
+        'control/command',
+        {
+          devices: deviceUdids,
+          type: 'script/pause'
+        }
+      );
+      
+      this.send(message);
+
+    } catch (error) {
+      console.error('暂停脚本失败:', error);
+    }
+  }
+
+  async resumeScript(deviceUdids: string[]): Promise<void> {
+    if (!this.password) {
+      console.error('未设置密码，无法继续脚本');
+      return;
+    }
+
+    if (!deviceUdids || deviceUdids.length === 0) {
+      console.error('未选择设备，无法继续脚本');
+      return;
+    }
+
+    try {
+      const { AuthService } = await import('./AuthService');
+      const authService = AuthService.getInstance();
+      
+      const message = authService.createControlMessage(
+        this.password,
+        'control/command',
+        {
+          devices: deviceUdids,
+          type: 'script/resume'
+        }
+      );
+      
+      this.send(message);
+
+    } catch (error) {
+      console.error('继续脚本失败:', error);
+    }
+  }
+
   async respringDevices(deviceUdids: string[]): Promise<void> {
     if (!this.password) {
       console.error('未设置密码，无法注销设备');

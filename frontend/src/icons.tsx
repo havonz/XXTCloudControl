@@ -1,4 +1,4 @@
-import type { JSX } from 'solid-js';
+// FontAwesome Solid icons
 
 // FontAwesome Solid icons
 export {
@@ -19,7 +19,9 @@ export {
   FaSolidFloppyDisk as IconFloppyDisk,
   FaSolidPen as IconPen,
   FaSolidICursor as IconICursor,
+  FaSolidPause as IconPause,
   FaSolidPlay as IconPlay,
+  FaSolidPowerOff as IconPowerOff,
   FaSolidStop as IconStop,
   FaSolidPlus as IconPlus,
   FaSolidFileCirclePlus as IconFileCirclePlus,
@@ -42,6 +44,9 @@ export {
   FaSolidXmark as IconXmark,
   FaSolidMoon as IconMoon,
   FaSolidSun as IconSun,
+  FaSolidLock as IconLock,
+  FaSolidUnlock as IconUnlock,
+  FaSolidVolumeHigh as IconVolumeHigh,
   FaSolidClipboardCheck as IconClipboardCheck,
   FaSolidEllipsis as IconEllipsis,
   FaSolidSliders as IconSliders,

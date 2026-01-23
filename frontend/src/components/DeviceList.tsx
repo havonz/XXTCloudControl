@@ -27,7 +27,13 @@ import {
   IconVideo,
   IconBook,
   IconRotateLeft,
-  IconListCheck
+  IconListCheck,
+  IconLock,
+  IconUnlock,
+  IconSun,
+  IconVolumeHigh,
+  IconPause,
+  IconPowerOff
 } from '../icons';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
@@ -36,6 +42,9 @@ import ScriptConfigModal from './ScriptConfigModal';
 import { authFetch } from '../services/httpAuth';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
 import ContextMenu, { ContextMenuButton, ContextMenuDivider, ContextMenuSection } from './ContextMenu';
+import BrightnessModal from '../modals/domain/BrightnessModal';
+import VolumeModal from '../modals/domain/VolumeModal';
+import { DeviceControlService } from '../services/DeviceControlService';
 
 
 interface DeviceListProps {
@@ -156,6 +165,30 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   // More actions menu state
   const [showMoreActions, setShowMoreActions] = createSignal(false);
+  
+  // Device control modals state
+  const [showBrightnessModal, setShowBrightnessModal] = createSignal(false);
+  const [brightnessValue, setBrightnessValue] = createSignal(50);
+  const [isSettingBrightness, setIsSettingBrightness] = createSignal(false);
+  const [showVolumeModal, setShowVolumeModal] = createSignal(false);
+  const [volumeValue, setVolumeValue] = createSignal(50);
+  const [isSettingVolume, setIsSettingVolume] = createSignal(false);
+  
+  // DeviceControlService instance (lazily created when needed)
+  let deviceControlService: DeviceControlService | null = null;
+  const getDeviceControlService = () => {
+    if (!deviceControlService && props.webSocketService) {
+      const password = authService.getCurrentCredentials()?.password || '';
+      deviceControlService = new DeviceControlService(props.webSocketService, password);
+    }
+    return deviceControlService;
+  };
+  
+  // Device control operation messages (temporary messages shown in "消息" column)
+  const [deviceControlMessages, setDeviceControlMessages] = createSignal<Record<string, string>>({});
+  const setDeviceMessage = (udid: string, message: string) => {
+    setDeviceControlMessages(prev => ({ ...prev, [udid]: message }));
+  };
   
   // Device context menu state
   const [contextMenuDevice, setContextMenuDevice] = createSignal<Device | null>(null);
@@ -1181,6 +1214,115 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 </button>
                 <button 
                   class={styles.menuItem}
+                  onClick={async () => {
+                    setShowMoreActions(false);
+                    const service = getDeviceControlService();
+                    if (!service || props.selectedDevices().length === 0) return;
+                    const devices = props.selectedDevices();
+                    // Show pending message for each device
+                    devices.forEach(d => setDeviceMessage(d.udid, '正在锁定屏幕...'));
+                    const result = await service.lockScreen(devices.map(d => d.udid));
+                    // Update with result
+                    devices.forEach(d => setDeviceMessage(d.udid, result.success ? '已锁定屏幕' : `锁定失败: ${result.error}`));
+                  }}
+                  disabled={props.selectedDevices().length === 0}
+                >
+                  <IconLock size={14} />
+                  <span>锁定屏幕</span>
+                </button>
+                <button 
+                  class={styles.menuItem}
+                  onClick={async () => {
+                    setShowMoreActions(false);
+                    const service = getDeviceControlService();
+                    if (!service || props.selectedDevices().length === 0) return;
+                    const devices = props.selectedDevices();
+                    // Show pending message for each device
+                    devices.forEach(d => setDeviceMessage(d.udid, '正在解锁屏幕...'));
+                    const result = await service.unlockScreen(devices.map(d => d.udid));
+                    // Update with result
+                    devices.forEach(d => setDeviceMessage(d.udid, result.success ? '已解锁屏幕' : `解锁失败: ${result.error}`));
+                  }}
+                  disabled={props.selectedDevices().length === 0}
+                >
+                  <IconUnlock size={14} />
+                  <span>解锁屏幕</span>
+                </button>
+                <button 
+                  class={styles.menuItem}
+                  onClick={() => {
+                    setShowMoreActions(false);
+                    if (props.selectedDevices().length > 0) {
+                      setShowBrightnessModal(true);
+                    }
+                  }}
+                  disabled={props.selectedDevices().length === 0}
+                >
+                  <IconSun size={14} />
+                  <span>设置屏幕亮度</span>
+                </button>
+                <button 
+                  class={styles.menuItem}
+                  onClick={() => {
+                    setShowMoreActions(false);
+                    if (props.selectedDevices().length > 0) {
+                      setShowVolumeModal(true);
+                    }
+                  }}
+                  disabled={props.selectedDevices().length === 0}
+                >
+                  <IconVolumeHigh size={14} />
+                  <span>设置音量</span>
+                </button>
+                <button 
+                  class={styles.menuItem}
+                  onClick={async () => {
+                    setShowMoreActions(false);
+                    if (!props.webSocketService || props.selectedDevices().length === 0) return;
+                    const devices = props.selectedDevices();
+                    devices.forEach(d => setDeviceMessage(d.udid, '正在暂停脚本...'));
+                    await props.webSocketService.pauseScript(devices.map(d => d.udid));
+                    devices.forEach(d => setDeviceMessage(d.udid, '已发送暂停命令'));
+                  }}
+                  disabled={props.selectedDevices().length === 0}
+                >
+                  <IconPause size={14} />
+                  <span>暂停脚本</span>
+                </button>
+                <button 
+                  class={styles.menuItem}
+                  onClick={async () => {
+                    setShowMoreActions(false);
+                    if (!props.webSocketService || props.selectedDevices().length === 0) return;
+                    const devices = props.selectedDevices();
+                    devices.forEach(d => setDeviceMessage(d.udid, '正在继续脚本...'));
+                    await props.webSocketService.resumeScript(devices.map(d => d.udid));
+                    devices.forEach(d => setDeviceMessage(d.udid, '已发送继续命令'));
+                  }}
+                  disabled={props.selectedDevices().length === 0}
+                >
+                  <IconPlay size={14} />
+                  <span>继续脚本</span>
+                </button>
+                <button 
+                  class={styles.menuItem}
+                  onClick={async () => {
+                    setShowMoreActions(false);
+                    if (!props.webSocketService || props.selectedDevices().length === 0) return;
+                    if (await dialog.confirm(`确定要重启选中的 ${props.selectedDevices().length} 台设备吗？此操作将重启设备系统。`)) {
+                      const devices = props.selectedDevices();
+                      devices.forEach(d => setDeviceMessage(d.udid, '正在重启设备...'));
+                      await props.webSocketService.rebootDevices(devices.map(d => d.udid));
+                      devices.forEach(d => setDeviceMessage(d.udid, '已发送重启命令'));
+                    }
+                  }}
+                  disabled={props.selectedDevices().length === 0}
+                >
+                  <IconPowerOff size={14} />
+                  <span>重启设备</span>
+                </button>
+                <button 
+                  class={styles.menuItem}
                   onClick={() => {
                     handleRespringDevices();
                     setShowMoreActions(false);
@@ -1519,9 +1661,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         <div class={styles.tableCell}>
                           <div 
                             class={styles.deviceMessage}
-                            title={device.system?.message || '无消息'}
+                            title={deviceControlMessages()[device.udid] || device.system?.message || '无消息'}
                           >
-                            {device.system?.message || ''}
+                            {deviceControlMessages()[device.udid] || device.system?.message || ''}
                           </div>
                         </div>
                       </Show>
@@ -1845,6 +1987,60 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         scriptInfo={scriptConfigManager.scriptInfo()}
         onClose={scriptConfigManager.closeConfig}
         onSubmit={scriptConfigManager.submitConfig}
+      />
+
+      {/* Brightness Modal */}
+      <BrightnessModal
+        open={showBrightnessModal()}
+        setting={isSettingBrightness()}
+        value={brightnessValue()}
+        onChange={setBrightnessValue}
+        onCancel={() => setShowBrightnessModal(false)}
+        selectedDeviceCount={props.selectedDevices().length}
+        onConfirm={async () => {
+          const service = getDeviceControlService();
+          if (!service || props.selectedDevices().length === 0) {
+            setShowBrightnessModal(false);
+            return;
+          }
+          setIsSettingBrightness(true);
+          const devices = props.selectedDevices();
+          devices.forEach(d => setDeviceMessage(d.udid, `正在设置亮度: ${brightnessValue()}%...`));
+          try {
+            const result = await service.setBrightness(devices.map(d => d.udid), brightnessValue());
+            devices.forEach(d => setDeviceMessage(d.udid, result.success ? `亮度已设置: ${brightnessValue()}%` : `设置亮度失败: ${result.error}`));
+          } finally {
+            setIsSettingBrightness(false);
+            setShowBrightnessModal(false);
+          }
+        }}
+      />
+
+      {/* Volume Modal */}
+      <VolumeModal
+        open={showVolumeModal()}
+        setting={isSettingVolume()}
+        value={volumeValue()}
+        onChange={setVolumeValue}
+        onCancel={() => setShowVolumeModal(false)}
+        selectedDeviceCount={props.selectedDevices().length}
+        onConfirm={async () => {
+          const service = getDeviceControlService();
+          if (!service || props.selectedDevices().length === 0) {
+            setShowVolumeModal(false);
+            return;
+          }
+          setIsSettingVolume(true);
+          const devices = props.selectedDevices();
+          devices.forEach(d => setDeviceMessage(d.udid, `正在设置音量: ${volumeValue()}%...`));
+          try {
+            const result = await service.setVolume(devices.map(d => d.udid), volumeValue());
+            devices.forEach(d => setDeviceMessage(d.udid, result.success ? `音量已设置: ${volumeValue()}%` : `设置音量失败: ${result.error}`));
+          } finally {
+            setIsSettingVolume(false);
+            setShowVolumeModal(false);
+          }
+        }}
       />
     </div>
   );
