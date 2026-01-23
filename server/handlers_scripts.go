@@ -42,11 +42,13 @@ func isSelectableScript(basePath string, name string, isDir bool) bool {
 }
 
 // selectableScriptsHandler handles GET /api/scripts/selectable
+// Returns a list of scripts with name (display name) and path (actual script to select)
+// For piled scripts, path is "main.lua" or "main.xxt" depending on entry point
 func selectableScriptsHandler(c *gin.Context) {
 	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
 
 	if _, err := os.Stat(scriptsDir); os.IsNotExist(err) {
-		c.JSON(http.StatusOK, gin.H{"scripts": []string{}})
+		c.JSON(http.StatusOK, gin.H{"scripts": []gin.H{}})
 		return
 	}
 
@@ -56,16 +58,43 @@ func selectableScriptsHandler(c *gin.Context) {
 		return
 	}
 
-	selectableScripts := make([]string, 0)
+	type ScriptEntry struct {
+		Name string `json:"name"` // Display name (file or folder name)
+		Path string `json:"path"` // Actual script path to select
+	}
+
+	selectableScripts := make([]ScriptEntry, 0)
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
 
-		if isSelectableScript(scriptsDir, name, entry.IsDir()) {
-			selectableScripts = append(selectableScripts, name)
+		if !isSelectableScript(scriptsDir, name, entry.IsDir()) {
+			continue
 		}
+
+		scriptPath := name // Default: use the name as-is
+
+		if entry.IsDir() {
+			fullPath := filepath.Join(scriptsDir, name)
+
+			// Check if it's a piled script (has lua/scripts/ structure)
+			mainLua := filepath.Join(fullPath, "lua", "scripts", "main.lua")
+			mainXxt := filepath.Join(fullPath, "lua", "scripts", "main.xxt")
+
+			if _, err := os.Stat(mainLua); err == nil {
+				scriptPath = "main.lua"
+			} else if _, err := os.Stat(mainXxt); err == nil {
+				scriptPath = "main.xxt"
+			}
+			// For .xpp directories, keep the name as-is
+		}
+
+		selectableScripts = append(selectableScripts, ScriptEntry{
+			Name: name,
+			Path: scriptPath,
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"scripts": selectableScripts})

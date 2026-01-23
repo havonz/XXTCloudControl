@@ -33,7 +33,9 @@ import {
   IconSun,
   IconVolumeHigh,
   IconPause,
-  IconPowerOff
+  IconPowerOff,
+  IconAnglesRight,
+  IconLoader
 } from '../icons';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
@@ -499,8 +501,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       const response = await authFetch('/api/scripts/selectable');
       const data = await response.json();
       
-      if (data.scripts) {
-        setSelectableScripts(data.scripts);
+      if (data.scripts && Array.isArray(data.scripts)) {
+        // API returns array of {name, path} objects, extract names
+        const names = data.scripts.map((s: { name: string; path: string }) => s.name);
+        setSelectableScripts(names);
       }
     } catch (error) {
       console.error('获取可选脚本失败:', error);
@@ -1301,8 +1305,19 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
-                  <IconPlay size={14} />
+                  <IconAnglesRight size={14} />
                   <span>继续脚本</span>
+                </button>
+                <button 
+                  class={styles.menuItem}
+                  onClick={() => {
+                    handleRespringDevices();
+                    setShowMoreActions(false);
+                  }}
+                  disabled={props.selectedDevices().length === 0}
+                >
+                  <IconLoader size={14} />
+                  <span>注销设备</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1320,17 +1335,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 >
                   <IconPowerOff size={14} />
                   <span>重启设备</span>
-                </button>
-                <button 
-                  class={styles.menuItem}
-                  onClick={() => {
-                    handleRespringDevices();
-                    setShowMoreActions(false);
-                  }}
-                  disabled={props.selectedDevices().length === 0}
-                >
-                  <IconRotateLeft size={14} />
-                  <span>注销设备</span>
                 </button>
               </div>
             </Show>
@@ -1881,6 +1885,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               onClose={() => setShowScriptSelectionModal(false)}
               onSelectScript={handleSelectScript}
               selectedDeviceCount={props.selectedDevices().length}
+              serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
             />
           );
         })()}

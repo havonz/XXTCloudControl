@@ -21,6 +21,7 @@ export {
   FaSolidICursor as IconICursor,
   FaSolidPause as IconPause,
   FaSolidPlay as IconPlay,
+  FaSolidAnglesRight as IconAnglesRight,
   FaSolidPowerOff as IconPowerOff,
   FaSolidStop as IconStop,
   FaSolidPlus as IconPlus,
@@ -84,3 +85,6 @@ export {
 
 // Vs icons
 export { VsTerminalDebian as IconTerminalDebian } from 'solid-icons/vs';
+
+// Feather icons
+export { FiLoader as IconLoader } from 'solid-icons/fi';

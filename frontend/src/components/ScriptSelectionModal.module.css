@@ -80,6 +80,7 @@
 
 .inputGroup {
   margin-bottom: 1rem;
+  width: 100%;
 }
 
 .label {
@@ -93,7 +94,8 @@
 .inputRow {
   display: flex;
   gap: 0.75rem;
-  align-items: center;
+  align-items: stretch;
+  width: 100%;
 }
 
 .input {
@@ -120,6 +122,134 @@
 .input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Select Dropdown Styles */
+.selectRoot {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+
+.selectControl {
+  width: 100%;
+}
+
+.selectTrigger {
+  width: 100%;
+  padding: 0.75rem;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.selectTrigger:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.selectTrigger:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--focus-ring);
+}
+
+.selectTrigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.selectValue {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdownArrow {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  transition: transform 0.2s ease;
+}
+
+.selectPositioner {
+  z-index: 100000 !important;
+  width: var(--reference-width, auto) !important;
+}
+
+.selectContent {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 0.25rem;
+  width: 100%;
+  min-width: 200px;
+}
+
+.selectItem {
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.selectItem:hover {
+  background: var(--hover-bg);
+}
+
+.selectItem[data-highlighted] {
+  background: var(--hover-bg);
+}
+
+.selectItem[data-state="checked"] {
+  background: var(--primary-bg);
+}
+
+.selectItemContent {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.selectItemIndicator {
+  color: var(--primary);
+  font-weight: bold;
+  width: 1rem;
+}
+
+.emptyMessage {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.loadingMessage {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.errorMessage {
+  padding: 1rem;
+  text-align: center;
+  color: var(--error);
+  font-size: 0.9rem;
+  background: var(--error-bg);
+  border-radius: 8px;
+  margin-bottom: 1rem;
 }
 
 .selectButton {
