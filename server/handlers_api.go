@@ -49,7 +49,7 @@ func apiAuthMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if path == "/api/download-bind-script" || path == "/api/ws" || path == "/api/config" {
+		if path == "/api/download-bind-script" || path == "/api/ws" || path == "/api/config" || path == "/api/control/info" {
 			c.Next()
 			return
 		}
@@ -140,6 +140,29 @@ window.XXTConfig = %s;
 console.log('Server config loaded (port: %d):', window.XXTConfig);`, string(configBytes), serverConfig.Port)
 
 	c.String(http.StatusOK, configJS)
+}
+
+// controlInfoHandler handles the /api/control/info endpoint
+// Returns the same configuration as /api/config, but always in JSON format.
+// No authentication required.
+func controlInfoHandler(c *gin.Context) {
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.JSON(http.StatusOK, gin.H{
+		"version":    Version,
+		"serverTime": time.Now().Unix(),
+		"websocket": gin.H{
+			"port":              serverConfig.Port,
+			"path":              "/api/ws",
+			"autoReconnect":     true,
+			"reconnectInterval": 3000,
+		},
+		"ui": gin.H{
+			"screenCaptureScale":    30,
+			"maxScreenshotWaitTime": 500,
+			"fpsUpdateInterval":     1000,
+			"isLocal":               isLocalRequest(c),
+		},
+	})
 }
 
 // downloadBindScriptHandler handles the /api/download-bind-script endpoint

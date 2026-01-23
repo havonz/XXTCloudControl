@@ -158,18 +158,21 @@ const LoginForm: Component<LoginFormProps> = (props) => {
       try {
         const proto = window.location.protocol === 'https:' ? 'https' : 'http';
         const baseUrl = `${proto}://${currentServer}:${currentPort}`;
-        const response = await fetch(`${baseUrl}/api/config?format=json`, {
+        
+        // Fetch server info (version and time) from control/info endpoint
+        const response = await fetch(`${baseUrl}/api/control/info`, {
           signal: versionFetchController.signal
         });
         if (response.ok) {
-          const config = await response.json();
-          if (config.version) {
-            setServerVersion(config.version);
+          const info = await response.json();
+          
+          if (info.version) {
+            setServerVersion(info.version);
             
             // 版本检查：如果缓存版本存在且与服务器版本不同，触发刷新
             const cachedVersion = localStorage.getItem(VERSION_CACHE_KEY);
-            if (cachedVersion && cachedVersion !== config.version) {
-              toast.showWarning(`检测到新版本 ${config.version}，3秒后自动刷新...`, 3000);
+            if (cachedVersion && cachedVersion !== info.version) {
+              toast.showWarning(`检测到新版本 ${info.version}，3秒后自动刷新...`, 3000);
               
               // 清除缓存版本并在3秒后刷新
               setTimeout(() => {
@@ -178,13 +181,14 @@ const LoginForm: Component<LoginFormProps> = (props) => {
               }, 3000);
             } else if (!cachedVersion) {
               // 如果没有缓存版本，存储当前版本
-              localStorage.setItem(VERSION_CACHE_KEY, config.version);
+              localStorage.setItem(VERSION_CACHE_KEY, info.version);
             }
           }
-          if (config.serverTime) {
+          
+          if (info.serverTime) {
             const now = Math.floor(Date.now() / 1000);
-            setTimeOffset(config.serverTime - now);
-            setServerUnixTime(config.serverTime);
+            setTimeOffset(info.serverTime - now);
+            setServerUnixTime(info.serverTime);
           }
         }
       } catch (e) {

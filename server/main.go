@@ -173,6 +173,7 @@ func main() {
 
 	// General API routes
 	r.GET("/api/config", configHandler)
+	r.GET("/api/control/info", controlInfoHandler)
 	r.GET("/api/download-bind-script", downloadBindScriptHandler)
 
 	// Server file management routes
