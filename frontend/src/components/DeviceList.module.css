@@ -1037,6 +1037,12 @@
   border: 1px solid var(--success);
 }
 
+.runningStatus.paused {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+
 .runningStatus.stopped {
   background: var(--panel-2);
   color: var(--text-muted);
@@ -1727,6 +1733,11 @@
 .cardRunningStatus.running {
   background: var(--success-bg);
   color: var(--success);
+}
+
+.cardRunningStatus.paused {
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 
 .cardRunningStatus.stopped {

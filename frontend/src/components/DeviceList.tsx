@@ -1701,7 +1701,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                       <Show when={visibleColumns().includes('running')}>
                         <div class={styles.tableCell}>
                           <div 
-                            class={`${styles.runningStatus} ${info.running ? styles.running : styles.stopped}`}
+                            class={`${styles.runningStatus} ${info.running ? (info.paused ? styles.paused : styles.running) : styles.stopped}`}
                             title={device.script?.select || '无脚本'}
                           >
                             {info.running ? (info.paused ? '暂停中' : '运行中') : '已停止'}
@@ -1774,7 +1774,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         >
                           {info.battery}%
                         </div>
-                        <div class={`${styles.cardRunningStatus} ${info.running ? styles.running : styles.stopped}`}>
+                        <div class={`${styles.cardRunningStatus} ${info.running ? (info.paused ? styles.paused : styles.running) : styles.stopped}`}>
                           {info.running ? (info.paused ? '暂停中' : '运行中') : '已停止'}
                         </div>
                       </div>
