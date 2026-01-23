@@ -161,6 +161,7 @@ func scriptsSendHandler(c *gin.Context) {
 		Devices        []string `json:"devices"`
 		Name           string   `json:"name"`
 		SelectedGroups []string `json:"selectedGroups"`
+		ServerBaseUrl  string   `json:"serverBaseUrl"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -352,17 +353,22 @@ func scriptsSendHandler(c *gin.Context) {
 					}
 					transferTokensMu.Unlock()
 
-					downloadURL := fmt.Sprintf("http://127.0.0.1:%d/api/transfer/download/%s",
-						serverConfig.Port, token)
+					// Build download URL using serverBaseUrl if provided, otherwise fallback to localhost
+					downloadURL := fmt.Sprintf("/api/transfer/download/%s", token)
+					if req.ServerBaseUrl != "" {
+						downloadURL = req.ServerBaseUrl + downloadURL
+					} else {
+						downloadURL = fmt.Sprintf("http://127.0.0.1:%d%s", serverConfig.Port, downloadURL)
+					}
 
 					fetchMsg := Message{
 						Type: "transfer/fetch",
 						Body: gin.H{
-							"url":     downloadURL,
-							"path":    f.Path,
-							"md5":     md5Hash,
-							"size":    f.Size,
-							"timeout": 300,
+							"url":        downloadURL,
+							"targetPath": f.Path,
+							"md5":        md5Hash,
+							"totalBytes": f.Size,
+							"timeout":    300,
 						},
 					}
 					go sendMessage(conn, fetchMsg)
@@ -383,6 +389,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		Devices        []string `json:"devices"`
 		Name           string   `json:"name"`
 		SelectedGroups []string `json:"selectedGroups"`
+		ServerBaseUrl  string   `json:"serverBaseUrl"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -596,19 +603,22 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 					transferTokensMu.Unlock()
 
 					// Build download URL (device will download from server)
-					// Note: Device should know the server address, we use relative path
-					downloadURL := fmt.Sprintf("http://127.0.0.1:%d/api/transfer/download/%s",
-						serverConfig.Port, token)
+					downloadURL := fmt.Sprintf("/api/transfer/download/%s", token)
+					if req.ServerBaseUrl != "" {
+						downloadURL = req.ServerBaseUrl + downloadURL
+					} else {
+						downloadURL = fmt.Sprintf("http://127.0.0.1:%d%s", serverConfig.Port, downloadURL)
+					}
 
 					// Send transfer/fetch command to device
 					fetchMsg := Message{
 						Type: "transfer/fetch",
 						Body: gin.H{
-							"url":     downloadURL,
-							"path":    f.Path,
-							"md5":     md5Hash,
-							"size":    f.Size,
-							"timeout": 300, // 5 minutes
+							"url":        downloadURL,
+							"targetPath": f.Path,
+							"md5":        md5Hash,
+							"totalBytes": f.Size,
+							"timeout":    300, // 5 minutes
 						},
 					}
 					go sendMessage(conn, fetchMsg)

@@ -559,6 +559,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 devices: group.deviceIds,
                 name: scriptToRun,
                 selectedGroups: [group.groupId],
+                serverBaseUrl: window.location.origin,
               }),
             });
             
@@ -597,6 +598,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             devices: selectedDeviceIds,
             name: effectiveScriptName,
             selectedGroups: ['__all__'],
+            serverBaseUrl: window.location.origin,
           }),
         });
         
@@ -1008,6 +1010,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           devices: deviceUdids,
           name: scriptName,
           selectedGroups: ['__all__'],
+          serverBaseUrl: window.location.origin,
         }),
       });
       
