@@ -55,6 +55,81 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
     return Date.now() - lastTouchTimestamp < TOUCH_MOUSE_GUARD_MS;
   };
+  const MOVE_EPSILON = 0.0015;
+  let pendingMove: { x: number; y: number } | null = null;
+  let moveRafId: number | null = null;
+  let lastSentMove: { x: number; y: number } | null = null;
+  const LAG_THRESHOLD_MS = 180;
+  const LAG_RECOVER_MS = 80;
+  const CATCHUP_PLAYBACK_RATE = 1.15;
+  let isCatchupActive = false;
+
+  const sendMove = (coords: { x: number; y: number }) => {
+    if (webrtcService) {
+      webrtcService.sendTouchCommand('move', coords.x, coords.y);
+    }
+    const targetDevices = getTargetDevices();
+    if (targetDevices.length > 0 && props.webSocketService) {
+      props.webSocketService.touchMoveMultipleNormalized(targetDevices, coords.x, coords.y);
+    }
+  };
+
+  const shouldSkipMove = (coords: { x: number; y: number }) => {
+    if (!lastSentMove) return false;
+    const dx = coords.x - lastSentMove.x;
+    const dy = coords.y - lastSentMove.y;
+    return (dx * dx + dy * dy) < MOVE_EPSILON * MOVE_EPSILON;
+  };
+
+  const scheduleMoveSend = (coords: { x: number; y: number }) => {
+    pendingMove = coords;
+    if (moveRafId !== null) return;
+    moveRafId = requestAnimationFrame(() => {
+      moveRafId = null;
+      if (!pendingMove) return;
+      const next = pendingMove;
+      pendingMove = null;
+      if (shouldSkipMove(next)) return;
+      sendMove(next);
+      lastSentMove = next;
+    });
+  };
+
+  const flushQueuedMove = () => {
+    if (moveRafId !== null) {
+      cancelAnimationFrame(moveRafId);
+      moveRafId = null;
+    }
+    if (!pendingMove) return;
+    const next = pendingMove;
+    pendingMove = null;
+    if (shouldSkipMove(next)) return;
+    sendMove(next);
+    lastSentMove = next;
+  };
+
+  const resetMoveState = () => {
+    pendingMove = null;
+    if (moveRafId !== null) {
+      cancelAnimationFrame(moveRafId);
+      moveRafId = null;
+    }
+    lastSentMove = null;
+  };
+
+  const updatePlaybackRateForLag = (lagMs: number) => {
+    if (!videoRef || !Number.isFinite(lagMs)) return;
+    const clampedLagMs = Math.max(0, lagMs);
+    if (!isCatchupActive && clampedLagMs > LAG_THRESHOLD_MS) {
+      videoRef.playbackRate = CATCHUP_PLAYBACK_RATE;
+      isCatchupActive = true;
+      return;
+    }
+    if (isCatchupActive && clampedLagMs <= LAG_RECOVER_MS) {
+      videoRef.playbackRate = 1.0;
+      isCatchupActive = false;
+    }
+  };
 
   let videoRef: HTMLVideoElement | undefined;
   let videoContainerRef: HTMLDivElement | undefined;
@@ -232,6 +307,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     setRemoteStream(null);
     if (videoRef) {
       videoRef.srcObject = null;
+      videoRef.playbackRate = 1.0;
     }
     setConnectionState('disconnected');
     stopStatsMonitoring();
@@ -243,6 +319,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     lastBytesReceived = 0;
     lastFramesDecoded = 0;
     lastTimestamp = 0;
+    isCatchupActive = false;
+    if (videoRef) {
+      videoRef.playbackRate = 1.0;
+    }
 
     statsInterval = window.setInterval(async () => {
       if (!webrtcService) return;
@@ -257,6 +337,19 @@ export default function WebRTCControl(props: WebRTCControlProps) {
             const now = Date.now();
             const bytesReceived = report.bytesReceived || 0;
             const framesDecoded = report.framesDecoded || 0;
+            let lagMs = NaN;
+            if (typeof report.estimatedPlayoutTimestamp === 'number') {
+              lagMs = report.estimatedPlayoutTimestamp - performance.now();
+            } else if (
+              typeof report.jitterBufferDelay === 'number' &&
+              typeof report.jitterBufferEmittedCount === 'number' &&
+              report.jitterBufferEmittedCount > 0
+            ) {
+              lagMs = (report.jitterBufferDelay / report.jitterBufferEmittedCount) * 1000;
+            }
+            if (Number.isFinite(lagMs)) {
+              updatePlaybackRateForLag(lagMs);
+            }
 
             if (lastTimestamp > 0) {
               const timeDiff = (now - lastTimestamp) / 1000;
@@ -305,6 +398,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     lastBytesReceived = 0;
     lastFramesDecoded = 0;
     lastTimestamp = 0;
+    isCatchupActive = false;
+    if (videoRef) {
+      videoRef.playbackRate = 1.0;
+    }
   };
 
   // 选择控制设备
@@ -416,6 +513,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (event.button !== 0) return;
     if (shouldIgnoreMouseEvent(event)) return;
     event.preventDefault();
+    resetMoveState();
 
     // 移除其他元素的焦点，以便键盘事件可以被捕获
     if (document.activeElement instanceof HTMLElement) {
@@ -451,6 +549,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     // 如果离开了视频区域且正在触摸，发送 touch up（使用最后位置）
     if (!coords && isTouching()) {
+      flushQueuedMove();
       if (webrtcService) {
         webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
       }
@@ -459,6 +558,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
         props.webSocketService.touchUpMultipleNormalized(targetDevices);
       }
       setIsTouching(false);
+      resetMoveState();
       return;
     }
     
@@ -467,16 +567,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     // 记录触摸位置
     lastTouchPosition = coords;
 
-    // 1. 始终控制当前设备（通过 WebRTC DataChannel）
-    if (webrtcService) {
-      webrtcService.sendTouchCommand('move', coords.x, coords.y);
-    }
-
-    // 2. 如果开启同步控制，控制其他设备（通过 WebSocket）
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.touchMoveMultipleNormalized(targetDevices, coords.x, coords.y);
-    }
+    scheduleMoveSend(coords);
   };
 
   const handleMouseUp = (event: MouseEvent) => {
@@ -485,6 +576,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     if (!isTouching()) return;
 
+    flushQueuedMove();
     const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
     const finalCoords = coords ?? lastTouchPosition;
 
@@ -500,12 +592,14 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
     
     setIsTouching(false);
+    resetMoveState();
   };
   
   // 鼠标离开视频区域时处理
   const handleMouseLeave = (event: MouseEvent) => {
     if (shouldIgnoreMouseEvent(event)) return;
     if (isTouching()) {
+      flushQueuedMove();
       if (webrtcService) {
         webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
       }
@@ -514,6 +608,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
         props.webSocketService.touchUpMultipleNormalized(targetDevices);
       }
       setIsTouching(false);
+      resetMoveState();
     }
   };
 
@@ -521,6 +616,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const handleTouchStart = (event: TouchEvent) => {
     event.preventDefault();
     lastTouchTimestamp = Date.now();
+    resetMoveState();
     
     // 移除其他元素的焦点
     if (document.activeElement instanceof HTMLElement) {
@@ -560,17 +656,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (!coords) return;
 
     lastTouchPosition = coords;
-
-    // 1. 始终控制当前设备（通过 WebRTC DataChannel）
-    if (webrtcService) {
-      webrtcService.sendTouchCommand('move', coords.x, coords.y);
-    }
-
-    // 2. 如果开启同步控制，控制其他设备（通过 WebSocket）
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.touchMoveMultipleNormalized(targetDevices, coords.x, coords.y);
-    }
+    scheduleMoveSend(coords);
   };
 
   const handleTouchEnd = (event: TouchEvent) => {
@@ -579,6 +665,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     if (!isTouching()) return;
 
+    flushQueuedMove();
     // 1. 始终控制当前设备（通过 WebRTC DataChannel）
     if (webrtcService) {
       webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
@@ -591,6 +678,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
     
     setIsTouching(false);
+    resetMoveState();
   };
 
   const handleContextMenu = (event: MouseEvent) => {
