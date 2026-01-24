@@ -225,6 +225,20 @@ export class WebRTCService {
           });
 
           if (track.kind === 'video') {
+            if (event.receiver && 'playoutDelayHint' in event.receiver) {
+              try {
+                event.receiver.playoutDelayHint = 0;
+              } catch (error) {
+                console.warn('[WebRTC] 设置播放延迟提示失败:', error);
+              }
+            }
+            if (event.receiver && 'jitterBufferTarget' in event.receiver) {
+              try {
+                event.receiver.jitterBufferTarget = 0;
+              } catch (error) {
+                console.warn('[WebRTC] 设置抖动缓冲目标失败:', error);
+              }
+            }
             let stream = streams[0];
             if (!stream) {
               stream = new MediaStream([track]);
