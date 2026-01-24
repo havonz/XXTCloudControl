@@ -47,6 +47,14 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   // 触摸状态跟踪
   const [isTouching, setIsTouching] = createSignal(false);
   let lastTouchPosition = { x: 0, y: 0 }; // 记录最后触摸位置
+  const TOUCH_MOUSE_GUARD_MS = 800;
+  let lastTouchTimestamp = 0;
+  const shouldIgnoreMouseEvent = (event: MouseEvent) => {
+    if (event.sourceCapabilities?.firesTouchEvents) {
+      return true;
+    }
+    return Date.now() - lastTouchTimestamp < TOUCH_MOUSE_GUARD_MS;
+  };
 
   let videoRef: HTMLVideoElement | undefined;
   let videoContainerRef: HTMLDivElement | undefined;
@@ -406,6 +414,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   const handleMouseDown = (event: MouseEvent) => {
     if (event.button !== 0) return;
+    if (shouldIgnoreMouseEvent(event)) return;
     event.preventDefault();
 
     // 移除其他元素的焦点，以便键盘事件可以被捕获
@@ -435,6 +444,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   const handleMouseMove = (event: MouseEvent) => {
     if (event.buttons !== 1) return;
+    if (shouldIgnoreMouseEvent(event)) return;
     event.preventDefault();
 
     const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
@@ -470,6 +480,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   };
 
   const handleMouseUp = (event: MouseEvent) => {
+    if (shouldIgnoreMouseEvent(event)) return;
     event.preventDefault();
     
     if (!isTouching()) return;
@@ -492,7 +503,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   };
   
   // 鼠标离开视频区域时处理
-  const handleMouseLeave = () => {
+  const handleMouseLeave = (event: MouseEvent) => {
+    if (shouldIgnoreMouseEvent(event)) return;
     if (isTouching()) {
       if (webrtcService) {
         webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
@@ -508,6 +520,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   // 移动端触摸事件处理
   const handleTouchStart = (event: TouchEvent) => {
     event.preventDefault();
+    lastTouchTimestamp = Date.now();
     
     // 移除其他元素的焦点
     if (document.activeElement instanceof HTMLElement) {
@@ -538,6 +551,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   const handleTouchMove = (event: TouchEvent) => {
     event.preventDefault();
+    lastTouchTimestamp = Date.now();
 
     const touch = event.touches[0];
     if (!touch) return;
@@ -561,6 +575,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   const handleTouchEnd = (event: TouchEvent) => {
     event.preventDefault();
+    lastTouchTimestamp = Date.now();
     
     if (!isTouching()) return;
 
