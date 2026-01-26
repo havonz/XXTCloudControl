@@ -32,7 +32,7 @@ platforms=(
 
 # 获取构建信息
 BUILD_TIME=$(date -u '+%Y%m%d%H%M')
-VERSION="v$(date '+%Y%m%d%H%M%S')"
+VERSION="v$(date -u '+%Y%m%d%H%M%S')"
 COMMIT=$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 # 构建 ldflags
