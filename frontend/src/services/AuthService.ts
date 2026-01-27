@@ -226,6 +226,28 @@ export class AuthService {
   }
 
   /**
+   * 生成 UUID（支持非安全上下文）
+   * 在 HTTPS 或 localhost 环境下使用 crypto.randomUUID()，
+   * 在 HTTP 环境下使用 crypto.getRandomValues() 作为后备方案
+   */
+  public generateUUID(): string {
+    // crypto.randomUUID 仅在安全上下文（HTTPS/localhost）下可用
+    if (typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    // 后备方案：使用 crypto.getRandomValues 生成 UUIDv4
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    // 设置 UUIDv4 版本位 (version 4)
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    // 设置变体位 (variant 1)
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    // 转换为 UUID 字符串格式
+    const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  }
+
+  /**
    * 生成稳定 JSON 字符串（按 key 排序）
    */
   public stableStringify(value: any): string {
@@ -310,7 +332,7 @@ export class AuthService {
     if (type === 'control/command' && body && typeof body === 'object') {
       finalBody = {
         ...body,
-        requestId: body.requestId || crypto.randomUUID()
+        requestId: body.requestId || this.generateUUID()
       };
     }
 

@@ -208,7 +208,10 @@ export class FileTransferService {
   ): Promise<{ success: boolean; error?: string; token?: string; savePath?: string }> {
     try {
       // Pull file from device to server's "files" category
-      const uuid = crypto.randomUUID().slice(0, 8);
+      // 使用兼容非安全上下文的 UUID 生成方式
+      const uuidBytes = new Uint8Array(4);
+      crypto.getRandomValues(uuidBytes);
+      const uuid = Array.from(uuidBytes).map(b => b.toString(16).padStart(2, '0')).join('');
       const savePath = `_temp/${fileName}_${uuid}`;
       
       const pullResult = await this.pullFromDevice(
