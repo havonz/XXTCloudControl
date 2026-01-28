@@ -141,14 +141,17 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   let lastTimestamp = 0;
   let lastAppliedResolution = 0;
 
+  // 最大允许像素限制 (720 x 1280 = 921600)
+  const MAX_PIXELS = 720 * 1280;
+
   // 计算目标分辨率缩放比例
   const targetResolution = createMemo(() => {
     const device = getCurrentDevice();
-    const limit = resolution();
-    const size = displaySize();
+    const userLimit = resolution(); // 用户拖动的分辨率百分比
+    const size = displaySize(); // 浏览器容器尺寸
     
     if (!device?.system?.scrw || !device?.system?.scrh || size.width <= 0 || size.height <= 0) {
-      return limit;
+      return userLimit;
     }
 
     let nativeW = device.system.scrw;
@@ -162,21 +165,52 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       nativeH = tmp;
     }
 
-    // 计算为了充满显示区域所需的比例
-    const scaleW = size.width / nativeW;
-    const scaleH = size.height / nativeH;
+    // 候选1：用户设置的缩放比例
+    const userScale = userLimit;
     
-    // 我们取宽高中较大的比例，以确保画面细节足够（或者取较小以节省带宽，这里取较小符合"最小值"逻辑）
-    // 实际上对于视频流，我们通常希望 requested_res >= display_res
-    // 如果 display 是 500x500, native 是 1000x1000, 那么 scale=0.5 刚好 1:1 像素映射
-    // 这里采用 Math.min(limit, Math.max(scaleW, scaleH)) 可能会更清晰，
-    // 但根据用户要求是 "minimum of control-side display and scaled maximum", 
-    // 这意味着我们不希望发送比显示区域大太多的像素。
-    const fitScale = Math.max(scaleW, scaleH); // 使用 max 确保至少有一边是 1:1，覆盖整个容器
-    const finalScale = Math.min(limit, fitScale);
+    // 候选2：让设备画面完全放入容器所需的缩放比例
+    // 设备画面会保持原始宽高比，所以我们取宽和高中较小的缩放比例
+    // 需要考虑 devicePixelRatio，将 CSS 逻辑像素转换为物理像素
+    const dpr = window.devicePixelRatio || 1;
+    const containerPhysicalW = size.width * dpr;
+    const containerPhysicalH = size.height * dpr;
+    const containerScaleW = containerPhysicalW / nativeW;
+    const containerScaleH = containerPhysicalH / nativeH;
+    const containerScale = Math.min(containerScaleW, containerScaleH);
     
-    // 限制范围在 0.1 - 1.0 (后端通常支持到 0.25，但我们稍微放宽点，或者保持 0.25)
-    return Math.max(0.25, Math.min(1.0, finalScale));
+    // 候选3：720x1280 像素限制所需的缩放比例
+    // 如果 nativeW * scale * nativeH * scale <= MAX_PIXELS
+    // 则 scale <= sqrt(MAX_PIXELS / (nativeW * nativeH))
+    const nativePixels = nativeW * nativeH;
+    // 向下取整到小数点后两位，确保严格不超过像素限制
+    const pixelLimitScale = Math.floor(Math.sqrt(MAX_PIXELS / nativePixels) * 100) / 100;
+    
+    // 取三者中最小的
+    const finalScale = Math.min(userScale, containerScale, pixelLimitScale);
+    
+    // 限制范围在 0.25 - 1.0
+    const clampedScale = Math.max(0.25, Math.min(1.0, finalScale));
+    
+    // 向下取整到偶数（视频编码如 H.264 要求宽高为偶数）
+    const floorToEven = (n: number) => Math.floor(n / 2) * 2;
+    
+    // 调试日志 - 用向下取整到偶数后的值计算像素数
+    const displayW = floorToEven(nativeW * clampedScale);
+    const displayH = floorToEven(nativeH * clampedScale);
+    console.log('[Resolution] 计算详情:', {
+      '设备原始尺寸': `${nativeW}x${nativeH} (${nativePixels} px)`,
+      '容器尺寸(CSS)': `${Math.round(size.width)}x${Math.round(size.height)}`,
+      'DPI': dpr,
+      '容器尺寸(物理)': `${Math.round(containerPhysicalW)}x${Math.round(containerPhysicalH)}`,
+      '用户设置比例': `${Math.round(userScale * 100)}% → ${floorToEven(nativeW * userScale)}x${floorToEven(nativeH * userScale)}`,
+      '容器适配比例': `${Math.round(containerScale * 100)}% → ${floorToEven(nativeW * containerScale)}x${floorToEven(nativeH * containerScale)}`,
+      '像素限制比例': `${Math.round(pixelLimitScale * 100)}% → ${floorToEven(nativeW * pixelLimitScale)}x${floorToEven(nativeH * pixelLimitScale)}`,
+      '最终选择': finalScale === userScale ? '用户设置' : (finalScale === containerScale ? '容器适配' : '像素限制'),
+      '最终比例': `${Math.round(clampedScale * 100)}%`,
+      '请求分辨率': `${displayW}x${displayH} (${displayW * displayH} px)`
+    });
+
+    return clampedScale;
   });
 
   const getDeviceHttpPort = (device: Device | null): number | undefined => {
