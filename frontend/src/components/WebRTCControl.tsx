@@ -140,6 +140,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   let lastFramesDecoded = 0;
   let lastTimestamp = 0;
   let lastAppliedResolution = 0;
+  let lastAppliedFrameRate = 0;
 
   // 最大允许像素限制 (720 x 1280 = 921600)
   const MAX_PIXELS = 720 * 1280;
@@ -325,6 +326,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       };
 
       lastAppliedResolution = targetResolution();
+      lastAppliedFrameRate = frameRate();
       await webrtcService.startStream(options);
     } catch (error) {
       console.error('Failed to start WebRTC stream:', error);
@@ -346,6 +348,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     setConnectionState('disconnected');
     stopStatsMonitoring();
     lastAppliedResolution = 0;
+    lastAppliedFrameRate = 0;
   };
 
   // 开始统计监控
@@ -1238,6 +1241,19 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
   });
 
+  // 监听帧率变化并动态调整
+  createEffect(() => {
+    if (connectionState() === 'connected' && webrtcService) {
+      const fps = frameRate();
+      // 只有当帧率确实改变时才发送请求
+      if (fps !== lastAppliedFrameRate) {
+        console.log(`[WebRTC] Dynamically updating frame rate: ${lastAppliedFrameRate} -> ${fps}`);
+        webrtcService.setFrameRate(fps).catch(e => console.error('Failed to update frame rate:', e));
+        lastAppliedFrameRate = fps;
+      }
+    }
+  });
+
   onMount(() => {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
@@ -1398,7 +1414,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                       type="range"
                       class={styles.settingSlider}
                       min="5"
-                      max="30"
+                      max="60"
                       step="5"
                       value={frameRate()}
                       onInput={(e) => setFrameRate(parseInt(e.currentTarget.value))}
