@@ -82,7 +82,7 @@ jobs:
             fi
 
             echo "Building $GOOS/$GOARCH..."
-            (cd "$ROOT" && env CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags "$LDFLAGS" -o "$RELEASE_DIR/$BIN" ./server)
+            (cd "$ROOT/server" && env CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags "$LDFLAGS" -o "$RELEASE_DIR/$BIN" .)
 
             PACKAGE_DIR="$RELEASE_DIR/.package/$GOOS-$GOARCH"
             PACKAGE_ROOT="$PACKAGE_DIR/XXTCloudControl"
