@@ -1,17 +1,19 @@
 # Repository Guidelines
 
 ## 项目结构与模块组织
-- `server/` 是 Go 服务端，入口在 `server/main.go`，运行时会生成 `xxtcloudserver.json`。
-- `frontend/` 为 SolidJS 管理面板，源码在 `frontend/src/`，样式以 `*.module.css` 管理。
+- `server/` 是 Go 服务端，入口在 `server/main.go`，运行时会在启动目录生成 `xxtcloudserver.json`，默认数据目录为 `./data`。
+- `frontend/` 为 SolidJS 管理面板，源码在 `frontend/src/`，构建产物在 `frontend/dist/`，样式以 `*.module.css` 管理。
 - `device-client/` 提供 Lua WebSocket 客户端库。
+- `assets/` 存放图标源文件，`generate-icons.sh` 生成前端 favicon 与图标资源。
 - `XXT 云控设置.lua` 是设备侧配置脚本（配置已集成至管理面板扫码下载）。
 - `build.sh` 负责多平台打包，产物输出到 `build/`。
 
 ## 构建、测试与开发命令
 - `cd server && go run .` 启动后端（首次启动会生成配置并输出随机密码）。
 - `cd frontend && npm install && npm run dev` 启动前端开发服务器（默认端口 `3000`）。
-- `cd frontend && npm run build` 构建前端；`npm run serve` 预览构建产物。
-- `bash build.sh` 生成可分发目录 `build/xxtcloudcontrol/`。
+- `cd frontend && npm run build` 构建前端；`npm run serve` 预览构建产物（默认端口 `4173`）。
+- `bash build.sh` 生成多平台二进制与 zip 包，输出到 `build/`。
+- `bash generate-icons.sh` 生成前端 favicon 与图标资源（依赖 `rsvg-convert`，可选 `iconutil`）。
 - `go test ./...` 运行 Go 测试（目前暂无专用测试用例）。
 - `./xxtcloudserver-<os>-<arch> -set-password <pwd>` 修改服务端密码。
 
@@ -33,6 +35,7 @@
 
 ## 安全与配置提示
 - `xxtcloudserver.json` 与 `server/xxtcloudserver.json` 不应提交版本库（已在 `.gitignore`）。
+- `server/data/`、`server/certs/`、`frontend/dist/`、`frontend/public/`、`assets/icons/` 为运行时或构建产物，避免提交。
 - 密码以 HMAC-SHA256 结果存储，避免在日志、截图或文档中暴露明文。
 
 ## 什么是**平铺脚本**

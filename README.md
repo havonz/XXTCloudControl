@@ -1,17 +1,17 @@
 # XXTCloudControl
 
-用于 XXTouch 1.3.8+ 的云控服务端（WebSocket + 静态前端）与管理面板。  
+用于 XXTouch 1.3.8-20260122000000+ 的云控服务端（WebSocket + 静态前端）与管理面板。  
 设备端协议实现源码见 `device-client/open-cloud-control-client.lua`（设备上通常位于 `/var/mobile/Media/1ferver/bin/open-cloud-control-client.lua`）。  
 
 ## 项目结构
 
-- `server/main.go` - 后端 WebSocket/HTTP 服务
-- `frontend/` - 管理面板（SolidJS）
+- `server/` - 后端 WebSocket/HTTP 服务（入口 `server/main.go`）
+- `frontend/` - 管理面板（SolidJS），源码在 `frontend/src/`，构建产物在 `frontend/dist/`
 - `device-client/` - Lua WebSocket 客户端库
 - `XXT 云控设置.lua` - 设备端配置脚本（写入云控地址）
 - `build.sh` - 构建并打包多平台服务端 + 前端
 - `build/` - 构建产物目录
-- `data/` - 运行时数据目录（默认生成：脚本/文件/报告/分组等）
+- `server/data/` - 运行时数据目录（默认 `data_dir=./data`，取决于启动目录）
 
 ## 功能特点
 
@@ -41,10 +41,14 @@
    npm run dev
    ```
    访问 `http://localhost:3000`，在登录页输入服务器地址与端口（默认 `46980`）以及密码。
+   
+   > 提示：开发服务器默认绑定 `127.0.0.1:3000`，并将 `/api` 代理到 `http://127.0.0.1:46980`。若后端不在本机，请调整 `frontend/vite.config.ts` 或使用反向代理。
 
 > 注意：`go run .` 在 `server` 目录启动时，默认 `frontend_dir` 为 `./frontend`，不会自动指向 `../frontend/dist`。若希望后端托管前端，请在配置里设置 `frontend_dir`，或使用打包后的目录结构。
 
 ### 生产/打包
+
+> 依赖：`go`、`npm`、`zip`
 
 ```bash
 bash build.sh
@@ -54,16 +58,19 @@ bash build.sh
 ```
 build/
 ├── xxtcloudserver-<os>-<arch>[.exe]
-└── XXTCloudControl-<timestamp>.zip
+├── ...
+└── XXTCloudControl-<YYYYMMDDHHMM>.zip
 ```
 
 解压后目录结构如下：
 ```
 XXTCloudControl/
-├── xxtcloudserver-<os>-<arch>[.exe]
-└── frontend/
+├── frontend/
+├── xxtcloudserver-darwin-arm64
+├── xxtcloudserver-linux-amd64
+└── xxtcloudserver-windows-amd64.exe
 ```
-在该目录内运行服务端即可自动托管前端（默认 `frontend_dir=./frontend`）。
+在该目录内选择与你系统匹配的二进制运行即可自动托管前端（默认 `frontend_dir=./frontend`）。
 
 ### 修改密码
 
@@ -76,6 +83,14 @@ XXTCloudControl/
 cd server
 go run . -set-password 12345678
 ```
+
+## 常用命令行参数
+
+- `-config <path>`：指定配置文件路径（默认使用启动目录的 `xxtcloudserver.json`）
+- `-set-password <pwd>`：修改控制端密码
+- `-set-turn-ip <ip>`：设置 TURN 公网 IP 并启用
+- `-set-turn-port <port>`：设置 TURN 监听端口并启用
+- `-v` / `-h`：查看版本 / 帮助
 
 ## 配置说明
 
@@ -94,7 +109,7 @@ go run . -set-password 12345678
   "tlsCertFile": "./certs/server.crt", // TLS 证书文件路径
   "tlsKeyFile": "./certs/server.key", // TLS 私钥文件路径
   "turnEnabled": true, // 是否启用 TURN 服务器
-  "turnPort": 43478,   // TURN 服务器监听端口
+  "turnPort": 43478,   // TURN 服务器监听端口（默认 43478）
   "turnPublicIP": "你的公网IP", // 公网 IP（需验证格式）
   "turnPublicAddr": "turn.example.com", // 公网地址（IP 或域名，无验证）
   "turnRealm": "xxtcloud", // TURN realm
@@ -111,6 +126,8 @@ go run . -set-password 12345678
 - `state_interval` 控制状态刷新频率，服务端每隔该时间向设备发送 `app/state` 请求以获取最新设备状态。
 - `ping_timeout` 表示设备连续未响应的次数阈值（基于 `ping_interval` 的周期），超过后服务端断开该设备连接。
 - `data_dir` 默认生成 `scripts/`、`files/`、`reports/` 以及分组/脚本配置等持久化数据。
+- 配置中的路径均相对启动目录；在 `server/` 目录启动时，默认 `data_dir=./data` 会落在 `server/data/`。
+- `turnEnabled` 默认为 `true`，但仅在配置了 `turnPublicIP` 或 `turnPublicAddr` 时才会实际启动内置 TURN。
 
 ## WebRTC 穿透 (TURN) 配置
 
@@ -284,9 +301,10 @@ server {
 
 ## 设备绑定方式
 
-1. 运行脚本 `XXT 云控设置.lua`，填写 `ws://<host>:46980/api/ws`。
+1. 运行脚本 `XXT 云控设置.lua`，填写 `ws://<host>:46980/api/ws`（TLS 或反向代理场景使用 `wss://`）。
 2. 或下载自动生成的绑定脚本：
-   `http://<host>:46980/api/download-bind-script?host=<host>&port=46980`
+   `http://<host>:46980/api/download-bind-script?host=<host>&port=46980`  
+   可追加 `proto=https` 强制生成 `wss://` 地址；反向代理场景也可由 `X-Forwarded-Proto` 自动识别。
 3. 或手动调用设备本地接口：
    ```http
    PUT http://127.0.0.1:46952/api/config
@@ -303,7 +321,7 @@ server {
 
 ## WebSocket 约定
 
-- WebSocket 地址：`ws://<host>:<port>/api/ws`
+- WebSocket 地址：`ws://<host>:<port>/api/ws`（TLS/反代场景使用 `wss://`）
 - 控制端消息需包含 `ts`/`nonce`/`sign`，时间戳允许 ±60 秒漂移，`nonce` 在 120 秒内不可重复。
 
 ## 鉴权与签名算法（HTTP/WS 通用）
@@ -361,6 +379,7 @@ base = ts "\n" nonce "\n" type "\n" bodyHash
 - 放行：
   - `/api/download-bind-script`（按你的要求保留无需签名）
   - `/api/config`（前端启动配置）
+  - `/api/control/info`（JSON 版配置输出）
   - `/api/ws`（WebSocket 升级握手不做 HTTP 鉴权；控制端消息仍需签名）
   - `/api/transfer/download/:token`（临时 token 下载）
   - `/api/transfer/upload/:token`（临时 token 上传）
@@ -475,6 +494,42 @@ curl -L -o out.bin \
 }
 ```
 服务端会向所有设备广播 `app/state` 请求。
+
+### 实时日志订阅
+
+订阅指定设备日志：
+
+```json
+{
+  "ts": 1700000000,
+  "nonce": "<nonce>",
+  "sign": "hex-sign",
+  "type": "control/log/subscribe",
+  "body": { "devices": ["udid1"] }
+}
+```
+
+取消订阅：
+
+```json
+{
+  "ts": 1700000000,
+  "nonce": "<nonce>",
+  "sign": "hex-sign",
+  "type": "control/log/unsubscribe",
+  "body": { "devices": ["udid1"] }
+}
+```
+
+设备端若支持日志推送，会发送：
+
+```json
+{
+  "type": "system/log/push",
+  "udid": "udid1",
+  "body": { "chunk": "log line..." }
+}
+```
 
 ### 批量命令
 
