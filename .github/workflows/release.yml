@@ -29,7 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           BUILD_TIME="$(date -u '+%Y%m%d%H%M')"
-          VERSION="v$(date -u '+%Y%m%d%H%M%S')"
+          VERSION="v$(date -u '+%Y%m%d%H%M')"
           COMMIT="$(git rev-parse --short HEAD)"
           echo "BUILD_TIME=$BUILD_TIME" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
