@@ -2042,6 +2042,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               <ContextMenuButton onClick={handleContextMenuCopyScriptSelect}>拷贝脚本文件名</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuOpenFileBrowser}>浏览设备文件</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuOpenLogStream}>查看实时日志</ContextMenuButton>
+              <Show when={props.onOpenAddToGroupModal && props.selectedDevices().length === 1}>
+                <ContextMenuButton onClick={() => {
+                  closeContextMenu();
+                  props.onOpenAddToGroupModal?.();
+                }}>添加到分组</ContextMenuButton>
+              </Show>
             </ContextMenuSection>
           </>
         </ContextMenu>
