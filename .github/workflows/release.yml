@@ -54,14 +54,6 @@ jobs:
             exit 1
           fi
 
-          mkdir -p "$RELEASE_DIR/.tmp"
-
-          FRONTEND_ZIP="$RELEASE_DIR/frontend.zip"
-          rm -f "$FRONTEND_ZIP"
-          mkdir -p "$RELEASE_DIR/.tmp/frontend"
-          cp -R "$FRONTEND_DIST"/. "$RELEASE_DIR/.tmp/frontend/"
-          (cd "$RELEASE_DIR/.tmp" && zip -r "$FRONTEND_ZIP" frontend >/dev/null)
-
           LDFLAGS="-X 'main.BuildTime=$BUILD_TIME' -X 'main.Version=$VERSION' -X 'main.Commit=$COMMIT'"
 
           platforms=(
@@ -86,9 +78,9 @@ jobs:
 
             PACKAGE_DIR="$RELEASE_DIR/.package/$GOOS-$GOARCH"
             PACKAGE_ROOT="$PACKAGE_DIR/XXTCloudControl"
-            mkdir -p "$PACKAGE_ROOT"
+            mkdir -p "$PACKAGE_ROOT/frontend"
             cp "$RELEASE_DIR/$BIN" "$PACKAGE_ROOT/"
-            cp "$FRONTEND_ZIP" "$PACKAGE_ROOT/"
+            cp -R "$FRONTEND_DIST"/. "$PACKAGE_ROOT/frontend/"
 
             ZIP_NAME="XXTCloudControl-$BUILD_TIME-$GOOS-$GOARCH.zip"
             ZIP_PATH="$RELEASE_DIR/$ZIP_NAME"
