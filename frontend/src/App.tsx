@@ -10,6 +10,7 @@ import DeviceFileBrowser from './components/DeviceFileBrowser';
 import GroupList from './components/GroupList';
 import NewGroupModal from './components/NewGroupModal';
 import AddToGroupModal from './components/AddToGroupModal';
+import BindPage from './components/BindPage';
 import { useTheme } from './components/ThemeContext';
 import { IconMoon, IconSun } from './icons';
 import styles from './App.module.css';
@@ -25,6 +26,10 @@ type PendingFileGet =
 const App: Component = () => {
   const toast = useToast();
   const { theme, toggleTheme } = useTheme();
+  
+  // Check if current URL is the public bind page
+  const [isBindPage, setIsBindPage] = createSignal(window.location.pathname === '/bind');
+  
   const [isAuthenticated, setIsAuthenticated] = createSignal(false);
   const [isConnecting, setIsConnecting] = createSignal(false);
   const [loginError, setLoginError] = createSignal('');
@@ -700,9 +705,17 @@ const App: Component = () => {
     return await groupStore.addDevicesToGroup(groupId, deviceIds);
   };
 
+  // Handle navigation from bind page to login
+  const handleNavigateToLogin = () => {
+    setIsBindPage(false);
+    window.history.pushState({}, '', '/');
+  };
+
   return (
     <div class={styles.App}>
-      {!isAuthenticated() ? (
+      {isBindPage() ? (
+        <BindPage onNavigateToLogin={handleNavigateToLogin} />
+      ) : !isAuthenticated() ? (
         <LoginForm 
           onLogin={handleLogin}
           isConnecting={isConnecting()}

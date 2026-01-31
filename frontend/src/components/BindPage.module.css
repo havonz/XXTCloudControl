@@ -1,0 +1,207 @@
+.container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 1.5rem;
+}
+
+.card {
+  background: var(--panel);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  max-width: 420px;
+  width: 100%;
+  color: var(--text);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  width: 36px;
+  height: 36px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.body {
+  padding: 1.5rem;
+}
+
+.qrSection {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.sectionTitle {
+  margin: 0 0 1rem 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.qrCodeContainer {
+  display: flex;
+  justify-content: center;
+  margin: 1rem 0;
+  padding: 1rem;
+  background: var(--panel-2);
+  border-radius: 12px;
+  border: 2px dashed var(--border);
+}
+
+.qrCodeImage {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.qrCodeLoading {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  border: 2px dashed var(--border);
+}
+
+.description {
+  margin: 1rem 0 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.downloadSection {
+  text-align: center;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.downloadButton {
+  background: var(--btn-primary-bg);
+  color: var(--primary);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  padding: 0.6rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 0.5rem;
+}
+
+.downloadButton:hover {
+  background: var(--primary);
+  color: var(--text-on-gradient);
+  transform: translateY(-1px);
+}
+
+.downloadButton:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.xxtButton {
+  background: linear-gradient(135deg, #34c759 0%, #30d158 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 0.75rem;
+  width: 100%;
+  max-width: 200px;
+  box-shadow: 0 2px 8px rgba(52, 199, 89, 0.3);
+}
+
+.xxtButton:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(52, 199, 89, 0.4);
+}
+
+.xxtButton:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.footer {
+  padding: 1rem;
+  text-align: center;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.loginLink {
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: opacity 0.2s;
+}
+
+.loginLink:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+.serverInfo {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: var(--panel-2);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* 响应式设计 */
+@media (max-width: 480px) {
+  .container {
+    padding: 1rem;
+  }
+  
+  .card {
+    border-radius: 12px;
+  }
+  
+  .header {
+    padding: 1rem;
+  }
+  
+  .body {
+    padding: 1rem;
+  }
+  
+  .qrCodeImage,
+  .qrCodeLoading {
+    width: 180px;
+    height: 180px;
+  }
+}
