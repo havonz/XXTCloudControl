@@ -104,10 +104,14 @@ func loadConfig(configPath string) error {
 			fmt.Printf("⚠️ Config file not found: %s, using defaults\n", configPath)
 		}
 	} else {
-		if err := loadOrCreateDefaultConfig(); err != nil {
-			log.Fatal("Failed to load configuration:", err)
+		if noConfig, ok := envBool("XXTCC_NO_CONFIG"); ok && noConfig {
+			fmt.Println("📝 Using defaults without config file (XXTCC_NO_CONFIG=1)")
+		} else {
+			if err := loadOrCreateDefaultConfig(); err != nil {
+				log.Fatal("Failed to load configuration:", err)
+			}
+			fmt.Println("📝 Using default configuration")
 		}
-		fmt.Println("📝 Using default configuration")
 	}
 
 	applyEnvOverrides()
@@ -126,6 +130,19 @@ func envString(key string) (string, bool) {
 		return "", false
 	}
 	return value, true
+}
+
+func envBool(key string) (bool, bool) {
+	value, ok := envString(key)
+	if !ok {
+		return false, false
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		log.Printf("⚠️ Invalid %s: %s", key, value)
+		return false, true
+	}
+	return parsed, true
 }
 
 func applyEnvOverrides() {

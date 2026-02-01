@@ -72,71 +72,38 @@ XXTCloudControl/
 ```
 在该目录内选择与你系统匹配的二进制运行即可自动托管前端（默认 `frontend_dir=./frontend`）。
 
-### Docker
+### Docker 部署
 
-#### 镜像构建（本地）
-
-`build.sh` 会同时生成 `linux/amd64` 与 `linux/arm64` 的镜像 tar 包：
+#### 快速启动
 
 ```bash
-bash build.sh
-```
-
-产物示例：
-```
-build/XXTCloudControl-docker-<YYYYMMDDHHMM>-linux-amd64.tar
-build/XXTCloudControl-docker-<YYYYMMDDHHMM>-linux-arm64.tar
-```
-
-加载并运行：
-```bash
-docker load -i build/XXTCloudControl-docker-<time>-linux-amd64.tar
-docker run -d \
+docker pull havonz/xxtcloudcontrol
+docker run --rm \
+  -v "$PWD/xxtcc-data:/app/data" \
+  havonz/xxtcloudcontrol \
+  -config /app/data/xxtcloudserver.json -set-password 12345678
+docker run -d --name xxtcloudcontrol \
   -p 46980:46980 \
   -p 43478:43478/tcp -p 43478:43478/udp \
-  -v "$PWD/data:/app/data" \
+  -v "$PWD/xxtcc-data:/app/data" \
   -e XXTCC_CONFIG=/app/data/xxtcloudserver.json \
-  -e XXTCC_PASSWORD=12345678 \
-  xxtcloudcontrol:<version>-amd64
+  -e XXTCC_TURN_PUBLIC_IP="" \
+  -e XXTCC_TURN_PUBLIC_ADDR="" \
+  havonz/xxtcloudcontrol
 ```
 
 > 提示：如果你不挂载数据目录，默认会在容器内 `/app/data` 生成数据与配置。
-> 提示：脚本会自动切换到 `docker-container` 的 buildx builder，避免 `Docker exporter is not supported for the docker driver` 报错。
-
-#### 环境变量（`XXTCC_` 前缀）
-
-服务启动时会按顺序读取：配置文件 → 环境变量覆盖。环境变量不会自动写回配置文件。
-
-- `XXTCC_CONFIG`：配置文件路径（等价于 `-config`）
-- `XXTCC_PASSWORD`：明文密码（优先级高于 `XXTCC_PASSHASH`）
-- `XXTCC_PASSHASH`：直接设置 passhash
-- `XXTCC_PORT`
-- `XXTCC_FRONTEND_DIR`
-- `XXTCC_DATA_DIR`
-- `XXTCC_PING_INTERVAL`
-- `XXTCC_PING_TIMEOUT`
-- `XXTCC_STATE_INTERVAL`
-- `XXTCC_TLS_ENABLED`
-- `XXTCC_TLS_CERT_FILE`
-- `XXTCC_TLS_KEY_FILE`
-- `XXTCC_TURN_ENABLED`
-- `XXTCC_TURN_PORT`
-- `XXTCC_TURN_PUBLIC_IP`
-- `XXTCC_TURN_PUBLIC_ADDR`
-- `XXTCC_TURN_REALM`
-- `XXTCC_TURN_SECRET_KEY`
-- `XXTCC_TURN_CREDENTIAL_TTL`
-- `XXTCC_TURN_RELAY_PORT_MIN`
-- `XXTCC_TURN_RELAY_PORT_MAX`
-- `XXTCC_CUSTOM_ICE_SERVERS`（JSON 字符串）
+> 服务启动时会按顺序读取：配置文件 → 环境变量覆盖。环境变量不会自动写回配置文件。
+> 环境变量名称可参考下方 `docker-compose` 示例
 
 #### docker-compose 示例
 
+[docker-compose.yml](docker-compose.yml)
+
 ```yaml
-version: '3.8'
 services:
   xxtcloudcontrol:
-    image: xxtcloudcontrol:<version>-amd64
+    image: havonz/xxtcloudcontrol
     container_name: xxtcloudcontrol
     restart: unless-stopped
     ports:
@@ -144,16 +111,30 @@ services:
       - '43478:43478/tcp'
       - '43478:43478/udp'
     volumes:
-      - ./data:/app/data
+      - ./xxtcc-data:/app/data # ./xxtcc-data 是主机上的数据目录，映射到容器内的 /app/data
     environment:
-      XXTCC_CONFIG: /app/data/xxtcloudserver.json
-      XXTCC_PASSWORD: '12345678'
-      # 可选：
-      # XXTCC_TURN_PUBLIC_IP: '1.2.3.4'
+      XXTCC_CONFIG: '' # 默认使用工作目录下的 xxtcloudserver.json（此处留空）
+      XXTCC_NO_CONFIG: 'true' # 设为 true 可跳过默认配置文件创建
+      XXTCC_PASSWORD: '12345678' # 必填示例值（无默认）
+      XXTCC_PASSHASH: '' # 可选，直接设置 passhash
+      XXTCC_PORT: '46980' # 服务端主端口
+      XXTCC_PING_INTERVAL: '15' # 心跳间隔（秒）
+      XXTCC_PING_TIMEOUT: '10' # 连续未响应次数阈值
+      XXTCC_STATE_INTERVAL: '45' # 状态刷新间隔（秒）
+      XXTCC_TLS_ENABLED: 'false' # 是否启用 TLS
+      XXTCC_TLS_CERT_FILE: './certs/server.crt' # TLS 证书路径
+      XXTCC_TLS_KEY_FILE: './certs/server.key' # TLS 私钥路径
+      XXTCC_TURN_ENABLED: 'true' # 是否启用内置 TURN
+      XXTCC_TURN_PORT: '43478' # TURN 监听端口
+      XXTCC_TURN_PUBLIC_IP: '' # TURN 公网 IP（IPv4）
+      XXTCC_TURN_PUBLIC_ADDR: '' # TURN 公网地址（IP 或域名）
+      XXTCC_TURN_REALM: 'xxtcloud' # TURN realm
+      XXTCC_TURN_SECRET_KEY: '' # TURN 密钥（空则自动生成临时）
+      XXTCC_TURN_CREDENTIAL_TTL: '86400' # TURN 凭据有效期（秒）
+      XXTCC_TURN_RELAY_PORT_MIN: '49152' # TURN 中继端口范围起始
+      XXTCC_TURN_RELAY_PORT_MAX: '65535' # TURN 中继端口范围结束
+      XXTCC_CUSTOM_ICE_SERVERS: '[]' # 自定义 ICE 服务器 JSON
 ```
-
-> 端口说明：`46980` 为服务端主端口；`43478` 为内置 TURN 端口（同时需要 TCP/UDP）。
-> 若使用 arm64 镜像，请将 tag 改为 `...-arm64`，或先 `docker tag` 成 `:latest` 再在 compose 中引用。
 
 ### 修改密码
 
