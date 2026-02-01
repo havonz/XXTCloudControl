@@ -189,6 +189,30 @@ const App: Component = () => {
       // 监听设备列表更新
       wsService.onDeviceUpdate((deviceList) => {
         setDevices(deviceList);
+        const currentSelected = selectedDevices();
+        if (currentSelected.length > 0) {
+          const deviceMap = new Map(deviceList.map(device => [device.udid, device]));
+          let changed = false;
+          const nextSelection: Device[] = [];
+          for (const selected of currentSelected) {
+            const updated = deviceMap.get(selected.udid);
+            if (!updated) {
+              changed = true;
+              continue;
+            }
+            if (updated !== selected) {
+              changed = true;
+            }
+            nextSelection.push(updated);
+          }
+          if (nextSelection.length !== currentSelected.length) {
+            changed = true;
+          }
+          if (changed) {
+            setSelectedDevices(nextSelection);
+            document.title = `XXT 云控制器 (${nextSelection.length} selected)`;
+          }
+        }
         setIsLoadingDevices(false);
       });
       
@@ -336,8 +360,6 @@ const App: Component = () => {
   };
 
   const handleDeviceSelect = (devices: Device[]) => {
-
-
     setSelectedDevices(devices);
 
     // Show selection count in page title for debugging
