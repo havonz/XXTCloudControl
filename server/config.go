@@ -11,6 +11,8 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // generateRandomPassword generates a random password of the specified length
@@ -80,6 +82,12 @@ func saveConfig(configPath string, config ServerConfig) error {
 func loadConfig(configPath string) error {
 	serverConfig = DefaultConfig
 
+	if configPath == "" {
+		if envConfig, ok := envString("XXTCC_CONFIG"); ok {
+			configPath = envConfig
+		}
+	}
+
 	if configPath != "" {
 		if _, err := os.Stat(configPath); err == nil {
 			configData, err := os.ReadFile(configPath)
@@ -102,8 +110,151 @@ func loadConfig(configPath string) error {
 		fmt.Println("📝 Using default configuration")
 	}
 
+	applyEnvOverrides()
+
 	passhash = []byte(serverConfig.Passhash)
 	return nil
+}
+
+func envString(key string) (string, bool) {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		return "", false
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	return value, true
+}
+
+func applyEnvOverrides() {
+	if value, ok := envString("XXTCC_PASSWORD"); ok {
+		serverConfig.Passhash = toPasshash(value)
+	} else if value, ok := envString("XXTCC_PASSHASH"); ok {
+		serverConfig.Passhash = value
+	}
+
+	if value, ok := envString("XXTCC_PORT"); ok {
+		if port, err := strconv.Atoi(value); err == nil && port > 0 && port <= 65535 {
+			serverConfig.Port = port
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_PORT: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_PING_INTERVAL"); ok {
+		if v, err := strconv.Atoi(value); err == nil && v > 0 {
+			serverConfig.PingInterval = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_PING_INTERVAL: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_PING_TIMEOUT"); ok {
+		if v, err := strconv.Atoi(value); err == nil && v > 0 {
+			serverConfig.PingTimeout = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_PING_TIMEOUT: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_STATE_INTERVAL"); ok {
+		if v, err := strconv.Atoi(value); err == nil && v > 0 {
+			serverConfig.StateInterval = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_STATE_INTERVAL: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_FRONTEND_DIR"); ok {
+		serverConfig.FrontendDir = value
+	}
+
+	if value, ok := envString("XXTCC_DATA_DIR"); ok {
+		serverConfig.DataDir = value
+	}
+
+	if value, ok := envString("XXTCC_TLS_ENABLED"); ok {
+		if v, err := strconv.ParseBool(value); err == nil {
+			serverConfig.TLSEnabled = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_TLS_ENABLED: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_TLS_CERT_FILE"); ok {
+		serverConfig.TLSCertFile = value
+	}
+
+	if value, ok := envString("XXTCC_TLS_KEY_FILE"); ok {
+		serverConfig.TLSKeyFile = value
+	}
+
+	if value, ok := envString("XXTCC_TURN_ENABLED"); ok {
+		if v, err := strconv.ParseBool(value); err == nil {
+			serverConfig.TURNEnabled = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_TURN_ENABLED: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_TURN_PORT"); ok {
+		if v, err := strconv.Atoi(value); err == nil && v > 0 && v <= 65535 {
+			serverConfig.TURNPort = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_TURN_PORT: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_TURN_PUBLIC_IP"); ok {
+		serverConfig.TURNPublicIP = value
+	}
+
+	if value, ok := envString("XXTCC_TURN_PUBLIC_ADDR"); ok {
+		serverConfig.TURNPublicAddr = value
+	}
+
+	if value, ok := envString("XXTCC_TURN_REALM"); ok {
+		serverConfig.TURNRealm = value
+	}
+
+	if value, ok := envString("XXTCC_TURN_SECRET_KEY"); ok {
+		serverConfig.TURNSecretKey = value
+	}
+
+	if value, ok := envString("XXTCC_TURN_CREDENTIAL_TTL"); ok {
+		if v, err := strconv.Atoi(value); err == nil && v > 0 {
+			serverConfig.TURNCredentialTTL = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_TURN_CREDENTIAL_TTL: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_TURN_RELAY_PORT_MIN"); ok {
+		if v, err := strconv.Atoi(value); err == nil && v > 0 && v <= 65535 {
+			serverConfig.TURNRelayPortMin = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_TURN_RELAY_PORT_MIN: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_TURN_RELAY_PORT_MAX"); ok {
+		if v, err := strconv.Atoi(value); err == nil && v > 0 && v <= 65535 {
+			serverConfig.TURNRelayPortMax = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_TURN_RELAY_PORT_MAX: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_CUSTOM_ICE_SERVERS"); ok {
+		var servers []ICEServer
+		if err := json.Unmarshal([]byte(value), &servers); err != nil {
+			log.Printf("⚠️ Invalid XXTCC_CUSTOM_ICE_SERVERS JSON: %v", err)
+		} else {
+			serverConfig.CustomICEServers = servers
+		}
+	}
 }
 
 // initDataDirectories initializes the data storage directories

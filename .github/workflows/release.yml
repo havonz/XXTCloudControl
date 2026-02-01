@@ -25,6 +25,18 @@ jobs:
           go-version-file: server/go.mod
           cache: true
 
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set build metadata
         run: |
           set -euo pipefail
@@ -89,11 +101,62 @@ jobs:
 
           ls -la "$RELEASE_DIR"/*.zip
 
+      - name: Build docker images (amd64/arm64)
+        run: |
+          set -euo pipefail
+          ROOT="$GITHUB_WORKSPACE"
+          RELEASE_DIR="$ROOT/release"
+          mkdir -p "$RELEASE_DIR"
+
+          DOCKER_IMAGE_NAME="xxtcloudcontrol"
+          for platform in linux/amd64 linux/arm64; do
+            IFS='/' read -r TARGETOS TARGETARCH <<< "$platform"
+            OUTPUT_TAR="$RELEASE_DIR/XXTCloudControl-docker-$BUILD_TIME-$TARGETOS-$TARGETARCH.tar"
+
+            docker buildx build \
+              --platform "$platform" \
+              --build-arg BUILD_TIME="$BUILD_TIME" \
+              --build-arg VERSION="$VERSION" \
+              --build-arg COMMIT="$COMMIT" \
+              -t "$DOCKER_IMAGE_NAME:$VERSION-$TARGETARCH" \
+              --output "type=docker,dest=$OUTPUT_TAR" \
+              "$ROOT"
+          done
+
+          ls -la "$RELEASE_DIR"/*.tar
+
+      - name: Push docker images to Docker Hub (amd64/arm64)
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO }}
+        run: |
+          set -euo pipefail
+          ROOT="$GITHUB_WORKSPACE"
+          if [ -z "${DOCKERHUB_USERNAME:-}" ]; then
+            echo "Error: DOCKERHUB_USERNAME is not set." >&2
+            exit 1
+          fi
+
+          IMAGE_REPO="${DOCKERHUB_REPO:-xxtcloudcontrol}"
+          IMAGE="${DOCKERHUB_USERNAME}/${IMAGE_REPO}"
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg BUILD_TIME="$BUILD_TIME" \
+            --build-arg VERSION="$VERSION" \
+            --build-arg COMMIT="$COMMIT" \
+            -t "$IMAGE:$VERSION" \
+            -t "$IMAGE:latest" \
+            --push \
+            "$ROOT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
           name: ${{ env.VERSION }}
           generate_release_notes: true
-          files: release/XXTCloudControl-*.zip
+          files: |
+            release/XXTCloudControl-*.zip
+            release/XXTCloudControl-docker-*.tar
           fail_on_unmatched_files: true

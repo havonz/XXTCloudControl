@@ -1,0 +1,10 @@
+.git
+.github
+build
+frontend/node_modules
+frontend/dist
+server/data
+server/certs
+*.zip
+*.tar
+.DS_Store
