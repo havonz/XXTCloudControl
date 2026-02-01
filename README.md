@@ -72,6 +72,20 @@ XXTCloudControl/
 ```
 在该目录内选择与你系统匹配的二进制运行即可自动托管前端（默认 `frontend_dir=./frontend`）。
 
+### Docker 镜像构建
+
+> 依赖：`docker`（需启用 buildx）
+
+```bash
+bash build-docker.sh
+```
+
+产物输出在 `build/`：
+```
+XXTCloudControl-docker-<YYYYMMDDHHMM>-linux-amd64.tar
+XXTCloudControl-docker-<YYYYMMDDHHMM>-linux-arm64.tar
+```
+
 ### Docker 部署
 
 #### 快速启动
@@ -94,47 +108,19 @@ docker run -d --name xxtcloudcontrol \
 
 > 提示：如果你不挂载数据目录，默认会在容器内 `/app/data` 生成数据与配置。
 > 服务启动时会按顺序读取：配置文件 → 环境变量覆盖。环境变量不会自动写回配置文件。
-> 环境变量名称可参考下方 `docker-compose` 示例
+> 环境变量名称可参考 [docker-compose.yml](docker-compose.yml) 示例
 
-#### docker-compose 示例
+
+#### 使用 docker-compose.yml 一键部署
 
 [docker-compose.yml](docker-compose.yml)
 
-```yaml
-services:
-  xxtcloudcontrol:
-    image: havonz/xxtcloudcontrol
-    container_name: xxtcloudcontrol
-    restart: unless-stopped
-    ports:
-      - '46980:46980'
-      - '43478:43478/tcp'
-      - '43478:43478/udp'
-    volumes:
-      - ./xxtcc-data:/app/data # ./xxtcc-data 是主机上的数据目录，映射到容器内的 /app/data
-    environment:
-      XXTCC_CONFIG: '' # 默认使用工作目录下的 xxtcloudserver.json（此处留空）
-      XXTCC_NO_CONFIG: 'true' # 设为 true 可跳过默认配置文件创建
-      XXTCC_PASSWORD: '12345678' # 必填示例值（无默认）
-      XXTCC_PASSHASH: '' # 可选，直接设置 passhash
-      XXTCC_PORT: '46980' # 服务端主端口
-      XXTCC_PING_INTERVAL: '15' # 心跳间隔（秒）
-      XXTCC_PING_TIMEOUT: '10' # 连续未响应次数阈值
-      XXTCC_STATE_INTERVAL: '45' # 状态刷新间隔（秒）
-      XXTCC_TLS_ENABLED: 'false' # 是否启用 TLS
-      XXTCC_TLS_CERT_FILE: './certs/server.crt' # TLS 证书路径
-      XXTCC_TLS_KEY_FILE: './certs/server.key' # TLS 私钥路径
-      XXTCC_TURN_ENABLED: 'true' # 是否启用内置 TURN
-      XXTCC_TURN_PORT: '43478' # TURN 监听端口
-      XXTCC_TURN_PUBLIC_IP: '' # TURN 公网 IP（IPv4）
-      XXTCC_TURN_PUBLIC_ADDR: '' # TURN 公网地址（IP 或域名）
-      XXTCC_TURN_REALM: 'xxtcloud' # TURN realm
-      XXTCC_TURN_SECRET_KEY: '' # TURN 密钥（空则自动生成临时）
-      XXTCC_TURN_CREDENTIAL_TTL: '86400' # TURN 凭据有效期（秒）
-      XXTCC_TURN_RELAY_PORT_MIN: '49152' # TURN 中继端口范围起始
-      XXTCC_TURN_RELAY_PORT_MAX: '65535' # TURN 中继端口范围结束
-      XXTCC_CUSTOM_ICE_SERVERS: '[]' # 自定义 ICE 服务器 JSON
+```bash
+mkdir -p XXTCloudControl && cd XXTCloudControl
+curl -L -o docker-compose.yml https://raw.githubusercontent.com/havonz/XXTCloudControl/main/docker-compose.yml
+docker compose up -d
 ```
+
 
 ### 修改密码
 
