@@ -1,3 +1,9 @@
+# 需要仓库管理员设置的 Secrets：
+# - DOCKERHUB_USERNAME：Docker Hub 用户名
+# - DOCKERHUB_TOKEN：Docker Hub Access Token
+# - DOCKERHUB_REPO：Docker Hub 仓库名（可选，默认 xxtcloudcontrol）
+# - GHCR_REPO：GHCR 仓库名（可选，默认 xxtcloudcontrol）
+
 name: Release (Manual)
 
 on:
@@ -8,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,8 +41,17 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
+          # 来自仓库 Secrets
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          # GITHUB_TOKEN 为 Actions 自动注入（需 packages: write 权限）
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set build metadata
         run: |
@@ -125,10 +141,12 @@ jobs:
 
           ls -la "$RELEASE_DIR"/*.tar
 
-      - name: Push docker images to Docker Hub (amd64/arm64)
+      - name: Push docker images to Docker Hub + GHCR (amd64/arm64)
         env:
+          # 来自仓库 Secrets
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO }}
+          GHCR_REPO: ${{ secrets.GHCR_REPO }}
         run: |
           set -euo pipefail
           ROOT="$GITHUB_WORKSPACE"
@@ -138,15 +156,19 @@ jobs:
           fi
 
           IMAGE_REPO="${DOCKERHUB_REPO:-xxtcloudcontrol}"
-          IMAGE="${DOCKERHUB_USERNAME}/${IMAGE_REPO}"
+          IMAGE_DH="${DOCKERHUB_USERNAME}/${IMAGE_REPO}"
+          GHCR_REPO_NAME="${GHCR_REPO:-xxtcloudcontrol}"
+          IMAGE_GH="ghcr.io/${GITHUB_REPOSITORY_OWNER}/${GHCR_REPO_NAME}"
 
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --build-arg BUILD_TIME="$BUILD_TIME" \
             --build-arg VERSION="$VERSION" \
             --build-arg COMMIT="$COMMIT" \
-            -t "$IMAGE:$VERSION" \
-            -t "$IMAGE:latest" \
+            -t "$IMAGE_DH:$VERSION" \
+            -t "$IMAGE_DH:latest" \
+            -t "$IMAGE_GH:$VERSION" \
+            -t "$IMAGE_GH:latest" \
             --push \
             "$ROOT"
 
