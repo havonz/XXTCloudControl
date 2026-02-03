@@ -77,6 +77,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const [frameRate, setFrameRate] = createSignal(10);     // 帧率
   const [columns, setColumns] = createSignal(8);          // 列数
   
+  // 设备卡片引用和可见性追踪
+  const cardRefs = new Map<string, HTMLDivElement>();
+  const [visibleDevices, setVisibleDevices] = createSignal<Set<string>>(new Set());
+  let intersectionObserver: IntersectionObserver | null = null;
+  
   // 触控状态
   const [activeDevice, setActiveDevice] = createSignal<string | null>(null);
   const [isTouching, setIsTouching] = createSignal(false);
@@ -93,6 +98,77 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   let moveRafId: number | null = null;
   let lastSentMove: { x: number; y: number } | null = null;
   
+  // 初始化 IntersectionObserver
+  const setupIntersectionObserver = () => {
+    if (intersectionObserver) {
+      intersectionObserver.disconnect();
+    }
+    
+    intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          const udid = entry.target.getAttribute('data-udid');
+          if (!udid) return;
+          
+          const conn = connections().get(udid);
+          const wasVisible = visibleDevices().has(udid);
+          const isVisible = entry.isIntersecting;
+          
+          if (isVisible !== wasVisible) {
+            // 更新可见性状态
+            setVisibleDevices(prev => {
+              const newSet = new Set(prev);
+              if (isVisible) {
+                newSet.add(udid);
+              } else {
+                newSet.delete(udid);
+              }
+              return newSet;
+            });
+            
+            // 调整帧率
+            if (conn?.service && conn.state === 'connected') {
+              if (isVisible) {
+                // 恢复帧率
+                conn.service.setFrameRate(frameRate()).catch(console.error);
+                console.log(`[BatchRemote] Device ${udid} visible, resume fps: ${frameRate()}`);
+              } else {
+                // 暂停帧率
+                conn.service.setFrameRate(0).catch(console.error);
+                console.log(`[BatchRemote] Device ${udid} hidden, pause fps: 0`);
+              }
+            }
+          }
+        });
+      },
+      {
+        root: null,
+        rootMargin: '50px',
+        threshold: 0
+      }
+    );
+    
+    // 观察所有已有的卡片
+    cardRefs.forEach((el, udid) => {
+      el.setAttribute('data-udid', udid);
+      intersectionObserver?.observe(el);
+    });
+  };
+  
+  // 注册卡片 ref
+  const setCardRef = (udid: string, el: HTMLDivElement | null) => {
+    if (el) {
+      cardRefs.set(udid, el);
+      el.setAttribute('data-udid', udid);
+      intersectionObserver?.observe(el);
+    } else {
+      const existing = cardRefs.get(udid);
+      if (existing) {
+        intersectionObserver?.unobserve(existing);
+      }
+      cardRefs.delete(udid);
+    }
+  };
   // 获取当前选中的设备列表 (被勾选的)
   const getCheckedDevicesList = (): string[] => {
     return [...checkedDevices()];
@@ -538,21 +614,22 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
   };
 
-  // 右键 = Home 键 (仅对选中设备生效)
+  // 右键 = Home 键 (对所有设备生效，选中设备会同步)
   const handleDeviceContextMenu = (udid: string, event: MouseEvent) => {
     event.preventDefault();
     
-    // 右键仅对选中设备生效
-    if (!checkedDevices().has(udid)) return;
-
+    // 始终对当前设备生效
     const conn = connections().get(udid);
     if (conn?.service) {
       conn.service.sendKeyCommand('homebutton', 'press');
     }
 
-    const otherDevices = getOtherCheckedDevices(udid);
-    if (otherDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.pressHomeButtonMultiple(otherDevices);
+    // 如果当前设备是选中状态，同步到其他选中设备
+    if (checkedDevices().has(udid)) {
+      const otherDevices = getOtherCheckedDevices(udid);
+      if (otherDevices.length > 0 && props.webSocketService) {
+        props.webSocketService.pressHomeButtonMultiple(otherDevices);
+      }
     }
   };
 
@@ -756,6 +833,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       
       // 延迟连接所有设备
       setTimeout(() => {
+        setupIntersectionObserver();
         connectAllDevices();
       }, 100);
     } else if (!isOpen && hasInitialized) {
@@ -796,6 +874,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 清理资源
   onCleanup(() => {
+    // 断开 IntersectionObserver
+    if (intersectionObserver) {
+      intersectionObserver.disconnect();
+      intersectionObserver = null;
+    }
     // 确保发送 touch.up
     cleanupTouchState();
     disconnectAllDevices();
@@ -958,7 +1041,10 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                 const hasStream = () => !!conn()?.stream;
                 
                 return (
-                  <div class={`${styles.deviceCard} ${isChecked() ? styles.checked : ''}`}>
+                  <div 
+                    ref={(el) => setCardRef(device.udid, el)}
+                    class={`${styles.deviceCard} ${isChecked() ? styles.checked : ''}`}
+                  >
                     {/* 设备头部 */}
                     <div class={styles.deviceHeader}>
                       <span class={styles.deviceName}>{getDeviceName(device)}</span>
