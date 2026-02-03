@@ -5,6 +5,7 @@ import { useDialog } from './DialogContext';
 import { useToast } from './ToastContext';
 import RealTimeControl from './RealTimeControl';
 import WebRTCControl from './WebRTCControl';
+import BatchRemoteControl from './BatchRemoteControl';
 import styles from './DeviceList.module.css';
 import DeviceBindingModal from './DeviceBindingModal';
 import DictionaryModal from './DictionaryModal';
@@ -398,6 +399,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   // WebRTC control modal state
   const [showWebRTCModal, setShowWebRTCModal] = createSignal(false);
+  
+  // Batch Remote control modal state
+  const [showBatchRemoteModal, setShowBatchRemoteModal] = createSignal(false);
   
   // Sorting state
   const [sortField, setSortField] = createSignal<string>('');
@@ -968,6 +972,19 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     setShowWebRTCModal(false);
   };
   
+  // 批量实时控制
+  const handleOpenBatchRemoteControl = () => {
+    if (props.selectedDevices().length === 0) {
+      showToastMessage('请先选择设备');
+      return;
+    }
+    setShowBatchRemoteModal(true);
+  };
+
+  const handleCloseBatchRemoteControl = () => {
+    setShowBatchRemoteModal(false);
+  };
+  
   const handleDeviceBinding = () => {
     setShowDeviceBindingModal(true);
   };
@@ -1253,6 +1270,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 >
                   <IconVideo size={14} />
                   <span>WebRTC控制</span>
+                </button>
+                <button 
+                  class={styles.menuItem}
+                  onClick={() => {
+                    handleOpenBatchRemoteControl();
+                    setShowMoreActions(false);
+                  }}
+                  disabled={props.selectedDevices().length === 0}
+                >
+                  <IconVideo size={14} />
+                  <span>批量实时控制</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1911,6 +1939,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             isOpen={showWebRTCModal()}
             onClose={handleCloseWebRTCControl}
             selectedDevices={() => props.selectedDevices()}
+            webSocketService={props.webSocketService}
+            password={localStorage.getItem('xxt_password_hash') ? `__STORED_PASSHASH__${localStorage.getItem('xxt_password_hash')}` : ''}
+          />
+        </Show>
+        
+        {/* 批量实时控制弹窗 */}
+        <Show when={showBatchRemoteModal()}>
+          <BatchRemoteControl
+            isOpen={showBatchRemoteModal()}
+            onClose={handleCloseBatchRemoteControl}
+            devices={props.selectedDevices()}
             webSocketService={props.webSocketService}
             password={localStorage.getItem('xxt_password_hash') ? `__STORED_PASSHASH__${localStorage.getItem('xxt_password_hash')}` : ''}
           />

@@ -1311,7 +1311,24 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     });
   });
 
+  // 确保触控状态正确清理的函数
+  const cleanupTouchState = () => {
+    if (isTouching()) {
+      flushQueuedMove();
+      if (webrtcService) {
+        webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
+      }
+      const targetDevices = getTargetDevices();
+      if (targetDevices.length > 0 && props.webSocketService) {
+        props.webSocketService.touchUpMultipleNormalized(targetDevices);
+      }
+      setIsTouching(false);
+      resetMoveState();
+    }
+  };
+
   onCleanup(() => {
+    cleanupTouchState();
     stopStream();
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
