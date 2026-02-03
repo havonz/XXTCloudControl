@@ -79,6 +79,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   
   // 设备卡片引用和可见性追踪
   const cardRefs = new Map<string, HTMLDivElement>();
+  let gridRef: HTMLDivElement | null = null;
   const [visibleDevices, setVisibleDevices] = createSignal<Set<string>>(new Set());
   let intersectionObserver: IntersectionObserver | null = null;
   
@@ -142,7 +143,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         });
       },
       {
-        root: null,
+        root: gridRef,  // 使用网格容器作为根，而不是 viewport
         rootMargin: '50px',
         threshold: 0
       }
@@ -1030,6 +1031,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
           {/* 设备网格 */}
           <div 
+            ref={(el) => { gridRef = el; }}
             class={styles.deviceGrid}
             style={{ '--columns': columns() }}
           >

@@ -228,6 +228,7 @@
 .deviceGrid {
   display: grid;
   grid-template-columns: repeat(var(--columns, 8), 1fr);
+  grid-auto-rows: min-content;  /* 行高由内容决定，不压缩卡片 */
   gap: 12px;
   padding: 16px;
   overflow-y: auto;
