@@ -3,7 +3,6 @@ import { AuthService, Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { useDialog } from './DialogContext';
 import { useToast } from './ToastContext';
-import RealTimeControl from './RealTimeControl';
 import WebRTCControl from './WebRTCControl';
 import BatchRemoteControl from './BatchRemoteControl';
 import styles from './DeviceList.module.css';
@@ -394,8 +393,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   
   // Real-time control modal state
-  const [showRealTimeModal, setShowRealTimeModal] = createSignal(false);
-  const [currentScreenshot, setCurrentScreenshot] = createSignal<string>('');
+
   
   // WebRTC control modal state
   const [showWebRTCModal, setShowWebRTCModal] = createSignal(false);
@@ -945,20 +943,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
 
 
-  // 实时控制操作处理函数
-  const handleOpenRealTimeControl = () => {
-    if (props.selectedDevices().length === 0) {
-      showToastMessage('请先选择设备');
-      return;
-    }
-    setShowRealTimeModal(true);
-  };
-
-  const handleCloseRealTimeControl = () => {
-    setShowRealTimeModal(false);
-    setCurrentScreenshot('');
-  };
-  
   // WebRTC 实时控制
   const handleOpenWebRTCControl = () => {
     if (props.selectedDevices().length === 0) {
@@ -1252,17 +1236,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 <button 
                   class={styles.menuItem}
                   onClick={() => {
-                    handleOpenRealTimeControl();
-                    setShowMoreActions(false);
-                  }}
-                  disabled={props.selectedDevices().length === 0}
-                >
-                  <IconGamepad size={14} />
-                  <span>实时控制</span>
-                </button>
-                <button 
-                  class={styles.menuItem}
-                  onClick={() => {
                     handleOpenWebRTCControl();
                     setShowMoreActions(false);
                   }}
@@ -1279,7 +1252,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
-                  <IconVideo size={14} />
+                  <IconGamepad size={14} />
                   <span>批量实时控制</span>
                 </button>
                 <button 
@@ -1920,18 +1893,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             </div>
           </div>
         </Show>
-        
-        {/* 实时控制弹窗 */}
-        <RealTimeControl 
-          isOpen={showRealTimeModal()}
-          onClose={handleCloseRealTimeControl}
-          selectedDevices={props.selectedDevices}
-          webSocketService={props.webSocketService}
-          currentScreenshot={currentScreenshot}
-          onUpdateScreenshot={setCurrentScreenshot}
-          onReadClipboard={props.onReadClipboard}
-          onWriteClipboard={props.onWriteClipboard}
-        />
         
         {/* WebRTC 实时控制弹窗 */}
         <Show when={showWebRTCModal()}>
