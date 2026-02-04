@@ -71,19 +71,59 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 全屏模式
   const [isFullscreen, setIsFullscreen] = createSignal(false);
   
+  // localStorage 键名
+  const STORAGE_KEY = 'batchRemoteControl';
+  
+  // 从 localStorage 加载保存的设置
+  const loadSettings = () => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('[BatchRemote] Failed to load settings:', e);
+    }
+    return null;
+  };
+  
+  // 保存设置到 localStorage
+  const saveSettings = (settings: Record<string, unknown>) => {
+    try {
+      const current = loadSettings() || {};
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...settings }));
+    } catch (e) {
+      console.error('[BatchRemote] Failed to save settings:', e);
+    }
+  };
+  
+  const savedSettings = loadSettings();
+  
   // 窗口位置和尺寸（用于拖动和调整大小）
-  const [windowPos, setWindowPos] = createSignal({ x: 0, y: 0 });
-  const [windowSize, setWindowSize] = createSignal({ width: 0, height: 0 });
+  const [windowPos, setWindowPos] = createSignal(savedSettings?.windowPos || { x: 0, y: 0 });
+  const [windowSize, setWindowSize] = createSignal(savedSettings?.windowSize || { width: 0, height: 0 });
+  const [windowInitialized, setWindowInitialized] = createSignal(!!savedSettings?.windowSize?.width);
   const [isDragging, setIsDragging] = createSignal(false);
   const [isResizing, setIsResizing] = createSignal(false);
   let dragOffset = { x: 0, y: 0 };
   let resizeStart = { x: 0, y: 0, width: 0, height: 0 };
   let panelRef: HTMLDivElement | null = null;
   
-  // 参数控制
-  const [resolution, setResolution] = createSignal(0.2);  // 分辨率缩放
-  const [frameRate, setFrameRate] = createSignal(10);     // 帧率
-  const [columns, setColumns] = createSignal(4);          // 列数
+  // 参数控制 - 从 localStorage 加载初始值
+  const [resolution, setResolution] = createSignal(savedSettings?.resolution ?? 0.2);
+  const [frameRate, setFrameRate] = createSignal(savedSettings?.frameRate ?? 10);
+  const [columns, setColumns] = createSignal(savedSettings?.columns ?? 4);
+  
+  // 保存设置到 localStorage 的 effects
+  createEffect(() => {
+    if (windowInitialized()) {
+      saveSettings({ windowPos: windowPos(), windowSize: windowSize() });
+    }
+  });
+  
+  createEffect(() => {
+    saveSettings({ resolution: resolution(), frameRate: frameRate(), columns: columns() });
+  });
   
   // 设备卡片引用和可见性追踪
   const cardRefs = new Map<string, HTMLDivElement>();
@@ -195,11 +235,23 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     document.addEventListener('mouseup', handleDragEnd);
   };
 
+  // 约束窗口位置在页面边界内
+  const constrainPosition = (x: number, y: number, width: number, height: number) => {
+    const maxX = Math.max(0, window.innerWidth - width);
+    const maxY = Math.max(0, window.innerHeight - height);
+    return {
+      x: Math.max(0, Math.min(maxX, x)),
+      y: Math.max(0, Math.min(maxY, y))
+    };
+  };
+
   const handleDragMove = (e: MouseEvent) => {
     if (!isDragging()) return;
-    const newX = Math.max(0, Math.min(window.innerWidth - 200, e.clientX - dragOffset.x));
-    const newY = Math.max(0, Math.min(window.innerHeight - 100, e.clientY - dragOffset.y));
-    setWindowPos({ x: newX, y: newY });
+    const size = windowSize();
+    const rawX = e.clientX - dragOffset.x;
+    const rawY = e.clientY - dragOffset.y;
+    const { x, y } = constrainPosition(rawX, rawY, size.width, size.height);
+    setWindowPos({ x, y });
   };
 
   const handleDragEnd = () => {
@@ -207,6 +259,22 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     document.removeEventListener('mousemove', handleDragMove);
     document.removeEventListener('mouseup', handleDragEnd);
   };
+
+  // 页面调整大小时，约束窗口位置
+  createEffect(() => {
+    const handleWindowResize = () => {
+      if (isFullscreen() || !windowInitialized()) return;
+      const pos = windowPos();
+      const size = windowSize();
+      const { x, y } = constrainPosition(pos.x, pos.y, size.width, size.height);
+      if (x !== pos.x || y !== pos.y) {
+        setWindowPos({ x, y });
+      }
+    };
+    
+    window.addEventListener('resize', handleWindowResize);
+    onCleanup(() => window.removeEventListener('resize', handleWindowResize));
+  });
 
   // 调整大小处理
   const handleResizeStart = (e: MouseEvent) => {
@@ -1089,16 +1157,17 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           ref={(el) => { 
             panelRef = el; 
             // 初始化位置
-            if (el && windowPos().x === 0 && windowPos().y === 0 && !isFullscreen()) {
+            if (el && !windowInitialized() && !isFullscreen()) {
               requestAnimationFrame(() => {
                 const rect = el.getBoundingClientRect();
                 setWindowPos({ x: rect.left, y: rect.top });
                 setWindowSize({ width: rect.width, height: rect.height });
+                setWindowInitialized(true);
               });
             }
           }}
           class={`${styles.batchRemoteModal} ${isFullscreen() ? styles.fullscreen : ''} ${isDragging() ? styles.dragging : ''}`} 
-          style={!isFullscreen() && windowPos().x !== 0 ? {
+          style={!isFullscreen() && windowInitialized() ? {
             position: 'fixed',
             left: `${windowPos().x}px`,
             top: `${windowPos().y}px`,
