@@ -68,8 +68,18 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     return devices.length > 0 && checked.size === devices.length;
   };
   
-  // 全屏模式
+  // 全屏模式（仅用于桌面端手动切换）
   const [isFullscreen, setIsFullscreen] = createSignal(false);
+  
+  // 检测是否是移动端（响应式）
+  const [isMobile, setIsMobile] = createSignal(window.innerWidth <= 768);
+  
+  // 监听窗口大小变化，更新 isMobile 状态
+  createEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    onCleanup(() => window.removeEventListener('resize', handleResize));
+  });
   
   // localStorage 键名
   const STORAGE_KEY = 'batchRemoteControl';
@@ -260,15 +270,53 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     document.removeEventListener('mouseup', handleDragEnd);
   };
 
-  // 页面调整大小时，约束窗口位置
+  // 页面调整大小时，优先推面板位置，再缩小面板尺寸
   createEffect(() => {
     const handleWindowResize = () => {
-      if (isFullscreen() || !windowInitialized()) return;
+      if (isFullscreen() || isMobile() || !windowInitialized()) return;
+      
       const pos = windowPos();
       const size = windowSize();
-      const { x, y } = constrainPosition(pos.x, pos.y, size.width, size.height);
-      if (x !== pos.x || y !== pos.y) {
-        setWindowPos({ x, y });
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+      
+      // 最小尺寸限制
+      const MIN_WIDTH = 400;
+      const MIN_HEIGHT = 300;
+      
+      let newX = pos.x;
+      let newY = pos.y;
+      let newWidth = size.width;
+      let newHeight = size.height;
+      
+      // 1. 如果面板右边超出视口，先向左推
+      if (newX + newWidth > viewportW) {
+        newX = Math.max(0, viewportW - newWidth);
+      }
+      
+      // 2. 如果面板底部超出视口，先向上推
+      if (newY + newHeight > viewportH) {
+        newY = Math.max(0, viewportH - newHeight);
+      }
+      
+      // 3. 如果推到 0 还是放不下，则缩小面板宽度
+      if (newWidth > viewportW) {
+        newWidth = Math.max(MIN_WIDTH, viewportW);
+        newX = 0;
+      }
+      
+      // 4. 如果推到 0 还是放不下，则缩小面板高度
+      if (newHeight > viewportH) {
+        newHeight = Math.max(MIN_HEIGHT, viewportH);
+        newY = 0;
+      }
+      
+      // 应用变更
+      if (newX !== pos.x || newY !== pos.y) {
+        setWindowPos({ x: newX, y: newY });
+      }
+      if (newWidth !== size.width || newHeight !== size.height) {
+        setWindowSize({ width: newWidth, height: newHeight });
       }
     };
     
@@ -1147,13 +1195,13 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   return (
     <Show when={props.isOpen}>
       <div 
-        class={`${styles.modalOverlay} ${styles.noBackdrop} ${isFullscreen() ? styles.fullscreen : ''}`} 
+        class={`${styles.modalOverlay} ${styles.noBackdrop} ${(isFullscreen() || isMobile()) ? styles.fullscreen : ''}`} 
       >
         <div 
           ref={(el) => { 
             panelRef = el; 
-            // 初始化位置
-            if (el && !windowInitialized() && !isFullscreen()) {
+            // 初始化位置（仅桌面端）
+            if (el && !windowInitialized() && !isFullscreen() && !isMobile()) {
               requestAnimationFrame(() => {
                 const rect = el.getBoundingClientRect();
                 setWindowPos({ x: rect.left, y: rect.top });
@@ -1162,8 +1210,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
               });
             }
           }}
-          class={`${styles.batchRemoteModal} ${isFullscreen() ? styles.fullscreen : ''} ${isDragging() ? styles.dragging : ''}`} 
-          style={!isFullscreen() && windowInitialized() ? {
+          class={`${styles.batchRemoteModal} ${(isFullscreen() || isMobile()) ? styles.fullscreen : ''} ${isDragging() ? styles.dragging : ''}`} 
+          style={!isFullscreen() && !isMobile() && windowInitialized() ? {
             position: 'fixed',
             left: `${windowPos().x}px`,
             top: `${windowPos().y}px`,
@@ -1173,16 +1221,16 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           } : undefined}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {/* 头部 - 可拖动区域 */}
+          {/* 头部 - 可拖动区域（仅桌面端非全屏时可拖动） */}
           <div 
             class={styles.modalHeader} 
             onMouseDown={handleDragStart}
-            style={{ cursor: isFullscreen() ? 'default' : 'move' }}
+            style={{ cursor: (isFullscreen() || isMobile()) ? 'default' : 'move' }}
           >
             <h3>批量实时控制</h3>
             <div class={styles.headerButtons}>
               <button 
-                class={styles.headerButton} 
+                class={`${styles.headerButton} ${styles.fullscreenToggle}`} 
                 onClick={toggleFullscreen}
                 onMouseDown={(e) => e.stopPropagation()}
                 title={isFullscreen() ? '退出全页面' : '全页面'}

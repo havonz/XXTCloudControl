@@ -19,7 +19,7 @@
   flex-shrink: 0;
   box-shadow: var(--shadow-sm);
   position: relative;
-  z-index: 1000;
+  z-index: 10;
 }
 
 .headerLeft {
