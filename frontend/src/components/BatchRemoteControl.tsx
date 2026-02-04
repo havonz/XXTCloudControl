@@ -1149,23 +1149,136 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     disconnectAllDevices();
   });
 
-  // ESC 键关闭
+  // 键盘映射映射表 (浏览器 Key -> 设备键值)
+  const mapBrowserKeyToDeviceKey = (key: string): string | null => {
+    // 字母和数字直接返回其大写形式
+    if (key.length === 1) {
+      if (/[a-z0-9]/i.test(key)) {
+        return key.toUpperCase();
+      }
+      // 常见标点符号和空格
+      const punctuationMap: Record<string, string> = {
+        ' ': 'SPACE',
+        '.': 'DOT',
+        ',': 'COMMA',
+        ';': 'SEMICOLON',
+        "'": 'QUOTE',
+        '/': 'SLASH',
+        '\\': 'BACKSLASH',
+        '[': 'LBRACKET',
+        ']': 'RBRACKET',
+        '-': 'MINUS',
+        '=': 'EQUAL',
+        '`': 'BACKQUOTE',
+      };
+      return punctuationMap[key] || null;
+    }
+
+    // 功能键映射
+    const functionalKeyMap: Record<string, string> = {
+      'Enter': 'RETURN',
+      'Backspace': 'BACKSPACE',
+      'Tab': 'TAB',
+      'Escape': 'ESCAPE',
+      'ArrowUp': 'UP',
+      'ArrowDown': 'DOWN',
+      'ArrowLeft': 'LEFT',
+      'ArrowRight': 'RIGHT',
+      'Home': 'HOME',
+      'End': 'END',
+      'PageUp': 'PAGEUP',
+      'PageDown': 'PAGEDOWN',
+      'Delete': 'DELETE',
+      'F1': 'F1', 'F2': 'F2', 'F3': 'F3', 'F4': 'F4', 'F5': 'F5',
+      'F6': 'F6', 'F7': 'F7', 'F8': 'F8', 'F9': 'F9', 'F10': 'F10',
+      'F11': 'F11', 'F12': 'F12',
+    };
+
+    return functionalKeyMap[key] || null;
+  };
+
+  // 键盘事件处理
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      if (showPasteModal()) {
+    // 检查是否在输入文本
+    const isTextInput = e.target instanceof HTMLTextAreaElement || 
+      (e.target instanceof HTMLInputElement && ['text', 'password', 'number', 'email', 'search', 'tel', 'url'].includes(e.target.type));
+
+    if (isTextInput) {
+      // 只有 Escape 键在这种情况下需要关闭模态框
+      if (e.key === 'Escape' && showPasteModal()) {
         setShowPasteModal(false);
-      } else if (props.isOpen) {
+      }
+      return;
+    }
+
+    // ESC 键关闭面板
+    if (e.key === 'Escape') {
+      if (props.isOpen) {
         handleClose();
       }
+      return;
+    }
+
+    // 如果面板没打开或者没选中设备，不产生作用
+    if (!props.isOpen || checkedDevices().size === 0) return;
+
+    const deviceKey = mapBrowserKeyToDeviceKey(e.key);
+    if (!deviceKey) return;
+
+    // 组织默认行为（例如方向键滚动页面）
+    e.preventDefault();
+
+    const checked = getCheckedDevicesList();
+    
+    // 发送到各个设备
+    for (const udid of checked) {
+      const conn = connections().get(udid);
+      if (conn?.service && conn.state === 'connected') {
+        conn.service.sendKeyCommand(deviceKey, 'down');
+      }
+    }
+
+    // 通过 WebSocket 同步到那些没用 WebRTC 的设备 (或者统一走 WS)
+    // 注意：这里为了保持实时性，如果用了 WebRTC 则优先走 WebRTC
+    // 但 keyDownMultiple 在 WebSocketService 中会发给所有指定设备
+    if (props.webSocketService && checked.length > 0) {
+      props.webSocketService.keyDownMultiple(checked, deviceKey);
+    }
+  };
+
+  const handleKeyUp = (e: KeyboardEvent) => {
+    const isTextInput = e.target instanceof HTMLTextAreaElement || 
+      (e.target instanceof HTMLInputElement && ['text', 'password', 'number', 'email', 'search', 'tel', 'url'].includes(e.target.type));
+    
+    if (isTextInput) return;
+    if (!props.isOpen || checkedDevices().size === 0) return;
+
+    const deviceKey = mapBrowserKeyToDeviceKey(e.key);
+    if (!deviceKey) return;
+
+    e.preventDefault();
+
+    const checked = getCheckedDevicesList();
+    for (const udid of checked) {
+      const conn = connections().get(udid);
+      if (conn?.service && conn.state === 'connected') {
+        conn.service.sendKeyCommand(deviceKey, 'up');
+      }
+    }
+
+    if (props.webSocketService && checked.length > 0) {
+      props.webSocketService.keyUpMultiple(checked, deviceKey);
     }
   };
 
   onMount(() => {
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
   });
 
   onCleanup(() => {
     window.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('keyup', handleKeyUp);
   });
 
   // 设置视频 ref
@@ -1403,7 +1516,10 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
         {/* 粘贴模态框 */}
         <Show when={showPasteModal()}>
-          <div class={styles.pasteModalOverlay} onClick={() => setShowPasteModal(false)}>
+          <div 
+            class={`${styles.pasteModalOverlay} ${(isFullscreen() || isMobile()) ? styles.fullscreen : ''}`} 
+            onClick={() => setShowPasteModal(false)}
+          >
             <div class={styles.pasteModal} onClick={(e) => e.stopPropagation()}>
               <h4>粘贴文本到选中设备</h4>
               <textarea

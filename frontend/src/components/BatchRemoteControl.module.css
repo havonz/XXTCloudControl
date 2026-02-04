@@ -423,6 +423,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.pasteModalOverlay.fullscreen {
   z-index: 10100;
 }
 
