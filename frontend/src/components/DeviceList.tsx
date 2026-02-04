@@ -1239,7 +1239,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     handleOpenWebRTCControl();
                     setShowMoreActions(false);
                   }}
-                  disabled={props.selectedDevices().length === 0}
+                  disabled={props.selectedDevices().length === 0 || showBatchRemoteModal()}
                 >
                   <IconVideo size={14} />
                   <span>WebRTC控制</span>
