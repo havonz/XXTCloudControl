@@ -1227,6 +1227,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             <button 
               class={styles.toolbarActionButton}
               onClick={() => setShowMoreActions(!showMoreActions())}
+              disabled={props.selectedDevices().length === 0}
             >
               <IconEllipsis size={14} />
               <span>更多操作</span>
