@@ -154,12 +154,12 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 16px;
+  padding: 6px 16px;
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 6px;
 }
 
 .toolbarLeft {
@@ -170,15 +170,15 @@
 }
 
 .toolButton {
-  padding: 8px 12px;
+  padding: 5px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--panel-2);
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   transition: all 0.2s ease;
-  min-width: 40px;
+  min-width: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -198,11 +198,18 @@
   font-size: 13px;
   color: var(--text);
   cursor: pointer;
-  padding: 8px 12px;
+  padding: 0 10px;
+  height: 30.5px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--panel-2);
   transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.selectAllLabel input[type="checkbox"] {
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .selectAllLabel:hover {
@@ -213,10 +220,10 @@
 .controlBar {
   display: flex;
   align-items: center;
-  padding: 10px 16px;
+  padding: 6px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
-  gap: 24px;
+  gap: 20px;
   flex-shrink: 0;
   flex-wrap: wrap;
 }
