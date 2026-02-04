@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, createEffect, Show, onMount, For, createMemo } from 'solid-js';
 import { createBackdropClose } from '../hooks/useBackdropClose';
-import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconCopy, IconPaperPlane } from '../icons';
+import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconCopy, IconPaperPlane, IconLinkSlash, IconLink, IconMobileScreen, IconUser, IconUsers } from '../icons';
 import styles from './WebRTCControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
@@ -1447,13 +1447,13 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     class={`${styles.segmentedButton} ${!syncControl() ? styles.active : ''}`}
                     onClick={() => setSyncControl(false)}
                   >
-                    🎯 单端
+                    <IconLinkSlash size={12} /> 单端
                   </button>
                   <button 
                     class={`${styles.segmentedButton} ${syncControl() ? styles.active : ''}`}
                     onClick={() => setSyncControl(true)}
                   >
-                    🔗 同步
+                    <IconLink size={12} /> 同步
                   </button>
                 </div>
               </div>
@@ -1466,22 +1466,22 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     class={`${styles.segmentedButton} ${currentRotation() === 0 ? styles.active : ''}`}
                     onClick={() => setRotation(0)}
                     title="正常"
-                  >↑</button>
+                  ><IconMobileScreen size={14} /></button>
                   <button 
                     class={`${styles.segmentedButton} ${currentRotation() === 90 ? styles.active : ''}`}
                     onClick={() => setRotation(90)}
                     title="右转90°"
-                  >→</button>
+                  ><IconMobileScreen size={14} style={{ transform: 'rotate(90deg)' }} /></button>
                   <button 
                     class={`${styles.segmentedButton} ${currentRotation() === 180 ? styles.active : ''}`}
                     onClick={() => setRotation(180)}
                     title="旋转180°"
-                  >↓</button>
+                  ><IconMobileScreen size={14} style={{ transform: 'rotate(180deg)' }} /></button>
                   <button 
                     class={`${styles.segmentedButton} ${currentRotation() === 270 ? styles.active : ''}`}
                     onClick={() => setRotation(270)}
                     title="左转90°"
-                  >←</button>
+                  ><IconMobileScreen size={14} style={{ transform: 'rotate(270deg)' }} /></button>
                 </div>
               </div>
 
@@ -1570,7 +1570,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     </Show>
                     <span class={styles.statItem}>📊 {currentFps()} FPS</span>
                     <span class={styles.statItem}>📡 {bitrate()} kbps</span>
-                    <span class={styles.statItem}>🎯 {syncControl() ? `同步 ${props.selectedDevices().length} 台` : '单端'}</span>
+                    <span class={styles.statItem}>{syncControl() ? <><IconUsers size={12} /> 同步 {props.selectedDevices().length} 台</> : <><IconUser size={12} /> 单端</>}</span>
                   </div>
                 </div>
 

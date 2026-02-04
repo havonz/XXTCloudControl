@@ -1,6 +1,4 @@
 // FontAwesome Solid icons
-
-// FontAwesome Solid icons
 export {
   FaSolidBars as IconBars,
   FaSolidBoxesStacked as IconBoxesStacked,
@@ -54,12 +52,16 @@ export {
   FaSolidGamepad as IconGamepad,
   FaSolidCamera as IconCamera,
   FaSolidLink as IconLink,
+  FaSolidLinkSlash as IconLinkSlash,
   FaSolidArrowsRotate as IconArrowsRotate,
   FaSolidListCheck as IconListCheck,
   FaSolidBook as IconBook,
   FaSolidRotateLeft as IconRotateLeft,
   FaSolidDesktop as IconDesktop,
   FaSolidVideo as IconVideo,
+  FaSolidMobileScreenButton as IconMobileScreen,
+  FaSolidUser as IconUser,
+  FaSolidUsers as IconUsers,
   FaRegularSquare as IconSquare,
   FaRegularSquareCheck as IconSquareCheck,
   FaRegularNewspaper as IconNewspaper,
