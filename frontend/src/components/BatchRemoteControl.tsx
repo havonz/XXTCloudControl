@@ -75,7 +75,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 参数控制
   const [resolution, setResolution] = createSignal(0.2);  // 分辨率缩放
   const [frameRate, setFrameRate] = createSignal(10);     // 帧率
-  const [columns, setColumns] = createSignal(8);          // 列数
+  const [columns, setColumns] = createSignal(4);          // 列数
   
   // 设备卡片引用和可见性追踪
   const cardRefs = new Map<string, HTMLDivElement>();
@@ -1113,7 +1113,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
               <input 
                 type="range" 
                 min="2" 
-                max="12" 
+                max="8" 
                 step="1"
                 value={columns()}
                 onInput={(e) => setColumns(parseInt(e.currentTarget.value))}

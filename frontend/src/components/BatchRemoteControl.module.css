@@ -504,8 +504,8 @@
   .deviceGrid {
     padding: 12px;
     gap: 8px;
-    /* 移动端默认显示更少列数 */
-    grid-template-columns: repeat(min(var(--columns, 3), 3), 1fr);
+    /* 移动端限制最大4列 */
+    grid-template-columns: repeat(min(var(--columns, 3), 4), 1fr);
   }
   
   .deviceHeader {
