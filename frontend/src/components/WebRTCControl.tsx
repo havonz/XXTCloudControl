@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, createEffect, Show, onMount, For, createMemo } from 'solid-js';
 import { createBackdropClose } from '../hooks/useBackdropClose';
-import { IconXmark } from '../icons';
+import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconCopy, IconPaperPlane } from '../icons';
 import styles from './WebRTCControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
@@ -1577,22 +1577,22 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 {/* 底部工具栏 */}
                 <div class={styles.bottomToolbar}>
                   <button class={`${styles.deviceButton} ${styles.btnInfo} ${styles.homeButton}`} onClick={handleHomeButton} title="返回主屏幕">
-                    🏠 主屏幕
+                    <IconHouse size={14} /> 主屏幕
                   </button>
                   <button class={`${styles.deviceButton} ${styles.btnSecondary}`} onClick={handleVolumeDown} title="音量-">
-                    🔉 -
+                    <IconVolumeDecrease size={14} />
                   </button>
                   <button class={`${styles.deviceButton} ${styles.btnSecondary}`} onClick={handleVolumeUp} title="音量+">
-                    🔊 +
+                    <IconVolumeIncrease size={14} />
                   </button>
                   <button class={`${styles.deviceButton} ${styles.btnWarning}`} onClick={handleLockScreen} title="锁定屏幕">
-                    🔒 锁屏
+                    <IconLock size={14} /> 锁屏
                   </button>
                   <button class={`${styles.deviceButton} ${styles.btnSuccess}`} onClick={handleCopyFromDevice} title="从设备拷贝">
-                    📑 拷贝
+                    <IconCopy size={14} /> 拷贝
                   </button>
                   <button class={`${styles.deviceButton} ${styles.btnPrimary}`} onClick={handlePasteToDevice} title="粘贴剪贴板内容到设备">
-                    📋 粘贴
+                    <IconPaste size={14} /> 粘贴
                   </button>
                 </div>
               </Show>
@@ -1606,7 +1606,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
         <div class={styles.clipboardModalOverlay} onMouseDown={clipboardBackdropClose.onMouseDown} onMouseUp={clipboardBackdropClose.onMouseUp}>
           <div class={styles.clipboardModal} onMouseDown={(e) => e.stopPropagation()}>
             <div class={styles.clipboardModalHeader}>
-              <h4>{clipboardMode() === 'read' ? '📑 设备剪贴板内容' : '📋 写入剪贴板'}</h4>
+              <h4>{clipboardMode() === 'read' ? <><IconCopy size={14} /> 设备剪贴板内容</> : <><IconPaste size={14} /> 写入剪贴板</>}</h4>
               <button class={styles.closeButton} onClick={() => setClipboardModalOpen(false)}>✕</button>
             </div>
             
@@ -1666,7 +1666,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   onClick={handleCopyToSystemClipboard}
                   disabled={clipboardLoading() || (!clipboardContent() && !clipboardImageData())}
                 >
-                  📋 拷贝到剪贴板
+                  <IconPaste size={14} /> 拷贝到剪贴板
                 </button>
               </Show>
               <Show when={clipboardMode() === 'write'}>
@@ -1675,7 +1675,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   onClick={handleSendClipboardToDevices}
                   disabled={!clipboardContent() && !clipboardImageData()}
                 >
-                  📤 发送到设备
+                  <IconPaperPlane size={14} /> 发送到设备
                 </button>
               </Show>
               <button class={`${styles.actionButton} ${styles.stopButton}`} onClick={() => setClipboardModalOpen(false)}>

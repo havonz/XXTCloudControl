@@ -1,5 +1,5 @@
 import { createSignal, For, Show, onCleanup, createEffect, onMount } from 'solid-js';
-import { IconXmark } from '../icons';
+import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste } from '../icons';
 import styles from './BatchRemoteControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
@@ -1199,19 +1199,19 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           <div class={styles.toolbar}>
             <div class={styles.toolbarLeft}>
               <button class={styles.toolButton} onClick={handleHomeButton} title="主屏幕">
-                🏠
+                <IconHouse size={14} />
               </button>
               <button class={styles.toolButton} onClick={handleVolumeDown} title="音量-">
-                🔉
+                <IconVolumeDecrease size={14} />
               </button>
               <button class={styles.toolButton} onClick={handleVolumeUp} title="音量+">
-                🔊
+                <IconVolumeIncrease size={14} />
               </button>
               <button class={styles.toolButton} onClick={handleLockScreen} title="锁屏">
-                🔒
+                <IconLock size={14} />
               </button>
               <button class={styles.toolButton} onClick={handlePaste} title="粘贴">
-                📋 粘贴
+                <IconPaste size={14} /> 粘贴
               </button>
               
               <label class={styles.selectAllLabel}>

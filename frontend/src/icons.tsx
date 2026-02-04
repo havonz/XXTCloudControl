@@ -88,3 +88,9 @@ export { VsTerminalDebian as IconTerminalDebian } from 'solid-icons/vs';
 
 // Feather icons
 export { FiLoader as IconLoader } from 'solid-icons/fi';
+
+// Icomoon icons
+export {
+  ImVolumeDecrease as IconVolumeDecrease,
+  ImVolumeIncrease as IconVolumeIncrease,
+} from 'solid-icons/im';
