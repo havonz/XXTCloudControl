@@ -111,7 +111,6 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           const udid = entry.target.getAttribute('data-udid');
           if (!udid) return;
           
-          const conn = connections().get(udid);
           const wasVisible = visibleDevices().has(udid);
           const isVisible = entry.isIntersecting;
           
@@ -127,16 +126,23 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
               return newSet;
             });
             
-            // 调整帧率
-            if (conn?.service && conn.state === 'connected') {
-              if (isVisible) {
-                // 恢复帧率
-                conn.service.setFrameRate(frameRate()).catch(console.error);
-                console.log(`[BatchRemote] Device ${udid} visible, resume fps: ${frameRate()}`);
-              } else {
-                // 暂停帧率
-                conn.service.setFrameRate(0).catch(console.error);
-                console.log(`[BatchRemote] Device ${udid} hidden, pause fps: 0`);
+            // 根据可见性断开/重连 WebRTC
+            if (isVisible) {
+              // 变为可见 - 重新连接
+              const device = cachedDevices().find(d => d.udid === udid);
+              if (device) {
+                const currentConn = connections().get(udid);
+                if (!currentConn?.service || currentConn.state === 'disconnected') {
+                  console.log(`[BatchRemote] Device ${udid} visible, reconnecting...`);
+                  connectDevice(device);
+                }
+              }
+            } else {
+              // 变为不可见 - 断开连接
+              const currentConn = connections().get(udid);
+              if (currentConn?.service && currentConn.state === 'connected') {
+                console.log(`[BatchRemote] Device ${udid} hidden, disconnecting...`);
+                disconnectDevice(udid);
               }
             }
           }
@@ -178,6 +184,62 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 获取其他被勾选的设备（排除当前操作的设备）
   const getOtherCheckedDevices = (currentUdid: string): string[] => {
     return [...checkedDevices()].filter(udid => udid !== currentUdid);
+  };
+
+  // 计算设备的最优分辨率 - 取 min(用户设置, 容器适配, 720p限制)
+  const calculateOptimalResolution = (device: Device): number => {
+    // 1. 用户设置的最大分辨率
+    const userMaxScale = resolution();
+    
+    // 2. 获取设备原始分辨率
+    let nativeW = device.width || 1170;
+    let nativeH = device.height || 2532;
+    
+    // 如果设备是横屏，交换宽高
+    if (nativeW > nativeH) {
+      const tmp = nativeW;
+      nativeW = nativeH;
+      nativeH = tmp;
+    }
+    
+    // 3. 计算容器尺寸
+    const GRID_GAP = 12;
+    const GRID_PADDING = 16;
+    const cols = columns();
+    const panelWidth = isFullscreen() ? window.innerWidth : window.innerWidth * 0.9;
+    const availableWidth = panelWidth - (GRID_PADDING * 2) - (GRID_GAP * (cols - 1));
+    const cardWidth = availableWidth / cols;
+    const containerWidth = cardWidth;
+    const containerHeight = containerWidth * (16 / 9);
+    
+    // 设备画面在容器中的实际显示尺寸 (object-fit: contain)
+    const deviceAspect = nativeW / nativeH;
+    const containerAspect = 9 / 16;
+    
+    let displayWidth, displayHeight;
+    if (deviceAspect > containerAspect) {
+      displayWidth = containerWidth;
+      displayHeight = containerWidth / deviceAspect;
+    } else {
+      displayHeight = containerHeight;
+      displayWidth = containerHeight * deviceAspect;
+    }
+    
+    const dpr = window.devicePixelRatio || 1;
+    const displayPhysicalW = displayWidth * dpr;
+    const displayPhysicalH = displayHeight * dpr;
+    const containerScaleW = displayPhysicalW / nativeW;
+    const containerScaleH = displayPhysicalH / nativeH;
+    const containerScale = Math.min(containerScaleW, containerScaleH);
+    
+    // 4. 像素限制 (720x1280)
+    const MAX_PIXELS = 720 * 1280;
+    const nativePixels = nativeW * nativeH;
+    const pixelLimitScale = Math.floor(Math.sqrt(MAX_PIXELS / nativePixels) * 100) / 100;
+    
+    // 取三者最小值
+    const finalScale = Math.min(userMaxScale, containerScale, pixelLimitScale);
+    return Math.max(0.1, Math.min(1.0, finalScale));
   };
 
   // 连接单个设备
@@ -844,8 +906,39 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
   });
 
-  // TODO: 当分辨率或帧率变化时，可以实现动态调整
-  // 目前简化处理：只在连接时使用这些参数
+  // 当帧率变化时，动态更新所有已连接设备的帧率
+  createEffect(() => {
+    const fps = frameRate();
+    // 遍历所有已连接的设备并更新帧率
+    connections().forEach((conn, udid) => {
+      if (conn.service && conn.state === 'connected') {
+        conn.service.setFrameRate(fps).catch(err => {
+          console.error(`[BatchRemote] Failed to set FPS for ${udid}:`, err);
+        });
+        console.log(`[BatchRemote] Device ${udid} FPS updated to ${fps}`);
+      }
+    });
+  });
+
+  // 当分辨率/列数/全屏状态变化时，动态更新所有已连接设备的分辨率
+  createEffect(() => {
+    // 依赖这些信号触发重新计算
+    const _ = resolution();
+    const __ = columns();
+    const ___ = isFullscreen();
+    
+    // 遍历所有已连接的设备并更新分辨率
+    cachedDevices().forEach((device) => {
+      const conn = connections().get(device.udid);
+      if (conn?.service && conn.state === 'connected') {
+        const optimalScale = calculateOptimalResolution(device);
+        conn.service.setResolution(optimalScale).catch(err => {
+          console.error(`[BatchRemote] Failed to set resolution for ${device.udid}:`, err);
+        });
+        console.log(`[BatchRemote] Device ${device.udid} resolution updated to ${optimalScale.toFixed(3)}`);
+      }
+    });
+  });
 
   // 确保触控状态正确清理的函数
   const cleanupTouchState = () => {
