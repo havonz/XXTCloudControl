@@ -1149,52 +1149,76 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     disconnectAllDevices();
   });
 
-  // 键盘映射映射表 (浏览器 Key -> 设备键值)
-  const mapBrowserKeyToDeviceKey = (key: string): string | null => {
-    // 字母和数字直接返回其大写形式
-    if (key.length === 1) {
-      if (/[a-z0-9]/i.test(key)) {
-        return key.toUpperCase();
-      }
-      // 常见标点符号和空格
-      const punctuationMap: Record<string, string> = {
-        ' ': 'SPACE',
-        '.': 'DOT',
-        ',': 'COMMA',
-        ';': 'SEMICOLON',
-        "'": 'QUOTE',
-        '/': 'SLASH',
-        '\\': 'BACKSLASH',
-        '[': 'LBRACKET',
-        ']': 'RBRACKET',
-        '-': 'MINUS',
-        '=': 'EQUAL',
-        '`': 'BACKQUOTE',
-      };
-      return punctuationMap[key] || null;
+  // 特殊按键映射 - 使用 e.code (物理键码) 而不是 e.key (字符)
+  // 这样 Shift+2 会发送 Shift 和 "2"，量而不是发送 "@"
+  const codeMapping: Record<string, string> = {
+    // 功能键
+    'Enter': 'RETURN',
+    'NumpadEnter': 'RETURN',
+    'Escape': 'ESCAPE',
+    'Backspace': 'BACKSPACE',
+    'Tab': 'TAB',
+    'Space': 'SPACE',
+    'Delete': 'DELETE',
+    // 方向键
+    'ArrowUp': 'UP',
+    'ArrowDown': 'DOWN',
+    'ArrowLeft': 'LEFT',
+    'ArrowRight': 'RIGHT',
+    // 导航键
+    'Home': 'HOMEBUTTON',
+    'End': 'END',
+    'PageUp': 'PAGEUP',
+    'PageDown': 'PAGEDOWN',
+    // 修饰键
+    'ControlLeft': 'COMMAND',
+    'ControlRight': 'COMMAND',
+    'MetaLeft': 'COMMAND',
+    'MetaRight': 'COMMAND',
+    'AltLeft': 'OPTION',
+    'AltRight': 'OPTION',
+    'ShiftLeft': 'SHIFT',
+    'ShiftRight': 'SHIFT',
+    // 数字键 (主键盘)
+    'Digit0': '0',
+    'Digit1': '1',
+    'Digit2': '2',
+    'Digit3': '3',
+    'Digit4': '4',
+    'Digit5': '5',
+    'Digit6': '6',
+    'Digit7': '7',
+    'Digit8': '8',
+    'Digit9': '9',
+    // 符号键
+    'Minus': '-',
+    'Equal': '=',
+    'BracketLeft': '[',
+    'BracketRight': ']',
+    'Backslash': '\\',
+    'Semicolon': ';',
+    'Quote': "'",
+    'Comma': ',',
+    'Period': '.',
+    'Slash': '/',
+    'Backquote': '`',
+    // F键
+    'F1': 'F1', 'F2': 'F2', 'F3': 'F3', 'F4': 'F4', 'F5': 'F5',
+    'F6': 'F6', 'F7': 'F7', 'F8': 'F8', 'F9': 'F9', 'F10': 'F10',
+    'F11': 'F11', 'F12': 'F12'
+  };
+
+  // 从 e.code 提取按键名称 (设备端需要的格式)
+  const getKeyFromCode = (code: string): string | null => {
+    // 优先使用映射表
+    if (codeMapping[code]) {
+      return codeMapping[code];
     }
-
-    // 功能键映射
-    const functionalKeyMap: Record<string, string> = {
-      'Enter': 'RETURN',
-      'Backspace': 'BACKSPACE',
-      'Tab': 'TAB',
-      'Escape': 'ESCAPE',
-      'ArrowUp': 'UP',
-      'ArrowDown': 'DOWN',
-      'ArrowLeft': 'LEFT',
-      'ArrowRight': 'RIGHT',
-      'Home': 'HOME',
-      'End': 'END',
-      'PageUp': 'PAGEUP',
-      'PageDown': 'PAGEDOWN',
-      'Delete': 'DELETE',
-      'F1': 'F1', 'F2': 'F2', 'F3': 'F3', 'F4': 'F4', 'F5': 'F5',
-      'F6': 'F6', 'F7': 'F7', 'F8': 'F8', 'F9': 'F9', 'F10': 'F10',
-      'F11': 'F11', 'F12': 'F12',
-    };
-
-    return functionalKeyMap[key] || null;
+    // 字母键: KeyA -> a, KeyB -> b, ... -> 设备端需要 A, B, ...
+    if (code.startsWith('Key') && code.length === 4) {
+      return code[3].toUpperCase();
+    }
+    return null;
   };
 
   // 键盘事件处理
@@ -1222,7 +1246,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     // 如果面板没打开或者没选中设备，不产生作用
     if (!props.isOpen || checkedDevices().size === 0) return;
 
-    const deviceKey = mapBrowserKeyToDeviceKey(e.key);
+    const deviceKey = getKeyFromCode(e.code);
     if (!deviceKey) return;
 
     // 组织默认行为（例如方向键滚动页面）
@@ -1253,7 +1277,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (isTextInput) return;
     if (!props.isOpen || checkedDevices().size === 0) return;
 
-    const deviceKey = mapBrowserKeyToDeviceKey(e.key);
+    const deviceKey = getKeyFromCode(e.code);
     if (!deviceKey) return;
 
     e.preventDefault();
