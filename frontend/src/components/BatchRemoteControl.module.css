@@ -18,10 +18,20 @@
   padding: 0;
 }
 
+.modalOverlay.noBackdrop {
+  background-color: transparent;
+  pointer-events: none;
+}
+
+.modalOverlay.noBackdrop > * {
+  pointer-events: auto;
+}
+
 .batchRemoteModal {
+  position: relative;
   background: var(--panel);
   border-radius: 12px;
-  box-shadow: var(--shadow-lg);
+  border: 2px solid var(--border);
   display: flex;
   flex-direction: column;
   width: 95vw;
@@ -37,6 +47,47 @@
   max-width: 100vw;
   max-height: 100vh;
   border-radius: 0;
+}
+
+.batchRemoteModal.dragging {
+  opacity: 0.9;
+  user-select: none;
+}
+
+/* 调整大小手柄 */
+.resizeHandle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  background: linear-gradient(
+    135deg,
+    transparent 50%,
+    var(--border) 50%,
+    var(--border) 60%,
+    transparent 60%,
+    transparent 70%,
+    var(--border) 70%,
+    var(--border) 80%,
+    transparent 80%
+  );
+  border-bottom-right-radius: 12px;
+}
+
+.resizeHandle:hover {
+  background: linear-gradient(
+    135deg,
+    transparent 50%,
+    var(--primary) 50%,
+    var(--primary) 60%,
+    transparent 60%,
+    transparent 70%,
+    var(--primary) 70%,
+    var(--primary) 80%,
+    transparent 80%
+  );
 }
 
 /* 头部 */

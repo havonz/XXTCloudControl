@@ -1250,7 +1250,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     handleOpenBatchRemoteControl();
                     setShowMoreActions(false);
                   }}
-                  disabled={props.selectedDevices().length === 0}
+                  disabled={props.selectedDevices().length === 0 || showBatchRemoteModal()}
                 >
                   <IconGamepad size={14} />
                   <span>批量实时控制</span>

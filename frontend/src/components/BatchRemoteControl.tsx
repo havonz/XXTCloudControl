@@ -1,5 +1,4 @@
 import { createSignal, For, Show, onCleanup, createEffect, onMount } from 'solid-js';
-import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
 import styles from './BatchRemoteControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
@@ -72,6 +71,15 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 全屏模式
   const [isFullscreen, setIsFullscreen] = createSignal(false);
   
+  // 窗口位置和尺寸（用于拖动和调整大小）
+  const [windowPos, setWindowPos] = createSignal({ x: 0, y: 0 });
+  const [windowSize, setWindowSize] = createSignal({ width: 0, height: 0 });
+  const [isDragging, setIsDragging] = createSignal(false);
+  const [isResizing, setIsResizing] = createSignal(false);
+  let dragOffset = { x: 0, y: 0 };
+  let resizeStart = { x: 0, y: 0, width: 0, height: 0 };
+  let panelRef: HTMLDivElement | null = null;
+  
   // 参数控制
   const [resolution, setResolution] = createSignal(0.2);  // 分辨率缩放
   const [frameRate, setFrameRate] = createSignal(10);     // 帧率
@@ -90,8 +98,6 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 粘贴文本模态框
   const [showPasteModal, setShowPasteModal] = createSignal(false);
   const [pasteText, setPasteText] = createSignal('');
-  
-  const mainBackdropClose = createBackdropClose(() => handleClose());
   
   // Move throttling 相关变量
   const MOVE_EPSILON = 0.0015;
@@ -175,6 +181,59 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       }
       cardRefs.delete(udid);
     }
+  };
+
+  // 拖动处理
+  const handleDragStart = (e: MouseEvent) => {
+    if (isFullscreen()) return;
+    e.preventDefault();
+    const pos = windowPos();
+    dragOffset = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+    setIsDragging(true);
+    
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
+  };
+
+  const handleDragMove = (e: MouseEvent) => {
+    if (!isDragging()) return;
+    const newX = Math.max(0, Math.min(window.innerWidth - 200, e.clientX - dragOffset.x));
+    const newY = Math.max(0, Math.min(window.innerHeight - 100, e.clientY - dragOffset.y));
+    setWindowPos({ x: newX, y: newY });
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    document.removeEventListener('mousemove', handleDragMove);
+    document.removeEventListener('mouseup', handleDragEnd);
+  };
+
+  // 调整大小处理
+  const handleResizeStart = (e: MouseEvent) => {
+    if (isFullscreen()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const size = windowSize();
+    resizeStart = { x: e.clientX, y: e.clientY, width: size.width, height: size.height };
+    setIsResizing(true);
+    
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+  };
+
+  const handleResizeMove = (e: MouseEvent) => {
+    if (!isResizing()) return;
+    const deltaX = e.clientX - resizeStart.x;
+    const deltaY = e.clientY - resizeStart.y;
+    const newWidth = Math.max(400, resizeStart.width + deltaX);
+    const newHeight = Math.max(300, resizeStart.height + deltaY);
+    setWindowSize({ width: newWidth, height: newHeight });
+  };
+
+  const handleResizeEnd = () => {
+    setIsResizing(false);
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
   };
   // 获取当前选中的设备列表 (被勾选的)
   const getCheckedDevicesList = (): string[] => {
@@ -1024,26 +1083,48 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   return (
     <Show when={props.isOpen}>
       <div 
-        class={`${styles.modalOverlay} ${isFullscreen() ? styles.fullscreen : ''}`} 
-        onMouseDown={mainBackdropClose.onMouseDown} 
-        onMouseUp={mainBackdropClose.onMouseUp}
+        class={`${styles.modalOverlay} ${styles.noBackdrop} ${isFullscreen() ? styles.fullscreen : ''}`} 
       >
         <div 
-          class={`${styles.batchRemoteModal} ${isFullscreen() ? styles.fullscreen : ''}`} 
+          ref={(el) => { 
+            panelRef = el; 
+            // 初始化位置
+            if (el && windowPos().x === 0 && windowPos().y === 0 && !isFullscreen()) {
+              requestAnimationFrame(() => {
+                const rect = el.getBoundingClientRect();
+                setWindowPos({ x: rect.left, y: rect.top });
+                setWindowSize({ width: rect.width, height: rect.height });
+              });
+            }
+          }}
+          class={`${styles.batchRemoteModal} ${isFullscreen() ? styles.fullscreen : ''} ${isDragging() ? styles.dragging : ''}`} 
+          style={!isFullscreen() && windowPos().x !== 0 ? {
+            position: 'fixed',
+            left: `${windowPos().x}px`,
+            top: `${windowPos().y}px`,
+            width: windowSize().width > 0 ? `${windowSize().width}px` : undefined,
+            height: windowSize().height > 0 ? `${windowSize().height}px` : undefined,
+            transform: 'none'
+          } : undefined}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {/* 头部 */}
-          <div class={styles.modalHeader}>
+          {/* 头部 - 可拖动区域 */}
+          <div 
+            class={styles.modalHeader} 
+            onMouseDown={handleDragStart}
+            style={{ cursor: isFullscreen() ? 'default' : 'move' }}
+          >
             <h3>批量实时控制</h3>
             <div class={styles.headerButtons}>
               <button 
                 class={styles.headerButton} 
                 onClick={toggleFullscreen}
+                onMouseDown={(e) => e.stopPropagation()}
                 title={isFullscreen() ? '退出全页面' : '全页面'}
               >
                 {isFullscreen() ? '退出全屏' : '全页面'}
               </button>
-              <button class={styles.closeButton} onClick={handleClose} title="关闭">
+              <button class={styles.closeButton} onClick={handleClose} onMouseDown={(e) => e.stopPropagation()} title="关闭">
                 <IconXmark size={16} />
               </button>
             </div>
@@ -1197,6 +1278,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
               }}
             </For>
           </div>
+
+          {/* 调整大小手柄 */}
+          <Show when={!isFullscreen()}>
+            <div 
+              class={styles.resizeHandle}
+              onMouseDown={handleResizeStart}
+            />
+          </Show>
         </div>
 
         {/* 粘贴模态框 */}
