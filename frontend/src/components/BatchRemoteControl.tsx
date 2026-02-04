@@ -911,23 +911,19 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
   };
 
-  const handleBackButton = () => {
-    // 模拟返回操作（从左边缘向右滑动）
+  const handleVolumeUp = () => {
     const checked = getCheckedDevicesList();
     
     for (const udid of checked) {
       const conn = connections().get(udid);
       if (conn?.service) {
-        conn.service.sendTouchCommand('down', 0, 0.5);
-        setTimeout(() => conn.service?.sendTouchCommand('move', 0.3, 0.5), 50);
-        setTimeout(() => conn.service?.sendTouchCommand('up', 0.3, 0.5), 100);
+        conn.service.sendKeyCommand('volumeup', 'press');
       }
     }
     
     if (props.webSocketService && checked.length > 0) {
-      props.webSocketService.touchDownMultipleNormalized(checked, 0, 0.5);
-      setTimeout(() => props.webSocketService?.touchMoveMultipleNormalized(checked, 0.3, 0.5), 50);
-      setTimeout(() => props.webSocketService?.touchUpMultipleNormalized(checked), 100);
+      props.webSocketService.keyDownMultiple(checked, 'VOLUMEUP');
+      setTimeout(() => props.webSocketService?.keyUpMultiple(checked, 'VOLUMEUP'), 50);
     }
   };
 
@@ -1205,11 +1201,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
               <button class={styles.toolButton} onClick={handleHomeButton} title="主屏幕">
                 🏠
               </button>
-              <button class={styles.toolButton} onClick={handleBackButton} title="返回">
-                ←
-              </button>
               <button class={styles.toolButton} onClick={handleVolumeDown} title="音量-">
                 🔉
+              </button>
+              <button class={styles.toolButton} onClick={handleVolumeUp} title="音量+">
+                🔊
               </button>
               <button class={styles.toolButton} onClick={handleLockScreen} title="锁屏">
                 🔒
