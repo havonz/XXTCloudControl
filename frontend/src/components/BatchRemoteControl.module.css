@@ -186,10 +186,16 @@
   gap: 4px;
 }
 
-.toolButton:hover {
+.toolButton:hover:not(:disabled) {
   background: var(--primary);
   color: white;
   border-color: var(--primary);
+}
+
+.toolButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .selectAllLabel {

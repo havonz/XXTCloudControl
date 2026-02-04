@@ -1246,19 +1246,19 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           {/* 工具栏 */}
           <div class={styles.toolbar}>
             <div class={styles.toolbarLeft}>
-              <button class={styles.toolButton} onClick={handleHomeButton} title="主屏幕">
+              <button class={styles.toolButton} onClick={handleHomeButton} title="主屏幕" disabled={checkedDevices().size === 0}>
                 <IconHouse size={14} />
               </button>
-              <button class={styles.toolButton} onClick={handleVolumeDown} title="音量-">
+              <button class={styles.toolButton} onClick={handleVolumeDown} title="音量-" disabled={checkedDevices().size === 0}>
                 <IconVolumeDecrease size={14} />
               </button>
-              <button class={styles.toolButton} onClick={handleVolumeUp} title="音量+">
+              <button class={styles.toolButton} onClick={handleVolumeUp} title="音量+" disabled={checkedDevices().size === 0}>
                 <IconVolumeIncrease size={14} />
               </button>
-              <button class={styles.toolButton} onClick={handleLockScreen} title="锁屏">
+              <button class={styles.toolButton} onClick={handleLockScreen} title="锁屏" disabled={checkedDevices().size === 0}>
                 <IconLock size={14} />
               </button>
-              <button class={styles.toolButton} onClick={handlePaste} title="粘贴">
+              <button class={styles.toolButton} onClick={handlePaste} title="粘贴" disabled={checkedDevices().size === 0}>
                 <IconPaste size={14} /> 粘贴
               </button>
               
