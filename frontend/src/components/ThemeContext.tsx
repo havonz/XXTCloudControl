@@ -1,41 +1,76 @@
-import { createContext, useContext, createSignal, createEffect, ParentComponent, Accessor } from 'solid-js';
+import { createContext, useContext, createSignal, createEffect, onCleanup, ParentComponent, Accessor } from 'solid-js';
 
 export type Theme = 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark' | 'system';
 
 interface ThemeContextValue {
   theme: Accessor<Theme>;
-  setTheme: (theme: Theme) => void;
-  toggleTheme: () => void;
+  themeMode: Accessor<ThemeMode>;
+  setThemeMode: (mode: ThemeMode) => void;
+  cycleTheme: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>();
 
 const THEME_STORAGE_KEY = 'xxt-cloud-theme';
 
+// Helper to get system preference
+const getSystemTheme = (): Theme => {
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
+};
+
 export const ThemeProvider: ParentComponent = (props) => {
-  // Initialize from localStorage or system preference
-  const getInitialTheme = (): Theme => {
+  // Initialize from localStorage, default to 'system'
+  const getInitialMode = (): ThemeMode => {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === 'light' || stored === 'dark') {
+    if (stored === 'light' || stored === 'dark' || stored === 'system') {
       return stored;
     }
-    // Check system preference
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      return 'dark';
+    return 'system';
+  };
+
+  const [themeMode, setThemeModeSignal] = createSignal<ThemeMode>(getInitialMode());
+  const [systemTheme, setSystemTheme] = createSignal<Theme>(getSystemTheme());
+
+  // Computed resolved theme based on mode
+  const theme = (): Theme => {
+    const mode = themeMode();
+    if (mode === 'system') {
+      return systemTheme();
     }
-    return 'light';
+    return mode;
   };
 
-  const [theme, setThemeSignal] = createSignal<Theme>(getInitialTheme());
-
-  const setTheme = (newTheme: Theme) => {
-    setThemeSignal(newTheme);
-    localStorage.setItem(THEME_STORAGE_KEY, newTheme);
+  const setThemeMode = (newMode: ThemeMode) => {
+    setThemeModeSignal(newMode);
+    localStorage.setItem(THEME_STORAGE_KEY, newMode);
   };
 
-  const toggleTheme = () => {
-    setTheme(theme() === 'light' ? 'dark' : 'light');
+  // Cycle through modes: system -> light -> dark -> system
+  const cycleTheme = () => {
+    const current = themeMode();
+    if (current === 'system') {
+      setThemeMode('light');
+    } else if (current === 'light') {
+      setThemeMode('dark');
+    } else {
+      setThemeMode('system');
+    }
   };
+
+  // Listen for system preference changes
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  const handleSystemChange = (e: MediaQueryListEvent) => {
+    setSystemTheme(e.matches ? 'dark' : 'light');
+  };
+  mediaQuery.addEventListener('change', handleSystemChange);
+
+  onCleanup(() => {
+    mediaQuery.removeEventListener('change', handleSystemChange);
+  });
 
   // Apply theme to document
   createEffect(() => {
@@ -43,7 +78,7 @@ export const ThemeProvider: ParentComponent = (props) => {
   });
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, themeMode, setThemeMode, cycleTheme }}>
       {props.children}
     </ThemeContext.Provider>
   );

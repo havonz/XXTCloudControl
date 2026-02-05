@@ -1,4 +1,4 @@
-import { Component, createSignal, onCleanup, createMemo, createEffect, Show } from 'solid-js';
+import { Component, createSignal, onCleanup, createMemo, createEffect } from 'solid-js';
 import { useToast } from './components/ToastContext';
 import { WebSocketService, Device } from './services/WebSocketService';
 import { AuthService, LoginCredentials } from './services/AuthService';
@@ -12,7 +12,7 @@ import NewGroupModal from './components/NewGroupModal';
 import AddToGroupModal from './components/AddToGroupModal';
 import BindPage from './components/BindPage';
 import { useTheme } from './components/ThemeContext';
-import { IconMoon, IconSun } from './icons';
+import { IconMoon, IconSun, IconDesktop } from './icons';
 import styles from './App.module.css';
 import { ScannedFile } from './utils/fileUpload';
 import { setApiBaseUrl } from './services/httpAuth';
@@ -25,7 +25,7 @@ type PendingFileGet =
 
 const App: Component = () => {
   const toast = useToast();
-  const { theme, toggleTheme } = useTheme();
+  const { themeMode, cycleTheme } = useTheme();
   
   // Check if current URL is the public bind page
   const [isBindPage, setIsBindPage] = createSignal(window.location.pathname === '/bind');
@@ -769,11 +769,11 @@ const App: Component = () => {
                 <span class={styles.serverIp}>{serverHost()}</span>
               </div>
               <button
-                onClick={toggleTheme}
+                onClick={cycleTheme}
                 class={styles.themeToggle}
-                title={theme() === 'light' ? '切换到暗色模式' : '切换到亮色模式'}
+                title={themeMode() === 'system' ? '跟随系统' : themeMode() === 'light' ? '亮色模式' : '暗色模式'}
               >
-                {theme() === 'light' ? <IconMoon size={18} /> : <IconSun size={18} />}
+                {themeMode() === 'system' ? <IconDesktop size={18} /> : themeMode() === 'light' ? <IconSun size={18} /> : <IconMoon size={18} />}
               </button>
             </div>
           </header>

@@ -2,7 +2,7 @@ import { Component, createSignal, createEffect, onCleanup } from 'solid-js';
 import { AuthService, LoginCredentials } from '../services/AuthService';
 import { useTheme } from './ThemeContext';
 import { useToast } from './ToastContext';
-import { IconMoon, IconSun } from '../icons';
+import { IconMoon, IconSun, IconDesktop } from '../icons';
 import styles from './LoginForm.module.css';
 
 const VERSION_CACHE_KEY = 'xxt_server_version';
@@ -50,7 +50,7 @@ const parseServerPort = (value: string): { server: string; port: string } | null
 };
 
 const LoginForm: Component<LoginFormProps> = (props) => {
-  const { theme, toggleTheme } = useTheme();
+  const { themeMode, cycleTheme } = useTheme();
   const toast = useToast();
   // 使用当前页面的主机地址作为默认服务器地址
   const [server, setServer] = createSignal(window.location.hostname || 'localhost');
@@ -372,12 +372,12 @@ const LoginForm: Component<LoginFormProps> = (props) => {
       <div class={styles.loginCard}>
         <div class={styles.loginHeader}>
           <button
-            onClick={toggleTheme}
+            onClick={cycleTheme}
             class={styles.themeToggle}
-            title={theme() === 'light' ? '切换到暗色模式' : '切换到亮色模式'}
+            title={themeMode() === 'system' ? '跟随系统' : themeMode() === 'light' ? '亮色模式' : '暗色模式'}
             type="button"
           >
-            {theme() === 'light' ? <IconMoon size={18} /> : <IconSun size={18} />}
+            {themeMode() === 'system' ? <IconDesktop size={18} /> : themeMode() === 'light' ? <IconSun size={18} /> : <IconMoon size={18} />}
           </button>
           <h1>XXTCloudControl</h1>
           <p>连接到您的云控制服务器</p>
