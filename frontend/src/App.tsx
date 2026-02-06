@@ -686,9 +686,14 @@ const App: Component = () => {
       
       // Fetch server version and check for updates
       const fetchVersion = async () => {
+        const host = serverHost().trim();
+        const port = serverPort().trim();
+        if (!host || !port) {
+          return;
+        }
+
         try {
-          const proto = window.location.protocol === 'https:' ? 'https' : 'http';
-          const baseUrl = `${proto}://${serverHost()}:${serverPort()}`;
+          const baseUrl = authService.getHttpBaseUrl(host, port);
           const response = await fetch(`${baseUrl}/api/config?format=json`);
           if (response.ok) {
             const config = await response.json();

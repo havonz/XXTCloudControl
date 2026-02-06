@@ -74,6 +74,8 @@ export class WebRTCService {
   private dataChannel: RTCDataChannel | null = null;
   private isPolling = false;
   private pendingCandidates: RTCIceCandidateInit[] = [];
+  private isDestroyed = false;
+  private loggedIceCandidateWarnings: Set<string> = new Set();
 
   constructor(
     wsService: WebSocketService,
@@ -140,6 +142,10 @@ export class WebRTCService {
     body?: any,
     query?: Record<string, string | number | boolean>
   ): Promise<any> {
+    if (this.isDestroyed) {
+      return Promise.reject(new Error('Service destroyed'));
+    }
+
     const requestId = generateRequestId();
     const authService = AuthService.getInstance();
 
@@ -174,6 +180,12 @@ export class WebRTCService {
    * 启动 WebRTC 流
    */
   async startStream(options: WebRTCStartOptions = {}): Promise<void> {
+    if (this.isDestroyed) {
+      return;
+    }
+
+    this.loggedIceCandidateWarnings.clear();
+
     try {
       const query: Record<string, string | number | boolean> = {};
       if (options.resolution !== undefined) query.resolution = options.resolution;
@@ -267,11 +279,23 @@ export class WebRTCService {
         this.peerConnection.onicegatheringstatechange = () => {};
 
         this.peerConnection.onicecandidateerror = (event) => {
-          console.error('[WebRTC] ICE candidate error:', {
+          const detail = {
             errorCode: event.errorCode,
             errorText: event.errorText,
             url: event.url
-          });
+          };
+
+          // 常见 STUN 解析/联通失败（701）在受限网络环境下并不影响功能，避免刷屏报错
+          if (event.errorCode === 701) {
+            const warningKey = `${event.errorCode}:${event.url || ''}`;
+            if (!this.loggedIceCandidateWarnings.has(warningKey)) {
+              this.loggedIceCandidateWarnings.add(warningKey);
+              console.warn('[WebRTC] ICE candidate warning:', detail);
+            }
+            return;
+          }
+
+          console.error('[WebRTC] ICE candidate error:', detail);
         };
 
         this.peerConnection.ondatachannel = (event) => {
@@ -306,6 +330,9 @@ export class WebRTCService {
         this.startPolling();
       }
     } catch (error: any) {
+      if (this.isDestroyed) {
+        return;
+      }
       this.events.onError?.(error.message || String(error));
     }
   }
@@ -368,8 +395,13 @@ export class WebRTCService {
         setTimeout(() => this.pollForCandidates(), 100);
       }
     } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       // 如果不是因为服务销毁导致的错误，记录到控制台
-      if (this.isPolling && error?.message !== 'Service destroyed') {
+      if (
+        this.isPolling &&
+        errorMessage !== 'Service destroyed' &&
+        errorMessage !== 'Request timeout'
+      ) {
         console.error('[WebRTC] Polling error:', error);
       }
       
@@ -427,12 +459,20 @@ export class WebRTCService {
    * 停止 WebRTC 流
    */
   async stopStream(): Promise<void> {
+    if (this.isDestroyed) {
+      return;
+    }
+
     try {
       await this.sendRequest('POST', '/api/webrtc/stop');
     } catch (error) {
-      console.error('Failed to stop WebRTC stream:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage !== 'Service destroyed' && errorMessage !== 'Request timeout') {
+        console.error('Failed to stop WebRTC stream:', error);
+      }
+    } finally {
+      this.cleanup();
     }
-    this.cleanup();
   }
 
   /**
@@ -570,9 +610,15 @@ export class WebRTCService {
    * 清理资源
    */
   cleanup() {
+    if (this.isDestroyed) {
+      return;
+    }
+    this.isDestroyed = true;
+
     // 停止轮询
     this.stopPolling();
     this.pendingCandidates = [];
+    this.loggedIceCandidateWarnings.clear();
 
     if (this.dataChannel) {
       this.dataChannel.close();

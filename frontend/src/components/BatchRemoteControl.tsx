@@ -140,6 +140,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   let gridRef: HTMLDivElement | null = null;
   const [visibleDevices, setVisibleDevices] = createSignal<Set<string>>(new Set());
   let intersectionObserver: IntersectionObserver | null = null;
+  let isDisconnectingAll = false;
   
   // 触控状态
   const [activeDevice, setActiveDevice] = createSignal<string | null>(null);
@@ -543,8 +544,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const conn = connections().get(udid);
     if (!conn || !conn.service) return;
 
-    await conn.service.stopStream();
-    conn.service.cleanup();
+    try {
+      await conn.service.stopStream();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message !== 'Service destroyed') {
+        console.warn(`[BatchRemote] Failed to stop stream for ${udid}:`, error);
+      }
+    }
     
     setConnections(prev => {
       const newMap = new Map(prev);
@@ -558,10 +565,18 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 断开所有设备
   const disconnectAllDevices = async () => {
-    for (const [udid, conn] of connections()) {
-      if (conn.service) {
-        await disconnectDevice(udid);
+    if (isDisconnectingAll) return;
+    isDisconnectingAll = true;
+
+    try {
+      const allConnections = Array.from(connections().entries());
+      for (const [udid, conn] of allConnections) {
+        if (conn.service) {
+          await disconnectDevice(udid);
+        }
       }
+    } finally {
+      isDisconnectingAll = false;
     }
   };
 
@@ -1017,6 +1032,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         setupIntersectionObserver();
       }, 100);
     } else if (!isOpen && hasInitialized) {
+      disconnectAllDevices();
       // 面板关闭时重置标记和缓存
       hasInitialized = false;
       setCachedDevices([]);
