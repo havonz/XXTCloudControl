@@ -361,6 +361,24 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     return [...checkedDevices()].filter(udid => udid !== currentUdid);
   };
 
+  // 将设备按可用控制通道拆分，避免同一个动作重复发送
+  const splitDevicesByControlChannel = (udids: string[]) => {
+    const viaWebRTC: string[] = [];
+    const viaWebSocket: string[] = [];
+    const connMap = connections();
+
+    for (const udid of udids) {
+      const conn = connMap.get(udid);
+      if (conn?.service && conn.state === 'connected') {
+        viaWebRTC.push(udid);
+      } else {
+        viaWebSocket.push(udid);
+      }
+    }
+
+    return { viaWebRTC, viaWebSocket };
+  };
+
   // 计算设备的最优分辨率 - 取 min(用户设置, 容器适配, 720p限制)
   const calculateOptimalResolution = (device: Device): number => {
     // 1. 用户设置的最大分辨率
@@ -946,16 +964,19 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 工具栏操作 - 发送到所有被勾选设备
   const handleHomeButton = () => {
     const checked = getCheckedDevicesList();
-    
-    for (const udid of checked) {
-      const conn = connections().get(udid);
+
+    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
+    const connMap = connections();
+
+    for (const udid of viaWebRTC) {
+      const conn = connMap.get(udid);
       if (conn?.service) {
         conn.service.sendKeyCommand('homebutton', 'press');
       }
     }
-    
-    if (props.webSocketService && checked.length > 0) {
-      props.webSocketService.pressHomeButtonMultiple(checked);
+
+    if (props.webSocketService && viaWebSocket.length > 0) {
+      props.webSocketService.pressHomeButtonMultiple(viaWebSocket);
     }
   };
 
