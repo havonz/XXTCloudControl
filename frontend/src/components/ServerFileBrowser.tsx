@@ -216,7 +216,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     window.removeEventListener('keydown', handleKeyDown);
   });
 
-  const sortedFiles = () => {
+  const sortedFiles = createMemo(() => {
     let result = [...files()].sort((a, b) => {
       if (a.type === 'dir' && b.type === 'file') return -1;
       if (a.type === 'file' && b.type === 'dir') return 1;
@@ -229,7 +229,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     }
     
     return result;
-  };
+  });
 
   const handleCategoryChange = (category: 'scripts' | 'files' | 'reports') => {
     setCurrentCategory(category);

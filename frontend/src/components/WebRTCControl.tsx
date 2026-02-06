@@ -133,6 +133,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   let videoRef: HTMLVideoElement | undefined;
   let videoContainerRef: HTMLDivElement | undefined;
+  let cachedVideoRect: DOMRect | null = null;
   let webrtcService: WebRTCService | null = null;
   let statsInterval: number | undefined;
   let resizeObserver: ResizeObserver | undefined;
@@ -141,6 +142,16 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   let lastTimestamp = 0;
   let lastAppliedResolution = 0;
   let lastAppliedFrameRate = 0;
+
+  const updateCachedVideoRect = () => {
+    if (videoRef) {
+      cachedVideoRect = videoRef.getBoundingClientRect();
+    }
+  };
+
+  const clearCachedVideoRect = () => {
+    cachedVideoRect = null;
+  };
 
   // 最大允许像素限制 (720 x 1280 = 921600)
   const MAX_PIXELS = 720 * 1280;
@@ -349,6 +360,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     stopStatsMonitoring();
     lastAppliedResolution = 0;
     lastAppliedFrameRate = 0;
+    clearCachedVideoRect();
   };
 
   // 开始统计监控
@@ -486,7 +498,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const convertToDeviceCoordinates = (clientX: number, clientY: number) => {
     if (!videoRef) return null;
 
-    const rect = videoRef.getBoundingClientRect();
+    const rect = cachedVideoRect ?? videoRef.getBoundingClientRect();
+    if (!cachedVideoRect) {
+      cachedVideoRect = rect;
+    }
     const videoWidth = videoRef.videoWidth;
     const videoHeight = videoRef.videoHeight;
     const rotation = currentRotation();
@@ -551,6 +566,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (shouldIgnoreMouseEvent(event)) return;
     event.preventDefault();
     resetMoveState();
+    updateCachedVideoRect();
 
     // 移除其他元素的焦点，以便键盘事件可以被捕获
     if (document.activeElement instanceof HTMLElement) {
@@ -558,7 +574,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
 
     const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
-    if (!coords) return;
+    if (!coords) {
+      clearCachedVideoRect();
+      return;
+    }
 
     // 记录触摸位置
     lastTouchPosition = coords;
@@ -585,21 +604,22 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
     
     // 如果离开了视频区域且正在触摸，发送 touch up（使用最后位置）
-    if (!coords && isTouching()) {
-      flushQueuedMove();
-      if (webrtcService) {
-        webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
+    if (!coords) {
+      if (isTouching()) {
+        flushQueuedMove();
+        if (webrtcService) {
+          webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
+        }
+        const targetDevices = getTargetDevices();
+        if (targetDevices.length > 0 && props.webSocketService) {
+          props.webSocketService.touchUpMultipleNormalized(targetDevices);
+        }
+        setIsTouching(false);
+        resetMoveState();
       }
-      const targetDevices = getTargetDevices();
-      if (targetDevices.length > 0 && props.webSocketService) {
-        props.webSocketService.touchUpMultipleNormalized(targetDevices);
-      }
-      setIsTouching(false);
-      resetMoveState();
+      clearCachedVideoRect();
       return;
     }
-    
-    if (!coords) return;
 
     // 记录触摸位置
     lastTouchPosition = coords;
@@ -611,7 +631,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (shouldIgnoreMouseEvent(event)) return;
     event.preventDefault();
     
-    if (!isTouching()) return;
+    if (!isTouching()) {
+      clearCachedVideoRect();
+      return;
+    }
 
     flushQueuedMove();
     const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
@@ -630,6 +653,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     setIsTouching(false);
     resetMoveState();
+    clearCachedVideoRect();
   };
   
   // 鼠标离开视频区域时处理
@@ -646,6 +670,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       }
       setIsTouching(false);
       resetMoveState();
+      clearCachedVideoRect();
     }
   };
 
@@ -654,6 +679,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     event.preventDefault();
     lastTouchTimestamp = Date.now();
     resetMoveState();
+    updateCachedVideoRect();
     
     // 移除其他元素的焦点
     if (document.activeElement instanceof HTMLElement) {
@@ -661,10 +687,16 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
 
     const touch = event.touches[0];
-    if (!touch) return;
+    if (!touch) {
+      clearCachedVideoRect();
+      return;
+    }
 
     const coords = convertToDeviceCoordinates(touch.clientX, touch.clientY);
-    if (!coords) return;
+    if (!coords) {
+      clearCachedVideoRect();
+      return;
+    }
 
     lastTouchPosition = coords;
 
@@ -700,7 +732,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     event.preventDefault();
     lastTouchTimestamp = Date.now();
     
-    if (!isTouching()) return;
+    if (!isTouching()) {
+      clearCachedVideoRect();
+      return;
+    }
 
     flushQueuedMove();
     // 1. 始终控制当前设备（通过 WebRTC DataChannel）
@@ -716,6 +751,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     setIsTouching(false);
     resetMoveState();
+    clearCachedVideoRect();
   };
 
   const handleContextMenu = (event: MouseEvent) => {
@@ -1264,6 +1300,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
         for (const entry of entries) {
           const { width, height } = entry.contentRect;
           if (width > 0 && height > 0) {
+            // Cached touch rect is geometry-dependent; invalidate on container resize.
+            clearCachedVideoRect();
             setDisplaySize({ width, height });
           }
         }
@@ -1325,6 +1363,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       setIsTouching(false);
       resetMoveState();
     }
+    clearCachedVideoRect();
   };
 
   onCleanup(() => {

@@ -76,6 +76,15 @@ func validateFileName(name string) error {
 func serverFilesListHandler(c *gin.Context) {
 	category := c.DefaultQuery("category", "scripts")
 	subPath := c.DefaultQuery("path", "")
+	includeMeta := true
+	if metaParam, ok := c.GetQuery("meta"); ok {
+		switch strings.ToLower(metaParam) {
+		case "0", "false", "no":
+			includeMeta = false
+		case "1", "true", "yes":
+			includeMeta = true
+		}
+	}
 
 	targetPath, err := validatePath(category, subPath)
 	if err != nil {
@@ -111,12 +120,14 @@ func serverFilesListHandler(c *gin.Context) {
 			fileType = "dir"
 		}
 
-		info, _ := entry.Info()
 		var size int64
 		var modTime string
-		if info != nil {
-			size = info.Size()
-			modTime = info.ModTime().Format("2006-01-02 15:04:05")
+		if includeMeta {
+			info, err := entry.Info()
+			if err == nil {
+				size = info.Size()
+				modTime = info.ModTime().Format("2006-01-02 15:04:05")
+			}
 		}
 
 		files = append(files, ServerFileItem{
@@ -668,6 +679,19 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 		return
 	}
 
+	srcBaseDir := filepath.Join(serverConfig.DataDir, srcCategory)
+	absSrcBaseDir, err := filepath.Abs(srcBaseDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve source base path"})
+		return
+	}
+	dstBaseDir := filepath.Join(serverConfig.DataDir, dstCategory)
+	absDstBaseDir, err := filepath.Abs(dstBaseDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve destination base path"})
+		return
+	}
+
 	successCount := 0
 	var errors []string
 
@@ -676,8 +700,6 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 		dstPath := filepath.Join(dstDir, item)
 
 		// Validate source path doesn't escape
-		srcBaseDir := filepath.Join(serverConfig.DataDir, srcCategory)
-		absSrcBaseDir, _ := filepath.Abs(srcBaseDir)
 		absSrcPath, _ := filepath.Abs(srcPath)
 		if !strings.HasPrefix(absSrcPath, absSrcBaseDir) {
 			errors = append(errors, fmt.Sprintf("%s: source path traversal detected", item))
@@ -685,8 +707,6 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 		}
 
 		// Validate destination path doesn't escape
-		dstBaseDir := filepath.Join(serverConfig.DataDir, dstCategory)
-		absDstBaseDir, _ := filepath.Abs(dstBaseDir)
 		absDstPath, _ := filepath.Abs(dstPath)
 		if !strings.HasPrefix(absDstPath, absDstBaseDir) {
 			errors = append(errors, fmt.Sprintf("%s: destination path traversal detected", item))
@@ -784,6 +804,19 @@ func serverFilesBatchMoveHandler(c *gin.Context) {
 		return
 	}
 
+	srcBaseDir := filepath.Join(serverConfig.DataDir, srcCategory)
+	absSrcBaseDir, err := filepath.Abs(srcBaseDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve source base path"})
+		return
+	}
+	dstBaseDir := filepath.Join(serverConfig.DataDir, dstCategory)
+	absDstBaseDir, err := filepath.Abs(dstBaseDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve destination base path"})
+		return
+	}
+
 	successCount := 0
 	var errors []string
 
@@ -792,8 +825,6 @@ func serverFilesBatchMoveHandler(c *gin.Context) {
 		dstPath := filepath.Join(dstDir, item)
 
 		// Validate source path doesn't escape
-		srcBaseDir := filepath.Join(serverConfig.DataDir, srcCategory)
-		absSrcBaseDir, _ := filepath.Abs(srcBaseDir)
 		absSrcPath, _ := filepath.Abs(srcPath)
 		if !strings.HasPrefix(absSrcPath, absSrcBaseDir) {
 			errors = append(errors, fmt.Sprintf("%s: source path traversal detected", item))
@@ -801,8 +832,6 @@ func serverFilesBatchMoveHandler(c *gin.Context) {
 		}
 
 		// Validate destination path doesn't escape
-		dstBaseDir := filepath.Join(serverConfig.DataDir, dstCategory)
-		absDstBaseDir, _ := filepath.Abs(dstBaseDir)
 		absDstPath, _ := filepath.Abs(dstPath)
 		if !strings.HasPrefix(absDstPath, absDstBaseDir) {
 			errors = append(errors, fmt.Sprintf("%s: destination path traversal detected", item))

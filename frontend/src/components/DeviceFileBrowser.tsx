@@ -1,4 +1,4 @@
-import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
+import { createSignal, createEffect, For, Show, onMount, onCleanup, createMemo } from 'solid-js';
 import { useDialog } from './DialogContext';
 import { useToast } from './ToastContext';
 import {
@@ -127,7 +127,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   });
 
   // 文件排序函数：文件夹在前，文件在后，都按名称正序排序
-  const sortedFiles = () => {
+  const sortedFiles = createMemo(() => {
     let result = [...props.files].sort((a, b) => {
       // 先按类型排序：文件夹在前
       if (a.type === 'directory' && b.type === 'file') return -1;
@@ -142,7 +142,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     }
 
     return result;
-  };
+  });
 
   const handleNavigate = (path: string) => {
     setCurrentPath(path);

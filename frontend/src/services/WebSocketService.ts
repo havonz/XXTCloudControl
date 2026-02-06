@@ -184,7 +184,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(
@@ -205,7 +204,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(
@@ -232,7 +230,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
 
       const message = authService.createControlMessage(
@@ -261,7 +258,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
 
       const message = authService.createControlMessage(
@@ -350,7 +346,6 @@ export class WebSocketService {
     // 允许空脚本名称，直接发送请求
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(
@@ -384,7 +379,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(
@@ -415,7 +409,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(
@@ -446,7 +439,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(
@@ -477,7 +469,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(
@@ -508,7 +499,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(
@@ -549,7 +539,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(
@@ -1466,7 +1455,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(
@@ -1507,7 +1495,6 @@ export class WebSocketService {
     }
 
     try {
-      const { AuthService } = await import('./AuthService');
       const authService = AuthService.getInstance();
       
       const message = authService.createControlMessage(

@@ -31,10 +31,22 @@ type TransferToken struct {
 	Category   string    // File category (scripts/files/reports)
 }
 
+type md5CacheEntry struct {
+	size    int64
+	modTime int64
+	hash    string
+}
+
 // Transfer token storage
 var (
 	transferTokens   = make(map[string]*TransferToken)
 	transferTokensMu sync.RWMutex
+	md5Cache         = struct {
+		sync.RWMutex
+		entries map[string]md5CacheEntry
+	}{
+		entries: make(map[string]md5CacheEntry),
+	}
 )
 
 // TransferProgress represents file transfer progress
@@ -115,8 +127,8 @@ func createTransferTokenHandler(c *gin.Context) {
 		}
 		fileSize = info.Size()
 
-		// Calculate MD5 for verification
-		if md5Hash, err := calculateFileMD5(filePath); err == nil {
+		// Calculate MD5 for verification (cached by path/size/mtime)
+		if md5Hash, err := calculateFileMD5Cached(filePath, info); err == nil {
 			fileMD5 = md5Hash
 		}
 
@@ -440,7 +452,7 @@ func transferUploadHandler(c *gin.Context) {
 
 	// Calculate MD5 of uploaded file
 	file.Seek(0, 0)
-	md5Hash, _ := calculateFileMD5(tokenInfo.FilePath)
+	md5Hash, _ := calculateFileMD5Cached(tokenInfo.FilePath, nil)
 
 	fmt.Printf("✅ Upload completed: device %s → %s (%d bytes, MD5: %s)\n",
 		tokenInfo.DeviceSN, fileName, written, md5Hash)
@@ -451,6 +463,45 @@ func transferUploadHandler(c *gin.Context) {
 		"md5":     md5Hash,
 		"path":    tokenInfo.FilePath,
 	})
+}
+
+// calculateFileMD5Cached calculates the MD5 hash with a small cache keyed by path/size/mtime
+func calculateFileMD5Cached(filePath string, info os.FileInfo) (string, error) {
+	if info == nil {
+		statInfo, err := os.Stat(filePath)
+		if err != nil {
+			return "", err
+		}
+		info = statInfo
+	}
+
+	size := info.Size()
+	modTime := info.ModTime().UnixNano()
+
+	md5Cache.RLock()
+	if entry, ok := md5Cache.entries[filePath]; ok && entry.size == size && entry.modTime == modTime {
+		md5Cache.RUnlock()
+		return entry.hash, nil
+	}
+	md5Cache.RUnlock()
+
+	hash, err := calculateFileMD5(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	md5Cache.Lock()
+	if len(md5Cache.entries) > 2048 {
+		md5Cache.entries = make(map[string]md5CacheEntry, 512)
+	}
+	md5Cache.entries[filePath] = md5CacheEntry{
+		size:    size,
+		modTime: modTime,
+		hash:    hash,
+	}
+	md5Cache.Unlock()
+
+	return hash, nil
 }
 
 // calculateFileMD5 calculates the MD5 hash of a file
@@ -675,7 +726,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 	token := uuid.New().String()
 	expiresAt := time.Now().Add(5 * time.Minute)
 
-	md5Hash, _ := calculateFileMD5(filePath)
+	md5Hash, _ := calculateFileMD5Cached(filePath, info)
 
 	transferTokensMu.Lock()
 	transferTokens[token] = &TransferToken{
