@@ -80,7 +80,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const dialog = useDialog();
   const toast = useToast();
   const authService = AuthService.getInstance();
-  const [forceUpdate, setForceUpdate] = createSignal(0);
   
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = createSignal<string[]>(['name', 'udid', 'ip', 'version', 'battery', 'running', 'message', 'log']);
@@ -453,13 +452,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
   });
 
-  // Force reactivity tracking
-  createEffect(() => {
-    props.selectedDevices().length;
-    props.selectedDevices().map(d => d.udid);
-    setForceUpdate(prev => prev + 1); // Force component update
-  });
-
   // Load saved script from backend on mount
   const loadSavedScript = async () => {
     try {
@@ -723,17 +715,46 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     });
   };
 
-  // // DEBUG: Track when selectedDevices prop changes
-  // console.log('DeviceList render - selectedDevices count:', props.selectedDevices().length);
-  // console.log('DeviceList render - selectedDevices UDIDs:', props.selectedDevices().map(d => d.udid));
-  // console.log('DeviceList render - forceUpdate:', forceUpdate());
-
-  const filteredDevices = () => {
+  const filteredDevices = createMemo(() => {
     return sortDevices(props.devices);
-  };
+  });
 
   const selectedUdidSet = createMemo(() => {
     return new Set(props.selectedDevices().map(d => d.udid));
+  });
+
+  const selectedCountInView = createMemo(() => {
+    const selectedSet = selectedUdidSet();
+    let selectedCount = 0;
+    for (const device of filteredDevices()) {
+      if (selectedSet.has(device.udid)) {
+        selectedCount++;
+      }
+    }
+    return selectedCount;
+  });
+
+  const isAllSelected = createMemo(() => {
+    const allDevices = filteredDevices();
+    return allDevices.length > 0 && selectedCountInView() === allDevices.length;
+  });
+
+  const isPartiallySelected = createMemo(() => {
+    const allDevices = filteredDevices();
+    const selectedCount = selectedCountInView();
+    return selectedCount > 0 && selectedCount < allDevices.length;
+  });
+
+  const gridTemplateColumns = createMemo(() => {
+    const widths = columnWidths();
+    const columns = visibleColumns();
+    const rest = columns.map((id, index) => {
+      if (index === columns.length - 1) {
+        return '1fr';
+      }
+      return `${widths[id] || DEFAULT_WIDTHS[id]}px`;
+    }).join(' ');
+    return `${widths.selection || DEFAULT_WIDTHS.selection}px ${rest}`;
   });
 
   const handleDeviceToggle = (device: Device, e?: MouseEvent) => {
@@ -777,14 +798,13 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const handleSelectAll = () => {
     const allDevices = filteredDevices();
     const selectedSet = selectedUdidSet();
-    const allSelected = allDevices.length > 0 && allDevices.every(device => 
-      selectedSet.has(device.udid)
-    );
+    const allSelected = isAllSelected();
+    const allDeviceUdidSet = new Set(allDevices.map(device => device.udid));
     
     if (allSelected) {
       // 取消全选
       const remainingDevices = props.selectedDevices().filter(device => 
-        !allDevices.some(selected => selected.udid === device.udid)
+        !allDeviceUdidSet.has(device.udid)
       );
       props.onDeviceSelect(remainingDevices);
     } else {
@@ -796,18 +816,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
   };
 
-  const isAllSelected = () => {
-    const allDevices = filteredDevices();
-    const selectedSet = selectedUdidSet();
-    return allDevices.length > 0 && allDevices.every(device => 
-      selectedSet.has(device.udid)
-    );
-  };
-
   const handleInvertSelection = () => {
     const allDevices = filteredDevices();
-    const currentlySelectedUdids = new Set(props.selectedDevices().map(d => d.udid));
-    const newSelection = allDevices.filter(d => !currentlySelectedUdids.has(d.udid));
+    const selectedSet = selectedUdidSet();
+    const newSelection = allDevices.filter(d => !selectedSet.has(d.udid));
     props.onDeviceSelect(newSelection);
   };
 
@@ -819,15 +831,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     } else {
       setVisibleColumns([...visibleColumns(), col]);
     }
-  };
-
-  const isPartiallySelected = () => {
-    const allDevices = filteredDevices();
-    const selectedSet = selectedUdidSet();
-    const selectedCount = allDevices.filter(device => 
-      selectedSet.has(device.udid)
-    ).length;
-    return selectedCount > 0 && selectedCount < allDevices.length;
   };
 
   const formatDeviceInfo = (device: Device) => {
@@ -1495,24 +1498,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           <div 
             class={styles.deviceTable}
             style={{ 
-              'grid-template-columns': `${columnWidths().selection}px ${visibleColumns().map((id, index) => {
-                if (index === visibleColumns().length - 1) return '1fr';
-                const width = columnWidths()[id];
-                return `${width}px`;
-              }).join(' ')}`
+              'grid-template-columns': gridTemplateColumns()
             }}
           >
               <div class={styles.tableHeader} style={{ 
-                'grid-template-columns': `${columnWidths().selection}px ${visibleColumns().map((id, index) => {
-                  if (index === visibleColumns().length - 1) return '1fr';
-                  const width = columnWidths()[id];
-                  return `${width}px`;
-                }).join(' ')}`
+                'grid-template-columns': gridTemplateColumns()
               }}>
                 <div class={styles.headerCell}>
                   <div 
                     class={`${styles.selectAllCheckbox} ${
-                      isAllSelected() ? styles.checked : 
+                      isAllSelected() ? styles.checked :
                       isPartiallySelected() ? styles.indeterminate : ''
                     }`}
                     onClick={handleSelectAll}
@@ -1635,33 +1630,25 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               </div>
               
               <div class={styles.tableBody}>
-                <For each={filteredDevices().map(device => ({
-                  ...device,
-                  _selectionKey: `${device.udid}-${selectedUdidSet().has(device.udid)}-${forceUpdate()}`
-                }))}>
-                  {(deviceWithKey) => {
-                  const device = deviceWithKey;
+                <For each={filteredDevices()}>
+                  {(device) => {
                   const info = formatDeviceInfo(device);
-                  const isSelected = selectedUdidSet().has(device.udid);
+                  const isSelected = () => selectedUdidSet().has(device.udid);
                   
                   return (
                     <div 
-                      class={`${styles.tableRow} ${isSelected ? styles.selected : ''}`}
+                      class={`${styles.tableRow} ${isSelected() ? styles.selected : ''}`}
                       style={{ 
-                        'grid-template-columns': `${columnWidths().selection}px ${visibleColumns().map((id, index) => {
-                          if (index === visibleColumns().length - 1) return '1fr';
-                          const width = columnWidths()[id];
-                          return `${width}px`;
-                        }).join(' ')}`
+                        'grid-template-columns': gridTemplateColumns()
                       }}
                       onClick={(e) => handleDeviceToggle(device, e)}
                       onContextMenu={(e) => handleDeviceContextMenu(e, device)}
                     >
                       <div class={styles.tableCell}>
                         <div 
-                          class={`${styles.deviceCheckbox} ${isSelected ? styles.checked : ''}`}
+                          class={`${styles.deviceCheckbox} ${isSelected() ? styles.checked : ''}`}
                         >
-                          {isSelected ? '✓' : ''}
+                          {isSelected() ? '✓' : ''}
                         </div>
                       </div>
                       
@@ -1757,10 +1744,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             <For each={filteredDevices()}>
               {(device) => {
                 const info = formatDeviceInfo(device);
+                const isSelected = () => selectedUdidSet().has(device.udid);
                 return (
                   <div 
                     class={styles.deviceCard}
-                    classList={{ [styles.selected]: props.selectedDevices().some(d => d.udid === device.udid) }}
+                    classList={{ [styles.selected]: isSelected() }}
                     onClick={(e) => handleDeviceToggle(device, e)}
                     onContextMenu={(e) => handleDeviceContextMenu(e, device)}
                     onTouchStart={() => handleDeviceTouchStart(device)}
@@ -1772,7 +1760,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         <div class={styles.cardDeviceName}>{info.name}</div>
                         <div class={styles.cardDeviceUdid}>{device.udid}</div>
                       </div>
-                      <Show when={props.selectedDevices().some(d => d.udid === device.udid)}>
+                      <Show when={isSelected()}>
                         <div class={styles.cardSelectionIndicator}>
                           <span class={styles.checkIcon}>✓</span>
                         </div>

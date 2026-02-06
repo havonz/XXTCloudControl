@@ -66,6 +66,28 @@ func toInt(value interface{}) (int, bool) {
 	return 0, false
 }
 
+// snapshotControllerConnsLocked copies controller sockets.
+// Caller must hold mu lock (read or write).
+func snapshotControllerConnsLocked() []*SafeConn {
+	controllerList := make([]*SafeConn, 0, len(controllers))
+	for controllerConn := range controllers {
+		controllerList = append(controllerList, controllerConn)
+	}
+	return controllerList
+}
+
+// snapshotDeviceConnsByIDsLocked copies device sockets for the given IDs.
+// Caller must hold mu lock (read or write).
+func snapshotDeviceConnsByIDsLocked(deviceIDs []string) map[string]*SafeConn {
+	deviceConns := make(map[string]*SafeConn, len(deviceIDs))
+	for _, udid := range deviceIDs {
+		if deviceConn, exists := deviceLinks[udid]; exists {
+			deviceConns[udid] = deviceConn
+		}
+	}
+	return deviceConns
+}
+
 // addLogSubscriberLocked registers a controller as a log subscriber for a device.
 // Caller must hold mu.Lock.
 func addLogSubscriberLocked(udid string, conn *SafeConn) bool {
@@ -262,33 +284,46 @@ func handleWebSocketConnection(c *gin.Context) {
 
 // handleMessage processes incoming WebSocket messages
 func handleMessage(conn *SafeConn, data Message) error {
-	mu.Lock()
-	defer mu.Unlock()
-
 	switch data.Type {
 	case "control/devices":
 		if !isDataValid(data) {
 			conn.Close()
 			return nil
 		}
+
+		mu.Lock()
 		controllers[conn] = true
 		response := Message{
 			Type: "control/devices",
 			Body: deviceTable,
 		}
-		return sendMessage(conn, response)
+		responseBytes, err := json.Marshal(response)
+		mu.Unlock()
+		if err != nil {
+			return err
+		}
+		return conn.WriteMessage(websocket.TextMessage, responseBytes)
 
 	case "control/refresh":
 		if !isDataValid(data) {
 			conn.Close()
 			return nil
 		}
+
+		var deviceConns []*SafeConn
+		mu.Lock()
 		controllers[conn] = true
+		deviceConns = make([]*SafeConn, 0, len(deviceLinks))
+		for _, deviceConn := range deviceLinks {
+			deviceConns = append(deviceConns, deviceConn)
+		}
+		mu.Unlock()
+
 		refreshMsg := Message{
 			Type: "app/state",
 			Body: "",
 		}
-		for _, deviceConn := range deviceLinks {
+		for _, deviceConn := range deviceConns {
 			go func(dc *SafeConn) {
 				sendMessage(dc, refreshMsg)
 			}(deviceConn)
@@ -299,13 +334,18 @@ func handleMessage(conn *SafeConn, data Message) error {
 			conn.Close()
 			return nil
 		}
-		controllers[conn] = true
 
 		var cmdBody ControlCommand
 		bodyBytes, _ := json.Marshal(data.Body)
 		if err := json.Unmarshal(bodyBytes, &cmdBody); err != nil {
 			return err
 		}
+
+		var deviceConns map[string]*SafeConn
+		mu.Lock()
+		controllers[conn] = true
+		deviceConns = snapshotDeviceConnsByIDsLocked(cmdBody.Devices)
+		mu.Unlock()
 
 		cmdMsg := Message{
 			Type:      cmdBody.Type,
@@ -316,7 +356,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 		readableName := getReadableCommandName(cmdBody.Type)
 
 		for _, udid := range cmdBody.Devices {
-			if deviceConn, exists := deviceLinks[udid]; exists {
+			if deviceConn, exists := deviceConns[udid]; exists {
 				if readableName != "" {
 					go broadcastDeviceMessage(udid, readableName)
 				}
@@ -331,7 +371,6 @@ func handleMessage(conn *SafeConn, data Message) error {
 			conn.Close()
 			return nil
 		}
-		controllers[conn] = true
 
 		var cmdsBody ControlCommands
 		bodyBytes, _ := json.Marshal(data.Body)
@@ -339,8 +378,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return err
 		}
 
+		var deviceConns map[string]*SafeConn
+		mu.Lock()
+		controllers[conn] = true
+		deviceConns = snapshotDeviceConnsByIDsLocked(cmdsBody.Devices)
+		mu.Unlock()
+
 		for _, udid := range cmdsBody.Devices {
-			if deviceConn, exists := deviceLinks[udid]; exists {
+			if deviceConn, exists := deviceConns[udid]; exists {
 				for _, cmd := range cmdsBody.Commands {
 					cmdMsg := Message{
 						Type: cmd.Type,
@@ -363,7 +408,6 @@ func handleMessage(conn *SafeConn, data Message) error {
 			conn.Close()
 			return nil
 		}
-		controllers[conn] = true
 
 		var httpReq HTTPProxyRequest
 		bodyBytes, _ := json.Marshal(data.Body)
@@ -422,8 +466,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 			Body: httpBody,
 		}
 
+		var deviceConns map[string]*SafeConn
+		mu.Lock()
+		controllers[conn] = true
+		deviceConns = snapshotDeviceConnsByIDsLocked(httpReq.Devices)
+		mu.Unlock()
+
 		for _, udid := range httpReq.Devices {
-			if deviceConn, exists := deviceLinks[udid]; exists {
+			if deviceConn, exists := deviceConns[udid]; exists {
 				log.Printf("[http] Sending http/request to device %s", udid)
 				go func(dc *SafeConn, u string) {
 					if err := sendMessage(dc, httpMsg); err != nil {
@@ -440,7 +490,6 @@ func handleMessage(conn *SafeConn, data Message) error {
 			conn.Close()
 			return nil
 		}
-		controllers[conn] = true
 
 		var httpReq HTTPProxyRequestBin
 		bodyBytes, _ := json.Marshal(data.Body)
@@ -450,11 +499,6 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 		if httpReq.RequestID == "" {
 			return fmt.Errorf("http-bin missing requestId")
-		}
-
-		binaryRoutes[httpReq.RequestID] = &BinaryRoute{
-			Controller: conn,
-			Devices:    httpReq.Devices,
 		}
 
 		httpBody := map[string]interface{}{
@@ -473,8 +517,18 @@ func handleMessage(conn *SafeConn, data Message) error {
 			Body: httpBody,
 		}
 
+		var deviceConns map[string]*SafeConn
+		mu.Lock()
+		controllers[conn] = true
+		binaryRoutes[httpReq.RequestID] = &BinaryRoute{
+			Controller: conn,
+			Devices:    httpReq.Devices,
+		}
+		deviceConns = snapshotDeviceConnsByIDsLocked(httpReq.Devices)
+		mu.Unlock()
+
 		for _, udid := range httpReq.Devices {
-			if deviceConn, exists := deviceLinks[udid]; exists {
+			if deviceConn, exists := deviceConns[udid]; exists {
 				log.Printf("[http-bin] Sending http/request-bin to device %s", udid)
 				go func(dc *SafeConn, u string) {
 					if err := sendMessage(dc, httpMsg); err != nil {
@@ -491,7 +545,6 @@ func handleMessage(conn *SafeConn, data Message) error {
 			conn.Close()
 			return nil
 		}
-		controllers[conn] = true
 
 		var req LogSubscribeRequest
 		bodyBytes, _ := json.Marshal(data.Body)
@@ -499,15 +552,23 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return err
 		}
 
+		subscribeTargets := make([]*SafeConn, 0, len(req.Devices))
+		mu.Lock()
+		controllers[conn] = true
 		for _, udid := range req.Devices {
 			first := addLogSubscriberLocked(udid, conn)
 			if first {
 				if deviceConn, exists := deviceLinks[udid]; exists {
-					go func(dc *SafeConn) {
-						sendMessage(dc, Message{Type: "system/log/subscribe"})
-					}(deviceConn)
+					subscribeTargets = append(subscribeTargets, deviceConn)
 				}
 			}
+		}
+		mu.Unlock()
+
+		for _, deviceConn := range subscribeTargets {
+			go func(dc *SafeConn) {
+				sendMessage(dc, Message{Type: "system/log/subscribe"})
+			}(deviceConn)
 		}
 
 	case "control/log/unsubscribe":
@@ -515,7 +576,6 @@ func handleMessage(conn *SafeConn, data Message) error {
 			conn.Close()
 			return nil
 		}
-		controllers[conn] = true
 
 		var req LogSubscribeRequest
 		bodyBytes, _ := json.Marshal(data.Body)
@@ -523,21 +583,26 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return err
 		}
 
+		unsubscribeTargets := make([]*SafeConn, 0, len(req.Devices))
+		mu.Lock()
+		controllers[conn] = true
 		for _, udid := range req.Devices {
 			last := removeLogSubscriberLocked(udid, conn)
 			if last {
 				if deviceConn, exists := deviceLinks[udid]; exists {
-					go func(dc *SafeConn) {
-						sendMessage(dc, Message{Type: "system/log/unsubscribe"})
-					}(deviceConn)
+					unsubscribeTargets = append(unsubscribeTargets, deviceConn)
 				}
 			}
 		}
+		mu.Unlock()
+
+		for _, deviceConn := range unsubscribeTargets {
+			go func(dc *SafeConn) {
+				sendMessage(dc, Message{Type: "system/log/unsubscribe"})
+			}(deviceConn)
+		}
 
 	case "http/response-bin":
-		if len(controllers) == 0 {
-			return nil
-		}
 		requestId := ""
 		bodySize := -1
 		if bodyMap, ok := data.Body.(map[string]interface{}); ok {
@@ -549,24 +614,45 @@ func handleMessage(conn *SafeConn, data Message) error {
 			}
 		}
 
+		var (
+			controllerCount int
+			routeController *SafeConn
+			controllerList  []*SafeConn
+		)
+		mu.RLock()
+		controllerCount = len(controllers)
 		if requestId != "" {
 			if route, exists := binaryRoutes[requestId]; exists && route.Controller != nil {
-				if err := sendMessage(route.Controller, data); err == nil {
-					if bodySize == 0 {
-						delete(binaryRoutes, requestId)
-					}
-					return nil
+				routeController = route.Controller
+			}
+		}
+		controllerList = snapshotControllerConnsLocked()
+		mu.RUnlock()
+
+		if controllerCount == 0 {
+			return nil
+		}
+
+		if routeController != nil {
+			if err := sendMessage(routeController, data); err == nil {
+				if requestId != "" && bodySize == 0 {
+					mu.Lock()
+					delete(binaryRoutes, requestId)
+					mu.Unlock()
 				}
+				return nil
 			}
 		}
 
-		for controllerConn := range controllers {
+		for _, controllerConn := range controllerList {
 			go func(cc *SafeConn, msg Message) {
 				sendMessage(cc, msg)
 			}(controllerConn, data)
 		}
 		if requestId != "" && bodySize == 0 {
+			mu.Lock()
 			delete(binaryRoutes, requestId)
+			mu.Unlock()
 		}
 		return nil
 
@@ -586,22 +672,35 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return fmt.Errorf("invalid udid in app/state")
 		}
 
+		var (
+			needsLogSubscribe bool
+			controllerList    []*SafeConn
+		)
+		mu.Lock()
 		deviceLinks[udid] = conn
 		deviceLinksMap[conn] = udid
 		deviceTable[udid] = data.Body
 		deviceLife[udid] = DefaultDeviceLife
 		if subs, ok := logSubscriptions[udid]; ok && len(subs) > 0 {
+			needsLogSubscribe = true
+		}
+		if len(controllers) > 0 {
+			controllerList = snapshotControllerConnsLocked()
+		}
+		mu.Unlock()
+
+		if needsLogSubscribe {
 			go func(dc *SafeConn) {
 				sendMessage(dc, Message{Type: "system/log/subscribe"})
 			}(conn)
 		}
 
-		if len(controllers) > 0 {
+		if len(controllerList) > 0 {
 			data.UDID = udid
-			for controllerConn := range controllers {
-				go func(cc *SafeConn, msg Message) {
-					sendMessage(cc, msg)
-				}(controllerConn, data)
+			for _, controllerConn := range controllerList {
+				go func(dc *SafeConn) {
+					sendMessage(dc, data)
+				}(controllerConn)
 			}
 		}
 
@@ -611,31 +710,56 @@ func handleMessage(conn *SafeConn, data Message) error {
 		return nil
 
 	case "system/log/push":
-		if udid, exists := deviceLinksMap[conn]; exists {
+		var (
+			udid           string
+			subscriberList []*SafeConn
+		)
+		mu.RLock()
+		if mappedUDID, exists := deviceLinksMap[conn]; exists {
+			udid = mappedUDID
 			if subs, ok := logSubscriptions[udid]; ok && len(subs) > 0 {
-				data.UDID = udid
+				subscriberList = make([]*SafeConn, 0, len(subs))
 				for controllerConn := range subs {
-					go func(cc *SafeConn, msg Message) {
-						sendMessage(cc, msg)
-					}(controllerConn, data)
+					subscriberList = append(subscriberList, controllerConn)
 				}
+			}
+		}
+		mu.RUnlock()
+
+		if udid != "" && len(subscriberList) > 0 {
+			data.UDID = udid
+			for _, controllerConn := range subscriberList {
+				go func(cc *SafeConn, msg Message) {
+					sendMessage(cc, msg)
+				}(controllerConn, data)
 			}
 		}
 		return nil
 
 	default:
+		var (
+			udid           string
+			controllerList []*SafeConn
+		)
+		mu.RLock()
 		if len(controllers) > 0 {
-			if udid, exists := deviceLinksMap[conn]; exists {
-				// 记录转发的消息类型
-				if data.Type == "http/response" || data.Type == "http/request" {
-					log.Printf("[%s] Forwarding %s from device %s to %d controllers", data.Type, data.Type, udid, len(controllers))
-				}
-				data.UDID = udid
-				for controllerConn := range controllers {
-					go func(cc *SafeConn, msg Message) {
-						sendMessage(cc, msg)
-					}(controllerConn, data)
-				}
+			if mappedUDID, exists := deviceLinksMap[conn]; exists {
+				udid = mappedUDID
+				controllerList = snapshotControllerConnsLocked()
+			}
+		}
+		mu.RUnlock()
+
+		if udid != "" && len(controllerList) > 0 {
+			// 记录转发的消息类型
+			if data.Type == "http/response" || data.Type == "http/request" {
+				log.Printf("[%s] Forwarding %s from device %s to %d controllers", data.Type, data.Type, udid, len(controllerList))
+			}
+			data.UDID = udid
+			for _, controllerConn := range controllerList {
+				go func(cc *SafeConn, msg Message) {
+					sendMessage(cc, msg)
+				}(controllerConn, data)
 			}
 		}
 	}
@@ -650,39 +774,61 @@ func handleBinaryMessage(conn *SafeConn, payload []byte) {
 		return
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
+	var (
+		deviceTargets   []*SafeConn
+		controllerList  []*SafeConn
+		routeController *SafeConn
+		shouldDelete    bool
+	)
 
+	mu.RLock()
 	if controllers[conn] {
 		route := binaryRoutes[reqID]
-		if route == nil {
-			return
-		}
-		for _, udid := range route.Devices {
-			if deviceConn, exists := deviceLinks[udid]; exists {
-				go func(dc *SafeConn) {
-					sendBinaryMessage(dc, payload)
-				}(deviceConn)
+		if route != nil {
+			for _, udid := range route.Devices {
+				if deviceConn, exists := deviceLinks[udid]; exists {
+					deviceTargets = append(deviceTargets, deviceConn)
+				}
 			}
+		}
+		mu.RUnlock()
+
+		for _, deviceConn := range deviceTargets {
+			go func(dc *SafeConn) {
+				sendBinaryMessage(dc, payload)
+			}(deviceConn)
 		}
 		return
 	}
 
 	if _, exists := deviceLinksMap[conn]; exists {
-		if route, ok := binaryRoutes[reqID]; ok && route.Controller != nil {
-			go func(cc *SafeConn) {
-				sendBinaryMessage(cc, payload)
-			}(route.Controller)
+		if route, exists := binaryRoutes[reqID]; exists && route.Controller != nil {
+			routeController = route.Controller
 		} else {
-			for controllerConn := range controllers {
-				go func(cc *SafeConn) {
-					sendBinaryMessage(cc, payload)
-				}(controllerConn)
-			}
+			controllerList = snapshotControllerConnsLocked()
 		}
 		if total > 0 && seq+1 >= total {
-			delete(binaryRoutes, reqID)
+			shouldDelete = true
 		}
+	}
+	mu.RUnlock()
+
+	if routeController != nil {
+		go func(cc *SafeConn) {
+			sendBinaryMessage(cc, payload)
+		}(routeController)
+	} else {
+		for _, controllerConn := range controllerList {
+			go func(cc *SafeConn) {
+				sendBinaryMessage(cc, payload)
+			}(controllerConn)
+		}
+	}
+
+	if shouldDelete {
+		mu.Lock()
+		delete(binaryRoutes, reqID)
+		mu.Unlock()
 	}
 }
 
