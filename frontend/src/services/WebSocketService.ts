@@ -39,6 +39,7 @@ export class WebSocketService {
   private pendingRequestsById: Map<string, PendingRequest> = new Map();
   
   private devices: Device[] = [];
+  private deviceIndexByUdid: Map<string, number> = new Map();
   private password: string = '';
   private isAuthenticating = false;
   private isInitialLogin = true; // 区分首次登录和重连
@@ -161,6 +162,7 @@ export class WebSocketService {
     }
     this.notifyStatusChange('disconnected');
     this.devices = [];
+    this.deviceIndexByUdid.clear();
     this.clearDeviceUpdateTimer();
     this.notifyDeviceUpdate([]);
   }
@@ -965,6 +967,7 @@ export class WebSocketService {
       }
       
       this.devices = deviceArray;
+      this.rebuildDeviceIndex();
       this.flushDeviceUpdate();
       return;
     }
@@ -1024,7 +1027,7 @@ export class WebSocketService {
     const udid = deviceData.system?.udid;
     if (!udid) return;
 
-    const existingIndex = this.devices.findIndex(d => d.udid === udid);
+    const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
       // 提取现有的消息以便保留
       const existingMsg = this.devices[existingIndex].system?.message;
@@ -1081,6 +1084,7 @@ export class WebSocketService {
       }
       
       this.devices.push(newDevice);
+      this.deviceIndexByUdid.set(udid, this.devices.length - 1);
       console.log(`新设备 ${udid} 已添加`);
     }
     
@@ -1091,10 +1095,14 @@ export class WebSocketService {
   private removeDevice(udid: string): void {
     if (!udid) return;
 
-    const existingIndex = this.devices.findIndex(d => d.udid === udid);
+    const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
       // 从设备列表中移除设备
       this.devices.splice(existingIndex, 1);
+      this.deviceIndexByUdid.delete(udid);
+      for (let i = existingIndex; i < this.devices.length; i++) {
+        this.deviceIndexByUdid.set(this.devices[i].udid, i);
+      }
       console.log(`设备 ${udid} 已从列表中移除`);
       
       // 通知界面更新
@@ -1107,7 +1115,7 @@ export class WebSocketService {
   private updateDeviceScriptStatus(udid: string, isRunning: boolean): void {
     if (!udid) return;
 
-    const existingIndex = this.devices.findIndex(d => d.udid === udid);
+    const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
       const device = this.devices[existingIndex];
       
@@ -1135,7 +1143,7 @@ export class WebSocketService {
   private updateDeviceSelectedScript(udid: string, scriptName: string): void {
     if (!udid) return;
 
-    const existingIndex = this.devices.findIndex(d => d.udid === udid);
+    const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
       const device = this.devices[existingIndex];
       
@@ -1157,7 +1165,7 @@ export class WebSocketService {
   public updateDeviceMessage(udid: string, msg: string): void {
     if (!udid) return;
 
-    const existingIndex = this.devices.findIndex(d => d.udid === udid);
+    const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
       if (!this.devices[existingIndex].system) {
         this.devices[existingIndex].system = {};
@@ -1177,7 +1185,7 @@ export class WebSocketService {
       return;
     }
 
-    const existingIndex = this.devices.findIndex(d => d.udid === udid);
+    const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
       if (!this.devices[existingIndex].system) {
         this.devices[existingIndex].system = {};
@@ -1282,6 +1290,18 @@ export class WebSocketService {
     this.deviceUpdateQueued = false;
   }
 
+  private rebuildDeviceIndex(): void {
+    this.deviceIndexByUdid.clear();
+    for (let i = 0; i < this.devices.length; i++) {
+      this.deviceIndexByUdid.set(this.devices[i].udid, i);
+    }
+  }
+
+  private getDeviceIndex(udid: string): number {
+    const index = this.deviceIndexByUdid.get(udid);
+    return index === undefined ? -1 : index;
+  }
+
   private notifyAuthResult(success: boolean, error?: string): void {
     this.authCallbacks.forEach(callback => callback(success, error));
   }
@@ -1375,11 +1395,14 @@ export class WebSocketService {
     nx: number,
     ny: number
   ): Array<{ devices: string[]; x: number; y: number }> {
-    const deviceMap = new Map(this.devices.map(d => [d.udid, d] as const));
     const grouped = new Map<string, { devices: string[]; x: number; y: number }>();
 
     for (const udid of deviceUdids) {
-      const device = deviceMap.get(udid);
+      const idx = this.deviceIndexByUdid.get(udid);
+      if (idx === undefined) {
+        continue;
+      }
+      const device = this.devices[idx];
       const scrw = Number(device?.system?.scrw);
       const scrh = Number(device?.system?.scrh);
       if (!Number.isFinite(scrw) || !Number.isFinite(scrh) || scrw <= 0 || scrh <= 0) {

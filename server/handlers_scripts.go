@@ -290,6 +290,27 @@ func scriptsSendHandler(c *gin.Context) {
 		}
 	}
 
+	type md5Result struct {
+		hash string
+		err  error
+	}
+	largeFileMD5 := make(map[string]md5Result)
+	for _, f := range filesToSend {
+		if f.Data != "" {
+			continue
+		}
+		if _, exists := largeFileMD5[f.SourcePath]; exists {
+			continue
+		}
+		md5Hash, err := calculateFileMD5(f.SourcePath)
+		if err != nil {
+			fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
+			largeFileMD5[f.SourcePath] = md5Result{err: err}
+			continue
+		}
+		largeFileMD5[f.SourcePath] = md5Result{hash: md5Hash}
+	}
+
 	deviceConns := snapshotDeviceConns(req.Devices)
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
@@ -304,7 +325,7 @@ func scriptsSendHandler(c *gin.Context) {
 					smallFiles++
 				}
 			}
-			go broadcastDeviceMessage(udid, fmt.Sprintf("上传脚本 (%d小文件, %d大文件)", smallFiles, largeFiles))
+			broadcastDeviceMessage(udid, fmt.Sprintf("上传脚本 (%d小文件, %d大文件)", smallFiles, largeFiles))
 
 			for _, f := range filesToSend {
 				if f.Data != "" {
@@ -340,16 +361,16 @@ func scriptsSendHandler(c *gin.Context) {
 							"data": finalData,
 						},
 					}
-					go sendMessage(conn, putMsg)
+					sendMessageAsync(conn, putMsg)
 				} else {
-					go broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
+					broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
 
-					md5Hash, err := calculateFileMD5(f.SourcePath)
-					if err != nil {
-						fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
-						go broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
+					md5Info, ok := largeFileMD5[f.SourcePath]
+					if !ok || md5Info.err != nil {
+						broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
 						continue
 					}
+					md5Hash := md5Info.hash
 
 					token := uuid.New().String()
 					transferTokensMu.Lock()
@@ -383,12 +404,12 @@ func scriptsSendHandler(c *gin.Context) {
 							"timeout":    300,
 						},
 					}
-					go sendMessage(conn, fetchMsg)
+					sendMessageAsync(conn, fetchMsg)
 				}
 			}
 
 			// Broadcast completion message (no script start)
-			go broadcastDeviceMessage(udid, "脚本已上传")
+			broadcastDeviceMessage(udid, "脚本已上传")
 		}
 	}
 
@@ -423,7 +444,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 					Type: "script/run",
 					Body: gin.H{"name": ""},
 				}
-				go sendMessage(conn, runMsg)
+				sendMessageAsync(conn, runMsg)
 			}
 		}
 
@@ -528,6 +549,27 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		}
 	}
 
+	type md5Result struct {
+		hash string
+		err  error
+	}
+	largeFileMD5 := make(map[string]md5Result)
+	for _, f := range filesToSend {
+		if f.Data != "" {
+			continue
+		}
+		if _, exists := largeFileMD5[f.SourcePath]; exists {
+			continue
+		}
+		md5Hash, err := calculateFileMD5(f.SourcePath)
+		if err != nil {
+			fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
+			largeFileMD5[f.SourcePath] = md5Result{err: err}
+			continue
+		}
+		largeFileMD5[f.SourcePath] = md5Result{hash: md5Hash}
+	}
+
 	deviceConns := snapshotDeviceConns(req.Devices)
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
@@ -543,7 +585,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 					smallFiles++
 				}
 			}
-			go broadcastDeviceMessage(udid, fmt.Sprintf("发送脚本 (%d小文件, %d大文件)", smallFiles, largeFiles))
+			broadcastDeviceMessage(udid, fmt.Sprintf("发送脚本 (%d小文件, %d大文件)", smallFiles, largeFiles))
 
 			// Send small files via WebSocket, large files via HTTP
 			for _, f := range filesToSend {
@@ -582,18 +624,17 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 							"data": finalData,
 						},
 					}
-					go sendMessage(conn, putMsg)
+					sendMessageAsync(conn, putMsg)
 				} else {
 					// Large file: use HTTP transfer
-					go broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
+					broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
 
-					// Calculate MD5
-					md5Hash, err := calculateFileMD5(f.SourcePath)
-					if err != nil {
-						fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
-						go broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
+					md5Info, ok := largeFileMD5[f.SourcePath]
+					if !ok || md5Info.err != nil {
+						broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
 						continue
 					}
+					md5Hash := md5Info.hash
 
 					// Create transfer token
 					token := uuid.New().String()
@@ -629,7 +670,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 							"timeout":    300, // 5 minutes
 						},
 					}
-					go sendMessage(conn, fetchMsg)
+					sendMessageAsync(conn, fetchMsg)
 				}
 			}
 
@@ -643,7 +684,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			}
 
 			// 广播状态: 正在启动脚本
-			go broadcastDeviceMessage(udid, "启动脚本...")
+			broadcastDeviceMessage(udid, "启动脚本...")
 
 			runMsg := Message{
 				Type: "script/run",

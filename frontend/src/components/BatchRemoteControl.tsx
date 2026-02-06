@@ -505,79 +505,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     );
 
     try {
-      // 计算自适应分辨率
-      // 1. 用户设置的最大分辨率
-      const userMaxScale = resolution();
-      
-      // 2. 基于容器大小计算的分辨率
-      // 获取设备原始分辨率（假设设备信息中有 width/height）
-      let nativeW = device.width || 1170;  // iPhone 默认宽度
-      let nativeH = device.height || 2532; // iPhone 默认高度
-      
-      // 如果设备是横屏（宽 > 高），交换宽高
-      if (nativeW > nativeH) {
-        const tmp = nativeW;
-        nativeW = nativeH;
-        nativeH = tmp;
-      }
-      
-      // 获取容器尺寸（批量控制中每个卡片的视频区域）
-      // CSS 参数: grid gap = 12px, grid padding = 16px
-      const GRID_GAP = 12;
-      const GRID_PADDING = 16;
-      const cols = columns();
-      
-      // 面板宽度（假设全屏模式，否则大约是 90vw）
-      const panelWidth = isFullscreen() ? window.innerWidth : window.innerWidth * 0.9;
-      
-      // 可用于卡片的总宽度 = 面板宽度 - 左右 padding - 间隔
-      // 间隔数量 = 列数 - 1
-      const availableWidth = panelWidth - (GRID_PADDING * 2) - (GRID_GAP * (cols - 1));
-      const cardWidth = availableWidth / cols;
-      
-      // 视频容器宽度 = 卡片宽度（有少量边框等，但忽略不计）
-      // 视频容器高度按 9:16 比例
-      const containerWidth = cardWidth;
-      const containerHeight = containerWidth * (16 / 9);
-      
-      // 设备画面在容器中保持宽高比 (object-fit: contain)
-      // 需要计算设备画面在容器中的实际显示尺寸
-      const deviceAspect = nativeW / nativeH;
-      const containerAspect = 9 / 16;
-      
-      let displayWidth, displayHeight;
-      if (deviceAspect > containerAspect) {
-        // 设备更宽，以容器宽度为准
-        displayWidth = containerWidth;
-        displayHeight = containerWidth / deviceAspect;
-      } else {
-        // 设备更高，以容器高度为准
-        displayHeight = containerHeight;
-        displayWidth = containerHeight * deviceAspect;
-      }
-      
-      const dpr = window.devicePixelRatio || 1;
-      const displayPhysicalW = displayWidth * dpr;
-      const displayPhysicalH = displayHeight * dpr;
-      const containerScaleW = displayPhysicalW / nativeW;
-      const containerScaleH = displayPhysicalH / nativeH;
-      const containerScale = Math.min(containerScaleW, containerScaleH);
-      
-      // 3. 像素限制 (720x1280 = 921600)
-      const MAX_PIXELS = 720 * 1280;
-      const nativePixels = nativeW * nativeH;
-      const pixelLimitScale = Math.floor(Math.sqrt(MAX_PIXELS / nativePixels) * 100) / 100;
-      
-      // 取三者最小值
-      const finalScale = Math.min(userMaxScale, containerScale, pixelLimitScale);
-      const clampedScale = Math.max(0.1, Math.min(1.0, finalScale));
-      
-      console.log(`[BatchRemote] Device ${device.udid} resolution:`, {
-        native: `${nativeW}x${nativeH}`,
-        container: `${Math.round(containerWidth)}x${Math.round(containerHeight)}`,
-        scales: { user: userMaxScale, container: containerScale.toFixed(3), pixelLimit: pixelLimitScale },
-        final: clampedScale.toFixed(3)
-      });
+      const clampedScale = calculateOptimalResolution(device);
+      console.log(`[BatchRemote] Device ${device.udid} resolution scale: ${clampedScale.toFixed(3)}`);
       
       const options: WebRTCStartOptions = {
         resolution: clampedScale,
@@ -625,17 +554,6 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       }
       return newMap;
     });
-  };
-
-  // 连接所有设备
-  const connectAllDevices = async () => {
-    for (const device of props.devices) {
-      const conn = connections().get(device.udid);
-      if (conn?.state === 'disconnected') {
-        // 不用 await，并行连接
-        connectDevice(device);
-      }
-    }
   };
 
   // 断开所有设备
@@ -1091,16 +1009,22 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       setConnections(newConnections);
       // 默认不勾选任何设备
       setCheckedDevices(new Set<string>());
+      // 每次打开都重置可见集合，避免继承上一次状态
+      setVisibleDevices(new Set<string>());
       
-      // 延迟连接所有设备
+      // 延迟初始化可见性观察器，由可见性驱动连接
       setTimeout(() => {
         setupIntersectionObserver();
-        connectAllDevices();
       }, 100);
     } else if (!isOpen && hasInitialized) {
       // 面板关闭时重置标记和缓存
       hasInitialized = false;
       setCachedDevices([]);
+      setVisibleDevices(new Set<string>());
+      if (intersectionObserver) {
+        intersectionObserver.disconnect();
+        intersectionObserver = null;
+      }
     }
   });
 

@@ -541,9 +541,7 @@ func broadcastTransferProgress(progress TransferProgress) {
 	mu.RUnlock()
 
 	for _, conn := range controllerList {
-		go func(cc *SafeConn, payload []byte) {
-			_ = writeTextMessage(cc, payload)
-		}(conn, data)
+		writeTextMessageAsync(conn, data)
 	}
 }
 
@@ -573,9 +571,7 @@ func broadcastDeviceMessage(udid string, message string) {
 
 	// Send messages without holding the lock
 	for _, conn := range controllerList {
-		go func(cc *SafeConn, payload []byte) {
-			_ = writeTextMessage(cc, payload)
-		}(conn, data)
+		writeTextMessageAsync(conn, data)
 	}
 }
 
@@ -713,7 +709,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		}
 
 		// Broadcast status to frontend
-		go broadcastDeviceMessage(req.DeviceSN, fmt.Sprintf("发送文件 %s", filepath.Base(req.Path)))
+		broadcastDeviceMessage(req.DeviceSN, fmt.Sprintf("发送文件 %s", filepath.Base(req.Path)))
 
 		fmt.Printf("📤 Push file (small): %s → device %s:%s (%d bytes)\n", req.Path, req.DeviceSN, req.TargetPath, fileSize)
 
@@ -762,7 +758,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 
 	// Send command to device
 	// Broadcast status to frontend
-	go broadcastDeviceMessage(req.DeviceSN, fmt.Sprintf("下载文件 %s", filepath.Base(req.Path)))
+	broadcastDeviceMessage(req.DeviceSN, fmt.Sprintf("下载文件 %s", filepath.Base(req.Path)))
 
 	if err := sendFileDownloadCommand(req.DeviceSN, downloadURL, req.TargetPath, md5Hash, info.Size(), timeout); err != nil {
 		// Cleanup token on failure

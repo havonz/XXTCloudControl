@@ -24,6 +24,22 @@ var upgrader = websocket.Upgrader{
 
 const binaryHeaderSize = 24
 
+// Cap concurrent async socket writes to avoid goroutine spikes under fan-out traffic.
+var asyncWriteSlots = make(chan struct{}, 512)
+
+func runAsyncWrite(task func()) {
+	select {
+	case asyncWriteSlots <- struct{}{}:
+		go func() {
+			defer func() { <-asyncWriteSlots }()
+			task()
+		}()
+	default:
+		// Queue is full: fallback to inline write to apply backpressure.
+		task()
+	}
+}
+
 func parseBinaryHeader(data []byte) (string, uint32, uint32, bool) {
 	if len(data) < binaryHeaderSize {
 		return "", 0, 0, false
@@ -46,6 +62,18 @@ func writeTextMessage(conn *SafeConn, payload []byte) error {
 		return nil
 	}
 	return conn.WriteMessage(websocket.TextMessage, payload)
+}
+
+func writeTextMessageAsync(conn *SafeConn, payload []byte) {
+	runAsyncWrite(func() {
+		_ = writeTextMessage(conn, payload)
+	})
+}
+
+func sendBinaryMessageAsync(conn *SafeConn, payload []byte) {
+	runAsyncWrite(func() {
+		_ = sendBinaryMessage(conn, payload)
+	})
 }
 
 func toInt(value interface{}) (int, bool) {
@@ -340,9 +368,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return err
 		}
 		for _, deviceConn := range deviceConns {
-			go func(dc *SafeConn, payload []byte) {
-				_ = writeTextMessage(dc, payload)
-			}(deviceConn, refreshBytes)
+			writeTextMessageAsync(deviceConn, refreshBytes)
 		}
 
 	case "control/command":
@@ -378,11 +404,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 		for _, udid := range cmdBody.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
 				if readableName != "" {
-					go broadcastDeviceMessage(udid, readableName)
+					broadcastDeviceMessage(udid, readableName)
 				}
-				go func(dc *SafeConn, payload []byte) {
-					_ = writeTextMessage(dc, payload)
-				}(deviceConn, cmdBytes)
+				writeTextMessageAsync(deviceConn, cmdBytes)
 			}
 		}
 
@@ -424,11 +448,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 				for i, payload := range commandPayloads {
 					readableName := commandNames[i]
 					if readableName != "" {
-						go broadcastDeviceMessage(udid, readableName)
+						broadcastDeviceMessage(udid, readableName)
 					}
-					go func(dc *SafeConn, encoded []byte) {
-						_ = writeTextMessage(dc, encoded)
-					}(deviceConn, payload)
+					writeTextMessageAsync(deviceConn, payload)
 				}
 			}
 		}
@@ -509,12 +531,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 
 		for _, udid := range httpReq.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
+				deviceUDID := udid
+				dc := deviceConn
 				log.Printf("[http] Sending http/request to device %s", udid)
-				go func(dc *SafeConn, u string, payload []byte) {
-					if err := writeTextMessage(dc, payload); err != nil {
-						log.Printf("[http] Failed to send to device %s: %v", u, err)
+				runAsyncWrite(func() {
+					if err := writeTextMessage(dc, httpBytes); err != nil {
+						log.Printf("[http] Failed to send to device %s: %v", deviceUDID, err)
 					}
-				}(deviceConn, udid, httpBytes)
+				})
 			} else {
 				log.Printf("[http] Device %s not found in deviceLinks", udid)
 			}
@@ -568,12 +592,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 
 		for _, udid := range httpReq.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
+				deviceUDID := udid
+				dc := deviceConn
 				log.Printf("[http-bin] Sending http/request-bin to device %s", udid)
-				go func(dc *SafeConn, u string, payload []byte) {
-					if err := writeTextMessage(dc, payload); err != nil {
-						log.Printf("[http-bin] Failed to send to device %s: %v", u, err)
+				runAsyncWrite(func() {
+					if err := writeTextMessage(dc, httpBytes); err != nil {
+						log.Printf("[http-bin] Failed to send to device %s: %v", deviceUDID, err)
 					}
-				}(deviceConn, udid, httpBytes)
+				})
 			} else {
 				log.Printf("[http-bin] Device %s not found in deviceLinks", udid)
 			}
@@ -610,9 +636,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 				return err
 			}
 			for _, deviceConn := range subscribeTargets {
-				go func(dc *SafeConn, payload []byte) {
-					_ = writeTextMessage(dc, payload)
-				}(deviceConn, subscribePayload)
+				writeTextMessageAsync(deviceConn, subscribePayload)
 			}
 		}
 
@@ -647,9 +671,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 				return err
 			}
 			for _, deviceConn := range unsubscribeTargets {
-				go func(dc *SafeConn, payload []byte) {
-					_ = writeTextMessage(dc, payload)
-				}(deviceConn, unsubscribePayload)
+				writeTextMessageAsync(deviceConn, unsubscribePayload)
 			}
 		}
 
@@ -701,9 +723,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 
 		for _, controllerConn := range controllerList {
-			go func(cc *SafeConn, payload []byte) {
-				_ = writeTextMessage(cc, payload)
-			}(controllerConn, encodedData)
+			writeTextMessageAsync(controllerConn, encodedData)
 		}
 		if requestId != "" && bodySize == 0 {
 			mu.Lock()
@@ -750,9 +770,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 			if err != nil {
 				return err
 			}
-			go func(dc *SafeConn, payload []byte) {
-				_ = writeTextMessage(dc, payload)
-			}(conn, subscribePayload)
+			writeTextMessageAsync(conn, subscribePayload)
 		}
 
 		if len(controllerList) > 0 {
@@ -762,9 +780,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 				return err
 			}
 			for _, controllerConn := range controllerList {
-				go func(dc *SafeConn, payload []byte) {
-					_ = writeTextMessage(dc, payload)
-				}(controllerConn, encodedData)
+				writeTextMessageAsync(controllerConn, encodedData)
 			}
 		}
 
@@ -797,9 +813,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 				return err
 			}
 			for _, controllerConn := range subscriberList {
-				go func(cc *SafeConn, payload []byte) {
-					_ = writeTextMessage(cc, payload)
-				}(controllerConn, encodedData)
+				writeTextMessageAsync(controllerConn, encodedData)
 			}
 		}
 		return nil
@@ -829,9 +843,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 				return err
 			}
 			for _, controllerConn := range controllerList {
-				go func(cc *SafeConn, payload []byte) {
-					_ = writeTextMessage(cc, payload)
-				}(controllerConn, encodedData)
+				writeTextMessageAsync(controllerConn, encodedData)
 			}
 		}
 	}
@@ -866,9 +878,7 @@ func handleBinaryMessage(conn *SafeConn, payload []byte) {
 		mu.RUnlock()
 
 		for _, deviceConn := range deviceTargets {
-			go func(dc *SafeConn) {
-				sendBinaryMessage(dc, payload)
-			}(deviceConn)
+			sendBinaryMessageAsync(deviceConn, payload)
 		}
 		return
 	}
@@ -886,14 +896,10 @@ func handleBinaryMessage(conn *SafeConn, payload []byte) {
 	mu.RUnlock()
 
 	if routeController != nil {
-		go func(cc *SafeConn) {
-			sendBinaryMessage(cc, payload)
-		}(routeController)
+		sendBinaryMessageAsync(routeController, payload)
 	} else {
 		for _, controllerConn := range controllerList {
-			go func(cc *SafeConn) {
-				sendBinaryMessage(cc, payload)
-			}(controllerConn)
+			sendBinaryMessageAsync(controllerConn, payload)
 		}
 	}
 
@@ -913,6 +919,12 @@ func sendMessage(conn *SafeConn, msg Message) error {
 	return writeTextMessage(conn, data)
 }
 
+func sendMessageAsync(conn *SafeConn, msg Message) {
+	runAsyncWrite(func() {
+		_ = sendMessage(conn, msg)
+	})
+}
+
 // handleDisconnection handles WebSocket disconnection
 func handleDisconnection(conn *SafeConn) {
 	mu.Lock()
@@ -930,9 +942,7 @@ func handleDisconnection(conn *SafeConn) {
 			} else {
 				for _, udid := range emptied {
 					if deviceConn, exists := deviceLinks[udid]; exists {
-						go func(dc *SafeConn, payload []byte) {
-							_ = writeTextMessage(dc, payload)
-						}(deviceConn, unsubscribePayload)
+						writeTextMessageAsync(deviceConn, unsubscribePayload)
 					}
 				}
 			}
@@ -982,9 +992,7 @@ func handleDisconnection(conn *SafeConn) {
 			}
 
 			for controllerConn := range controllers {
-				go func(cc *SafeConn, payload []byte) {
-					_ = writeTextMessage(cc, payload)
-				}(controllerConn, disconnectPayload)
+				writeTextMessageAsync(controllerConn, disconnectPayload)
 			}
 		}
 	}
@@ -1077,11 +1085,13 @@ func sendStateRequestToAllDevices() {
 	}
 
 	for udid, deviceConn := range deviceConns {
-		go func(dc *SafeConn, deviceUDID string, payload []byte) {
-			if err := writeTextMessage(dc, payload); err != nil {
+		deviceUDID := udid
+		dc := deviceConn
+		runAsyncWrite(func() {
+			if err := writeTextMessage(dc, statePayload); err != nil {
 				log.Printf("Failed to send state request to device %s: %v", deviceUDID, err)
 			}
-		}(deviceConn, udid, statePayload)
+		})
 	}
 }
 
@@ -1102,10 +1112,12 @@ func sendPingToAllDevices() {
 	}
 
 	for udid, deviceConn := range deviceConns {
-		go func(dc *SafeConn, deviceUDID string) {
+		deviceUDID := udid
+		dc := deviceConn
+		runAsyncWrite(func() {
 			if err := dc.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 				log.Printf("Failed to send ping to device %s: %v", deviceUDID, err)
 			}
-		}(deviceConn, udid)
+		})
 	}
 }
