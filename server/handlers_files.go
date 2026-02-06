@@ -54,6 +54,24 @@ func validatePath(category, subPath string) (string, error) {
 	return absTargetPath, nil
 }
 
+// validateFileName ensures a name does not contain path separators or traversal.
+func validateFileName(name string) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("invalid name")
+	}
+	// Reject path separators to avoid traversal like ../
+	if strings.Contains(name, "/") {
+		return fmt.Errorf("name cannot contain path separators")
+	}
+	if runtime.GOOS == "windows" && strings.Contains(name, "\\") {
+		return fmt.Errorf("name cannot contain path separators")
+	}
+	return nil
+}
+
 // serverFilesListHandler handles GET /api/server-files/list
 func serverFilesListHandler(c *gin.Context) {
 	category := c.DefaultQuery("category", "scripts")
@@ -370,6 +388,14 @@ func serverFilesRenameHandler(c *gin.Context) {
 
 	if req.OldName == "" || req.NewName == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "oldName and newName are required"})
+		return
+	}
+	if err := validateFileName(req.OldName); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := validateFileName(req.NewName); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 

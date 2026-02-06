@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 )
@@ -107,6 +108,165 @@ func isLocalRequest(c *gin.Context) bool {
 	return ip.IsLoopback() || (ip.To4() != nil && ip.To4().IsLoopback())
 }
 
+func hasInvalidHostChars(host string) bool {
+	for _, ch := range host {
+		if ch <= 0x20 || ch == 0x7f {
+			return true
+		}
+		switch ch {
+		case '/', '\\':
+			return true
+		}
+	}
+	return false
+}
+
+func containsNonASCII(host string) bool {
+	for _, ch := range host {
+		if ch > 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+// isValidHostASCII checks a relaxed ASCII hostname (allows underscore).
+func isValidHostASCII(host string) bool {
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for _, ch := range host {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+		case ch >= 'A' && ch <= 'Z':
+		case ch >= '0' && ch <= '9':
+		case ch == '-' || ch == '.' || ch == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func isValidHostUnicode(host string) bool {
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for _, ch := range host {
+		switch {
+		case unicode.IsLetter(ch):
+		case unicode.IsDigit(ch):
+		case unicode.IsMark(ch):
+		case ch == '-' || ch == '.' || ch == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func isAttrChar(b byte) bool {
+	switch {
+	case b >= 'a' && b <= 'z':
+		return true
+	case b >= 'A' && b <= 'Z':
+		return true
+	case b >= '0' && b <= '9':
+		return true
+	}
+	switch b {
+	case '!', '#', '$', '&', '+', '-', '.', '^', '_', '`', '|', '~':
+		return true
+	default:
+		return false
+	}
+}
+
+func rfc5987Encode(value string) string {
+	var builder strings.Builder
+	for i := 0; i < len(value); i++ {
+		b := value[i]
+		if isAttrChar(b) {
+			builder.WriteByte(b)
+		} else {
+			builder.WriteString(fmt.Sprintf("%%%02X", b))
+		}
+	}
+	return builder.String()
+}
+
+func quoteDispositionFilename(name string) (string, bool) {
+	var builder strings.Builder
+	for i := 0; i < len(name); i++ {
+		b := name[i]
+		if b < 0x20 || b == 0x7f {
+			return "", false
+		}
+		if b >= 0x80 {
+			return "", false
+		}
+		if b == '"' || b == '\\' {
+			builder.WriteByte('\\')
+		}
+		builder.WriteByte(b)
+	}
+	return `"` + builder.String() + `"`, true
+}
+
+func buildContentDispositionFilename(name string) string {
+	quoted, ok := quoteDispositionFilename(name)
+	if !ok {
+		quoted = `"bind.lua"`
+	}
+	encoded := rfc5987Encode(name)
+	return fmt.Sprintf("attachment; filename=%s; filename*=UTF-8''%s", quoted, encoded)
+}
+
+// sanitizeBindHost validates and normalizes the bind host string.
+func sanitizeBindHost(host string) (string, error) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", fmt.Errorf("host parameter is required")
+	}
+	if hasInvalidHostChars(host) {
+		return "", fmt.Errorf("invalid host")
+	}
+
+	// Bracketed IPv6.
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		inner := host[1 : len(host)-1]
+		ip := net.ParseIP(inner)
+		if ip == nil || ip.To4() != nil {
+			return "", fmt.Errorf("invalid host")
+		}
+		return "[" + inner + "]", nil
+	}
+
+	// Plain IP (IPv4 or IPv6).
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.To4() == nil {
+			return "[" + host + "]", nil
+		}
+		return host, nil
+	}
+
+	if strings.Contains(host, ":") {
+		return "", fmt.Errorf("invalid host")
+	}
+
+	if containsNonASCII(host) {
+		if !isValidHostUnicode(host) {
+			return "", fmt.Errorf("invalid host")
+		}
+		return host, nil
+	}
+
+	if !isValidHostASCII(host) {
+		return "", fmt.Errorf("invalid host")
+	}
+	return host, nil
+}
+
 // configHandler handles the /api/config endpoint
 // This is the cloud control server's configuration API, returning server version, time, and WebSocket settings.
 // Note: This is NOT the same as the device-side XXT service's /api/config endpoint (e.g., http://127.0.0.1:46952/api/config),
@@ -178,15 +338,25 @@ func controlInfoHandler(c *gin.Context) {
 
 // downloadBindScriptHandler handles the /api/download-bind-script endpoint
 func downloadBindScriptHandler(c *gin.Context) {
-	host := c.Query("host")
-	port := c.Query("port")
-
-	if host == "" {
+	hostParam := c.Query("host")
+	if hostParam == "" {
 		c.JSON(http.StatusNotFound, gin.H{"error": "host parameter is required"})
 		return
 	}
-	if port == "" {
-		port = fmt.Sprintf("%d", serverConfig.Port)
+	host, err := sanitizeBindHost(hostParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	port := serverConfig.Port
+	if portParam := strings.TrimSpace(c.Query("port")); portParam != "" {
+		p, err := strconv.Atoi(portParam)
+		if err != nil || p < 1 || p > 65535 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid port"})
+			return
+		}
+		port = p
 	}
 
 	// Detect WebSocket protocol based on request
@@ -203,7 +373,8 @@ func downloadBindScriptHandler(c *gin.Context) {
 		wsProto = "wss"
 	}
 
-	luaScript := fmt.Sprintf(`local cloud_host = "%s";local cloud_port = %s;local ws_proto = "%s";`, host, port, wsProto)
+	quotedHost := strconv.Quote(host)
+	luaScript := fmt.Sprintf(`local cloud_host = %s;local cloud_port = %d;local ws_proto = "%s";`, quotedHost, port, wsProto)
 
 	luaScript += `
 
@@ -250,7 +421,7 @@ os.exit()
 `
 
 	c.Header("Content-Type", "text/lua")
-	c.Header("Content-Disposition", "attachment; filename=加入或退出云控["+host+"].lua")
+	c.Header("Content-Disposition", buildContentDispositionFilename("加入或退出云控["+host+"].lua"))
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 
 	c.String(http.StatusOK, luaScript)
