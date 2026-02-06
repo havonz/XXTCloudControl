@@ -1336,37 +1336,52 @@ export class WebSocketService {
     return this.sendTouchCommand(deviceUdids, 'touch/up', x, y);
   }
 
-  // 触控按下（多设备 - 使用归一化坐标）
-  async touchDownMultipleNormalized(deviceUdids: string[], nx: number, ny: number): Promise<void> {
+  private groupDevicesByTouchCoordinates(
+    deviceUdids: string[],
+    nx: number,
+    ny: number
+  ): Array<{ devices: string[]; x: number; y: number }> {
     const deviceMap = new Map(this.devices.map(d => [d.udid, d] as const));
+    const grouped = new Map<string, { devices: string[]; x: number; y: number }>();
+
     for (const udid of deviceUdids) {
       const device = deviceMap.get(udid);
-      if (device?.system?.scrw && device?.system?.scrh) {
-        const x = Math.floor(nx * device.system.scrw);
-        const y = Math.floor(ny * device.system.scrh);
-        this.touchDown(udid, x, y);
+      const scrw = Number(device?.system?.scrw);
+      const scrh = Number(device?.system?.scrh);
+      if (!Number.isFinite(scrw) || !Number.isFinite(scrh) || scrw <= 0 || scrh <= 0) {
+        continue;
+      }
+
+      const x = Math.floor(nx * scrw);
+      const y = Math.floor(ny * scrh);
+      const key = `${x}:${y}`;
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.devices.push(udid);
+      } else {
+        grouped.set(key, { devices: [udid], x, y });
       }
     }
+
+    return Array.from(grouped.values());
+  }
+
+  // 触控按下（多设备 - 使用归一化坐标）
+  async touchDownMultipleNormalized(deviceUdids: string[], nx: number, ny: number): Promise<void> {
+    const grouped = this.groupDevicesByTouchCoordinates(deviceUdids, nx, ny);
+    await Promise.all(grouped.map(group => this.sendTouchCommand(group.devices, 'touch/down', group.x, group.y)));
   }
 
   // 触控移动（多设备 - 使用归一化坐标）
   async touchMoveMultipleNormalized(deviceUdids: string[], nx: number, ny: number): Promise<void> {
-    const deviceMap = new Map(this.devices.map(d => [d.udid, d] as const));
-    for (const udid of deviceUdids) {
-      const device = deviceMap.get(udid);
-      if (device?.system?.scrw && device?.system?.scrh) {
-        const x = Math.floor(nx * device.system.scrw);
-        const y = Math.floor(ny * device.system.scrh);
-        this.touchMove(udid, x, y);
-      }
-    }
+    const grouped = this.groupDevicesByTouchCoordinates(deviceUdids, nx, ny);
+    await Promise.all(grouped.map(group => this.sendTouchCommand(group.devices, 'touch/move', group.x, group.y)));
   }
 
   // 触控抬起（多设备 - 使用归一化坐标）
   async touchUpMultipleNormalized(deviceUdids: string[]): Promise<void> {
-    for (const udid of deviceUdids) {
-      this.touchUp(udid, 0, 0); // touch/up 不需要坐标，传 0 即可
-    }
+    if (deviceUdids.length === 0) return;
+    await this.sendTouchCommand(deviceUdids, 'touch/up', 0, 0);
   }
 
   // 发送按键命令（支持多设备）

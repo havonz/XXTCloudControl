@@ -41,6 +41,13 @@ func sendBinaryMessage(conn *SafeConn, payload []byte) error {
 	return conn.WriteMessage(websocket.BinaryMessage, payload)
 }
 
+func writeTextMessage(conn *SafeConn, payload []byte) error {
+	if conn == nil {
+		return nil
+	}
+	return conn.WriteMessage(websocket.TextMessage, payload)
+}
+
 func toInt(value interface{}) (int, bool) {
 	switch v := value.(type) {
 	case float64:
@@ -293,16 +300,21 @@ func handleMessage(conn *SafeConn, data Message) error {
 
 		mu.Lock()
 		controllers[conn] = true
+		deviceTableSnapshot := make(map[string]interface{}, len(deviceTable))
+		for udid, deviceState := range deviceTable {
+			deviceTableSnapshot[udid] = deviceState
+		}
+		mu.Unlock()
+
 		response := Message{
 			Type: "control/devices",
-			Body: deviceTable,
+			Body: deviceTableSnapshot,
 		}
 		responseBytes, err := json.Marshal(response)
-		mu.Unlock()
 		if err != nil {
 			return err
 		}
-		return conn.WriteMessage(websocket.TextMessage, responseBytes)
+		return writeTextMessage(conn, responseBytes)
 
 	case "control/refresh":
 		if !isDataValid(data) {
@@ -323,10 +335,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 			Type: "app/state",
 			Body: "",
 		}
+		refreshBytes, err := json.Marshal(refreshMsg)
+		if err != nil {
+			return err
+		}
 		for _, deviceConn := range deviceConns {
-			go func(dc *SafeConn) {
-				sendMessage(dc, refreshMsg)
-			}(deviceConn)
+			go func(dc *SafeConn, payload []byte) {
+				_ = writeTextMessage(dc, payload)
+			}(deviceConn, refreshBytes)
 		}
 
 	case "control/command":
@@ -352,6 +368,10 @@ func handleMessage(conn *SafeConn, data Message) error {
 			Body:      cmdBody.Body,
 			RequestID: cmdBody.RequestID,
 		}
+		cmdBytes, err := json.Marshal(cmdMsg)
+		if err != nil {
+			return err
+		}
 
 		readableName := getReadableCommandName(cmdBody.Type)
 
@@ -360,9 +380,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 				if readableName != "" {
 					go broadcastDeviceMessage(udid, readableName)
 				}
-				go func(dc *SafeConn) {
-					sendMessage(dc, cmdMsg)
-				}(deviceConn)
+				go func(dc *SafeConn, payload []byte) {
+					_ = writeTextMessage(dc, payload)
+				}(deviceConn, cmdBytes)
 			}
 		}
 
@@ -384,20 +404,31 @@ func handleMessage(conn *SafeConn, data Message) error {
 		deviceConns = snapshotDeviceConnsByIDsLocked(cmdsBody.Devices)
 		mu.Unlock()
 
+		commandPayloads := make([][]byte, 0, len(cmdsBody.Commands))
+		commandNames := make([]string, 0, len(cmdsBody.Commands))
+		for _, cmd := range cmdsBody.Commands {
+			cmdMsg := Message{
+				Type: cmd.Type,
+				Body: cmd.Body,
+			}
+			payload, err := json.Marshal(cmdMsg)
+			if err != nil {
+				return err
+			}
+			commandPayloads = append(commandPayloads, payload)
+			commandNames = append(commandNames, getReadableCommandName(cmd.Type))
+		}
+
 		for _, udid := range cmdsBody.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
-				for _, cmd := range cmdsBody.Commands {
-					cmdMsg := Message{
-						Type: cmd.Type,
-						Body: cmd.Body,
-					}
-					readableName := getReadableCommandName(cmd.Type)
+				for i, payload := range commandPayloads {
+					readableName := commandNames[i]
 					if readableName != "" {
 						go broadcastDeviceMessage(udid, readableName)
 					}
-					go func(dc *SafeConn, msg Message) {
-						sendMessage(dc, msg)
-					}(deviceConn, cmdMsg)
+					go func(dc *SafeConn, encoded []byte) {
+						_ = writeTextMessage(dc, encoded)
+					}(deviceConn, payload)
 				}
 			}
 		}
@@ -465,6 +496,10 @@ func handleMessage(conn *SafeConn, data Message) error {
 			Type: "http/request",
 			Body: httpBody,
 		}
+		httpBytes, err := json.Marshal(httpMsg)
+		if err != nil {
+			return err
+		}
 
 		var deviceConns map[string]*SafeConn
 		mu.Lock()
@@ -475,11 +510,11 @@ func handleMessage(conn *SafeConn, data Message) error {
 		for _, udid := range httpReq.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
 				log.Printf("[http] Sending http/request to device %s", udid)
-				go func(dc *SafeConn, u string) {
-					if err := sendMessage(dc, httpMsg); err != nil {
+				go func(dc *SafeConn, u string, payload []byte) {
+					if err := writeTextMessage(dc, payload); err != nil {
 						log.Printf("[http] Failed to send to device %s: %v", u, err)
 					}
-				}(deviceConn, udid)
+				}(deviceConn, udid, httpBytes)
 			} else {
 				log.Printf("[http] Device %s not found in deviceLinks", udid)
 			}
@@ -516,6 +551,10 @@ func handleMessage(conn *SafeConn, data Message) error {
 			Type: "http/request-bin",
 			Body: httpBody,
 		}
+		httpBytes, err := json.Marshal(httpMsg)
+		if err != nil {
+			return err
+		}
 
 		var deviceConns map[string]*SafeConn
 		mu.Lock()
@@ -530,11 +569,11 @@ func handleMessage(conn *SafeConn, data Message) error {
 		for _, udid := range httpReq.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
 				log.Printf("[http-bin] Sending http/request-bin to device %s", udid)
-				go func(dc *SafeConn, u string) {
-					if err := sendMessage(dc, httpMsg); err != nil {
+				go func(dc *SafeConn, u string, payload []byte) {
+					if err := writeTextMessage(dc, payload); err != nil {
 						log.Printf("[http-bin] Failed to send to device %s: %v", u, err)
 					}
-				}(deviceConn, udid)
+				}(deviceConn, udid, httpBytes)
 			} else {
 				log.Printf("[http-bin] Device %s not found in deviceLinks", udid)
 			}
@@ -565,10 +604,16 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 		mu.Unlock()
 
-		for _, deviceConn := range subscribeTargets {
-			go func(dc *SafeConn) {
-				sendMessage(dc, Message{Type: "system/log/subscribe"})
-			}(deviceConn)
+		if len(subscribeTargets) > 0 {
+			subscribePayload, err := json.Marshal(Message{Type: "system/log/subscribe"})
+			if err != nil {
+				return err
+			}
+			for _, deviceConn := range subscribeTargets {
+				go func(dc *SafeConn, payload []byte) {
+					_ = writeTextMessage(dc, payload)
+				}(deviceConn, subscribePayload)
+			}
 		}
 
 	case "control/log/unsubscribe":
@@ -596,10 +641,16 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 		mu.Unlock()
 
-		for _, deviceConn := range unsubscribeTargets {
-			go func(dc *SafeConn) {
-				sendMessage(dc, Message{Type: "system/log/unsubscribe"})
-			}(deviceConn)
+		if len(unsubscribeTargets) > 0 {
+			unsubscribePayload, err := json.Marshal(Message{Type: "system/log/unsubscribe"})
+			if err != nil {
+				return err
+			}
+			for _, deviceConn := range unsubscribeTargets {
+				go func(dc *SafeConn, payload []byte) {
+					_ = writeTextMessage(dc, payload)
+				}(deviceConn, unsubscribePayload)
+			}
 		}
 
 	case "http/response-bin":
@@ -633,8 +684,13 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return nil
 		}
 
+		encodedData, err := json.Marshal(data)
+		if err != nil {
+			return err
+		}
+
 		if routeController != nil {
-			if err := sendMessage(routeController, data); err == nil {
+			if err := writeTextMessage(routeController, encodedData); err == nil {
 				if requestId != "" && bodySize == 0 {
 					mu.Lock()
 					delete(binaryRoutes, requestId)
@@ -645,9 +701,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 
 		for _, controllerConn := range controllerList {
-			go func(cc *SafeConn, msg Message) {
-				sendMessage(cc, msg)
-			}(controllerConn, data)
+			go func(cc *SafeConn, payload []byte) {
+				_ = writeTextMessage(cc, payload)
+			}(controllerConn, encodedData)
 		}
 		if requestId != "" && bodySize == 0 {
 			mu.Lock()
@@ -690,17 +746,25 @@ func handleMessage(conn *SafeConn, data Message) error {
 		mu.Unlock()
 
 		if needsLogSubscribe {
-			go func(dc *SafeConn) {
-				sendMessage(dc, Message{Type: "system/log/subscribe"})
-			}(conn)
+			subscribePayload, err := json.Marshal(Message{Type: "system/log/subscribe"})
+			if err != nil {
+				return err
+			}
+			go func(dc *SafeConn, payload []byte) {
+				_ = writeTextMessage(dc, payload)
+			}(conn, subscribePayload)
 		}
 
 		if len(controllerList) > 0 {
 			data.UDID = udid
+			encodedData, err := json.Marshal(data)
+			if err != nil {
+				return err
+			}
 			for _, controllerConn := range controllerList {
-				go func(dc *SafeConn) {
-					sendMessage(dc, data)
-				}(controllerConn)
+				go func(dc *SafeConn, payload []byte) {
+					_ = writeTextMessage(dc, payload)
+				}(controllerConn, encodedData)
 			}
 		}
 
@@ -728,10 +792,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 
 		if udid != "" && len(subscriberList) > 0 {
 			data.UDID = udid
+			encodedData, err := json.Marshal(data)
+			if err != nil {
+				return err
+			}
 			for _, controllerConn := range subscriberList {
-				go func(cc *SafeConn, msg Message) {
-					sendMessage(cc, msg)
-				}(controllerConn, data)
+				go func(cc *SafeConn, payload []byte) {
+					_ = writeTextMessage(cc, payload)
+				}(controllerConn, encodedData)
 			}
 		}
 		return nil
@@ -756,10 +824,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 				log.Printf("[%s] Forwarding %s from device %s to %d controllers", data.Type, data.Type, udid, len(controllerList))
 			}
 			data.UDID = udid
+			encodedData, err := json.Marshal(data)
+			if err != nil {
+				return err
+			}
 			for _, controllerConn := range controllerList {
-				go func(cc *SafeConn, msg Message) {
-					sendMessage(cc, msg)
-				}(controllerConn, data)
+				go func(cc *SafeConn, payload []byte) {
+					_ = writeTextMessage(cc, payload)
+				}(controllerConn, encodedData)
 			}
 		}
 	}
@@ -838,7 +910,7 @@ func sendMessage(conn *SafeConn, msg Message) error {
 	if err != nil {
 		return err
 	}
-	return conn.WriteMessage(websocket.TextMessage, data)
+	return writeTextMessage(conn, data)
 }
 
 // handleDisconnection handles WebSocket disconnection
@@ -851,11 +923,18 @@ func handleDisconnection(conn *SafeConn) {
 	if _, isController := controllers[conn]; isController {
 		fmt.Printf("Controller %s disconnected\n", conn.RemoteAddr())
 		emptied := removeLogSubscriberFromAllLocked(conn)
-		for _, udid := range emptied {
-			if deviceConn, exists := deviceLinks[udid]; exists {
-				go func(dc *SafeConn) {
-					sendMessage(dc, Message{Type: "system/log/unsubscribe"})
-				}(deviceConn)
+		if len(emptied) > 0 {
+			unsubscribePayload, err := json.Marshal(Message{Type: "system/log/unsubscribe"})
+			if err != nil {
+				log.Printf("Failed to marshal unsubscribe message: %v", err)
+			} else {
+				for _, udid := range emptied {
+					if deviceConn, exists := deviceLinks[udid]; exists {
+						go func(dc *SafeConn, payload []byte) {
+							_ = writeTextMessage(dc, payload)
+						}(deviceConn, unsubscribePayload)
+					}
+				}
 			}
 		}
 		for id, route := range binaryRoutes {
@@ -896,11 +975,16 @@ func handleDisconnection(conn *SafeConn) {
 				Type: "device/disconnect",
 				Body: udid,
 			}
+			disconnectPayload, err := json.Marshal(disconnectMsg)
+			if err != nil {
+				log.Printf("Failed to marshal disconnect message for %s: %v", udid, err)
+				return
+			}
 
 			for controllerConn := range controllers {
-				go func(cc *SafeConn, msg Message) {
-					sendMessage(cc, msg)
-				}(controllerConn, disconnectMsg)
+				go func(cc *SafeConn, payload []byte) {
+					_ = writeTextMessage(cc, payload)
+				}(controllerConn, disconnectPayload)
 			}
 		}
 	}
@@ -986,13 +1070,18 @@ func sendStateRequestToAllDevices() {
 		Type: "app/state",
 		Body: "",
 	}
+	statePayload, err := json.Marshal(stateMsg)
+	if err != nil {
+		log.Printf("Failed to marshal state request: %v", err)
+		return
+	}
 
 	for udid, deviceConn := range deviceConns {
-		go func(dc *SafeConn, deviceUDID string) {
-			if err := sendMessage(dc, stateMsg); err != nil {
+		go func(dc *SafeConn, deviceUDID string, payload []byte) {
+			if err := writeTextMessage(dc, payload); err != nil {
 				log.Printf("Failed to send state request to device %s: %v", deviceUDID, err)
 			}
-		}(deviceConn, udid)
+		}(deviceConn, udid, statePayload)
 	}
 }
 

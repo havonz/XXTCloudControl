@@ -540,13 +540,11 @@ func broadcastTransferProgress(progress TransferProgress) {
 	}
 	mu.RUnlock()
 
-	controllerCount := len(controllerList)
 	for _, conn := range controllerList {
-		go conn.WriteMessage(1, data)
+		go func(cc *SafeConn, payload []byte) {
+			_ = writeTextMessage(cc, payload)
+		}(conn, data)
 	}
-
-	fmt.Printf("📊 Progress broadcast to %d controllers: %.1f%% (%d/%d bytes)\n",
-		controllerCount, progress.Percent, progress.CurrentBytes, progress.TotalBytes)
 }
 
 // broadcastDeviceMessage sends a status message for a device to all connected controllers
@@ -559,7 +557,7 @@ func broadcastDeviceMessage(udid string, message string) {
 		},
 	}
 
-	_, err := json.Marshal(msg)
+	data, err := json.Marshal(msg)
 	if err != nil {
 		fmt.Printf("❌ Failed to marshal device message: %v\n", err)
 		return
@@ -575,9 +573,9 @@ func broadcastDeviceMessage(udid string, message string) {
 
 	// Send messages without holding the lock
 	for _, conn := range controllerList {
-		go func(cc *SafeConn) {
-			sendMessage(cc, msg)
-		}(conn)
+		go func(cc *SafeConn, payload []byte) {
+			_ = writeTextMessage(cc, payload)
+		}(conn, data)
 	}
 }
 
