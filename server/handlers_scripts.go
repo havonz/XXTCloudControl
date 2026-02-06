@@ -154,6 +154,20 @@ func resolveDeviceScriptConfig(udid string, scriptName string, selectedGroups []
 	return nil
 }
 
+// snapshotDeviceConns copies currently connected device sockets for target devices.
+// This avoids holding the global device mutex while doing heavy per-device work.
+func snapshotDeviceConns(deviceIDs []string) map[string]*SafeConn {
+	conns := make(map[string]*SafeConn, len(deviceIDs))
+	mu.RLock()
+	for _, udid := range deviceIDs {
+		if conn, exists := deviceLinks[udid]; exists {
+			conns[udid] = conn
+		}
+	}
+	mu.RUnlock()
+	return conns
+}
+
 // scriptsSendHandler handles POST /api/scripts/send
 // Like scriptsSendAndStartHandler but only sends files, does not run the script
 func scriptsSendHandler(c *gin.Context) {
@@ -276,11 +290,9 @@ func scriptsSendHandler(c *gin.Context) {
 		}
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-
+	deviceConns := snapshotDeviceConns(req.Devices)
 	for _, udid := range req.Devices {
-		if conn, exists := deviceLinks[udid]; exists {
+		if conn, exists := deviceConns[udid]; exists {
 			groupConfig := resolveDeviceScriptConfig(udid, req.Name, req.SelectedGroups)
 
 			smallFiles := 0
@@ -404,11 +416,9 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 
 	// Device-selected mode: empty name means run the script already selected on device
 	if req.Name == "" {
-		mu.Lock()
-		defer mu.Unlock()
-
+		deviceConns := snapshotDeviceConns(req.Devices)
 		for _, udid := range req.Devices {
-			if conn, exists := deviceLinks[udid]; exists {
+			if conn, exists := deviceConns[udid]; exists {
 				runMsg := Message{
 					Type: "script/run",
 					Body: gin.H{"name": ""},
@@ -518,11 +528,9 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		}
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-
+	deviceConns := snapshotDeviceConns(req.Devices)
 	for _, udid := range req.Devices {
-		if conn, exists := deviceLinks[udid]; exists {
+		if conn, exists := deviceConns[udid]; exists {
 			groupConfig := resolveDeviceScriptConfig(udid, req.Name, req.SelectedGroups)
 
 			// 广播状态: 正在发送文件

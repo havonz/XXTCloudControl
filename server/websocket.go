@@ -825,9 +825,13 @@ func stopStateRefreshTimer() {
 // sendStateRequestToAllDevices sends app/state requests to all connected devices
 func sendStateRequestToAllDevices() {
 	mu.RLock()
-	deviceCount := len(deviceLinks)
+	deviceConns := make(map[string]*SafeConn, len(deviceLinks))
+	for udid, deviceConn := range deviceLinks {
+		deviceConns[udid] = deviceConn
+	}
 	mu.RUnlock()
 
+	deviceCount := len(deviceConns)
 	if deviceCount == 0 {
 		return
 	}
@@ -837,15 +841,13 @@ func sendStateRequestToAllDevices() {
 		Body: "",
 	}
 
-	mu.RLock()
-	for udid, deviceConn := range deviceLinks {
+	for udid, deviceConn := range deviceConns {
 		go func(dc *SafeConn, deviceUDID string) {
 			if err := sendMessage(dc, stateMsg); err != nil {
 				log.Printf("Failed to send state request to device %s: %v", deviceUDID, err)
 			}
 		}(deviceConn, udid)
 	}
-	mu.RUnlock()
 }
 
 // sendPingToAllDevices sends WebSocket PING to all connected devices
@@ -853,20 +855,22 @@ func sendPingToAllDevices() {
 	checkAndUpdateDeviceLife()
 
 	mu.RLock()
-	deviceCount := len(deviceLinks)
+	deviceConns := make(map[string]*SafeConn, len(deviceLinks))
+	for udid, deviceConn := range deviceLinks {
+		deviceConns[udid] = deviceConn
+	}
 	mu.RUnlock()
 
+	deviceCount := len(deviceConns)
 	if deviceCount == 0 {
 		return
 	}
 
-	mu.RLock()
-	for udid, deviceConn := range deviceLinks {
+	for udid, deviceConn := range deviceConns {
 		go func(dc *SafeConn, deviceUDID string) {
 			if err := dc.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 				log.Printf("Failed to send ping to device %s: %v", deviceUDID, err)
 			}
 		}(deviceConn, udid)
 	}
-	mu.RUnlock()
 }

@@ -1338,8 +1338,9 @@ export class WebSocketService {
 
   // 触控按下（多设备 - 使用归一化坐标）
   async touchDownMultipleNormalized(deviceUdids: string[], nx: number, ny: number): Promise<void> {
+    const deviceMap = new Map(this.devices.map(d => [d.udid, d] as const));
     for (const udid of deviceUdids) {
-      const device = this.devices.find(d => d.udid === udid);
+      const device = deviceMap.get(udid);
       if (device?.system?.scrw && device?.system?.scrh) {
         const x = Math.floor(nx * device.system.scrw);
         const y = Math.floor(ny * device.system.scrh);
@@ -1350,8 +1351,9 @@ export class WebSocketService {
 
   // 触控移动（多设备 - 使用归一化坐标）
   async touchMoveMultipleNormalized(deviceUdids: string[], nx: number, ny: number): Promise<void> {
+    const deviceMap = new Map(this.devices.map(d => [d.udid, d] as const));
     for (const udid of deviceUdids) {
-      const device = this.devices.find(d => d.udid === udid);
+      const device = deviceMap.get(udid);
       if (device?.system?.scrw && device?.system?.scrh) {
         const x = Math.floor(nx * device.system.scrw);
         const y = Math.floor(ny * device.system.scrh);

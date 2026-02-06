@@ -257,10 +257,12 @@ export class FileTransferService {
    */
   async deleteTempFile(category: string, path: string): Promise<void> {
     try {
-      await authFetch(`${this.baseUrl}/api/server-files/delete`, {
+      const params = new URLSearchParams({
+        category,
+        path,
+      });
+      await authFetch(`${this.baseUrl}/api/server-files/delete?${params.toString()}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category, path }),
       });
     } catch (e) {
       console.warn('Failed to delete temp file:', e);

@@ -534,11 +534,16 @@ func broadcastTransferProgress(progress TransferProgress) {
 	}
 
 	mu.RLock()
-	controllerCount := len(controllers)
+	controllerList := make([]*SafeConn, 0, len(controllers))
 	for conn := range controllers {
-		go conn.WriteMessage(1, data)
+		controllerList = append(controllerList, conn)
 	}
 	mu.RUnlock()
+
+	controllerCount := len(controllerList)
+	for _, conn := range controllerList {
+		go conn.WriteMessage(1, data)
+	}
 
 	fmt.Printf("📊 Progress broadcast to %d controllers: %.1f%% (%d/%d bytes)\n",
 		controllerCount, progress.Percent, progress.CurrentBytes, progress.TotalBytes)

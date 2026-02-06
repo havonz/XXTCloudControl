@@ -732,8 +732,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     return sortDevices(props.devices);
   };
 
+  const selectedUdidSet = createMemo(() => {
+    return new Set(props.selectedDevices().map(d => d.udid));
+  });
+
   const handleDeviceToggle = (device: Device, e?: MouseEvent) => {
-    const isSelected = props.selectedDevices().some(d => d.udid === device.udid);
+    const isSelected = selectedUdidSet().has(device.udid);
     const devices = filteredDevices();
     
     if (e?.shiftKey && lastSelectedUdid()) {
@@ -772,8 +776,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   const handleSelectAll = () => {
     const allDevices = filteredDevices();
+    const selectedSet = selectedUdidSet();
     const allSelected = allDevices.length > 0 && allDevices.every(device => 
-      props.selectedDevices().some(selected => selected.udid === device.udid)
+      selectedSet.has(device.udid)
     );
     
     if (allSelected) {
@@ -785,7 +790,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     } else {
       // 全选
       const newDevices = allDevices.filter(device => 
-        !props.selectedDevices().some(selected => selected.udid === device.udid)
+        !selectedSet.has(device.udid)
       );
       props.onDeviceSelect([...props.selectedDevices(), ...newDevices]);
     }
@@ -793,8 +798,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   const isAllSelected = () => {
     const allDevices = filteredDevices();
+    const selectedSet = selectedUdidSet();
     return allDevices.length > 0 && allDevices.every(device => 
-      props.selectedDevices().some(selected => selected.udid === device.udid)
+      selectedSet.has(device.udid)
     );
   };
 
@@ -817,8 +823,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   const isPartiallySelected = () => {
     const allDevices = filteredDevices();
+    const selectedSet = selectedUdidSet();
     const selectedCount = allDevices.filter(device => 
-      props.selectedDevices().some(selected => selected.udid === device.udid)
+      selectedSet.has(device.udid)
     ).length;
     return selectedCount > 0 && selectedCount < allDevices.length;
   };
@@ -1630,12 +1637,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               <div class={styles.tableBody}>
                 <For each={filteredDevices().map(device => ({
                   ...device,
-                  _selectionKey: `${device.udid}-${props.selectedDevices().some(d => d.udid === device.udid)}-${forceUpdate()}`
+                  _selectionKey: `${device.udid}-${selectedUdidSet().has(device.udid)}-${forceUpdate()}`
                 }))}>
                   {(deviceWithKey) => {
                   const device = deviceWithKey;
                   const info = formatDeviceInfo(device);
-                  const isSelected = props.selectedDevices().some(d => d.udid === device.udid);
+                  const isSelected = selectedUdidSet().has(device.udid);
                   
                   return (
                     <div 
