@@ -43,6 +43,8 @@ export class WebSocketService {
   private isAuthenticating = false;
   private isInitialLogin = true; // 区分首次登录和重连
   private hasReceivedDeviceList = false; // 是否已收到设备列表响应
+  private deviceUpdateTimer: number | null = null;
+  private deviceUpdateQueued = false;
 
   constructor(url: string, password: string = '') {
     this.url = url;
@@ -159,6 +161,7 @@ export class WebSocketService {
     }
     this.notifyStatusChange('disconnected');
     this.devices = [];
+    this.clearDeviceUpdateTimer();
     this.notifyDeviceUpdate([]);
   }
 
@@ -962,7 +965,7 @@ export class WebSocketService {
       }
       
       this.devices = deviceArray;
-      this.notifyDeviceUpdate(this.devices);
+      this.flushDeviceUpdate();
       return;
     }
 
@@ -1082,7 +1085,7 @@ export class WebSocketService {
     }
     
     // 通知界面更新
-    this.notifyDeviceUpdate([...this.devices]);
+    this.scheduleDeviceUpdate();
   }
 
   private removeDevice(udid: string): void {
@@ -1095,7 +1098,7 @@ export class WebSocketService {
       console.log(`设备 ${udid} 已从列表中移除`);
       
       // 通知界面更新
-      this.notifyDeviceUpdate([...this.devices]);
+      this.scheduleDeviceUpdate();
     } else {
       console.log(`设备 ${udid} 不在列表中，无需移除`);
     }
@@ -1123,7 +1126,7 @@ export class WebSocketService {
       console.log(`设备 ${udid} 脚本状态已更新: ${isRunning ? '运行中' : '已停止'}`);
       
       // 通知界面更新
-      this.notifyDeviceUpdate([...this.devices]);
+      this.scheduleDeviceUpdate();
     } else {
       console.log(`设备 ${udid} 不在列表中，无法更新脚本状态`);
     }
@@ -1147,7 +1150,7 @@ export class WebSocketService {
       console.log(`设备 ${udid} 选中脚本已通过消息回复更新: ${scriptName}`);
       
       // 通知界面更新
-      this.notifyDeviceUpdate([...this.devices]);
+      this.scheduleDeviceUpdate();
     }
   }
 
@@ -1161,7 +1164,7 @@ export class WebSocketService {
       }
       this.devices[existingIndex].system.message = msg;
       
-      this.notifyDeviceUpdate([...this.devices]);
+      this.scheduleDeviceUpdate();
     }
   }
 
@@ -1180,7 +1183,7 @@ export class WebSocketService {
         this.devices[existingIndex].system = {};
       }
       this.devices[existingIndex].system.log = lastLine;
-      this.notifyDeviceUpdate([...this.devices]);
+      this.scheduleDeviceUpdate();
     }
   }
 
@@ -1246,6 +1249,37 @@ export class WebSocketService {
 
   private notifyDeviceUpdate(devices: Device[]): void {
     this.deviceCallbacks.forEach(callback => callback(devices));
+  }
+
+  private scheduleDeviceUpdate(immediate: boolean = false): void {
+    if (immediate) {
+      this.flushDeviceUpdate();
+      return;
+    }
+    if (this.deviceUpdateQueued) return;
+    this.deviceUpdateQueued = true;
+    this.deviceUpdateTimer = window.setTimeout(() => {
+      this.deviceUpdateQueued = false;
+      this.deviceUpdateTimer = null;
+      this.notifyDeviceUpdate([...this.devices]);
+    }, 50);
+  }
+
+  private flushDeviceUpdate(): void {
+    if (this.deviceUpdateTimer) {
+      clearTimeout(this.deviceUpdateTimer);
+      this.deviceUpdateTimer = null;
+    }
+    this.deviceUpdateQueued = false;
+    this.notifyDeviceUpdate([...this.devices]);
+  }
+
+  private clearDeviceUpdateTimer(): void {
+    if (this.deviceUpdateTimer) {
+      clearTimeout(this.deviceUpdateTimer);
+      this.deviceUpdateTimer = null;
+    }
+    this.deviceUpdateQueued = false;
   }
 
   private notifyAuthResult(success: boolean, error?: string): void {

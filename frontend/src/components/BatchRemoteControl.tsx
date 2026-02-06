@@ -1,4 +1,4 @@
-import { createSignal, For, Show, onCleanup, createEffect, onMount } from 'solid-js';
+import { createSignal, For, Show, onCleanup, createEffect, onMount, untrack } from 'solid-js';
 import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste } from '../icons';
 import styles from './BatchRemoteControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
@@ -982,49 +982,55 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   const handleVolumeUp = () => {
     const checked = getCheckedDevicesList();
+    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
+    const connMap = connections();
     
-    for (const udid of checked) {
-      const conn = connections().get(udid);
+    for (const udid of viaWebRTC) {
+      const conn = connMap.get(udid);
       if (conn?.service) {
         conn.service.sendKeyCommand('volumeup', 'press');
       }
     }
     
-    if (props.webSocketService && checked.length > 0) {
-      props.webSocketService.keyDownMultiple(checked, 'VOLUMEUP');
-      setTimeout(() => props.webSocketService?.keyUpMultiple(checked, 'VOLUMEUP'), 50);
+    if (props.webSocketService && viaWebSocket.length > 0) {
+      props.webSocketService.keyDownMultiple(viaWebSocket, 'VOLUMEUP');
+      setTimeout(() => props.webSocketService?.keyUpMultiple(viaWebSocket, 'VOLUMEUP'), 50);
     }
   };
 
   const handleVolumeDown = () => {
     const checked = getCheckedDevicesList();
+    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
+    const connMap = connections();
     
-    for (const udid of checked) {
-      const conn = connections().get(udid);
+    for (const udid of viaWebRTC) {
+      const conn = connMap.get(udid);
       if (conn?.service) {
         conn.service.sendKeyCommand('volumedown', 'press');
       }
     }
     
-    if (props.webSocketService && checked.length > 0) {
-      props.webSocketService.keyDownMultiple(checked, 'VOLUMEDOWN');
-      setTimeout(() => props.webSocketService?.keyUpMultiple(checked, 'VOLUMEDOWN'), 50);
+    if (props.webSocketService && viaWebSocket.length > 0) {
+      props.webSocketService.keyDownMultiple(viaWebSocket, 'VOLUMEDOWN');
+      setTimeout(() => props.webSocketService?.keyUpMultiple(viaWebSocket, 'VOLUMEDOWN'), 50);
     }
   };
 
   const handleLockScreen = () => {
     const checked = getCheckedDevicesList();
+    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
+    const connMap = connections();
     
-    for (const udid of checked) {
-      const conn = connections().get(udid);
+    for (const udid of viaWebRTC) {
+      const conn = connMap.get(udid);
       if (conn?.service) {
         conn.service.sendKeyCommand('lock', 'press');
       }
     }
     
-    if (props.webSocketService && checked.length > 0) {
-      props.webSocketService.keyDownMultiple(checked, 'LOCK');
-      setTimeout(() => props.webSocketService?.keyUpMultiple(checked, 'LOCK'), 50);
+    if (props.webSocketService && viaWebSocket.length > 0) {
+      props.webSocketService.keyDownMultiple(viaWebSocket, 'LOCK');
+      setTimeout(() => props.webSocketService?.keyUpMultiple(viaWebSocket, 'LOCK'), 50);
     }
   };
 
@@ -1102,7 +1108,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   createEffect(() => {
     const fps = frameRate();
     // 遍历所有已连接的设备并更新帧率
-    connections().forEach((conn, udid) => {
+    const connMap = untrack(() => connections());
+    connMap.forEach((conn, udid) => {
       if (conn.service && conn.state === 'connected') {
         conn.service.setFrameRate(fps).catch(err => {
           console.error(`[BatchRemote] Failed to set FPS for ${udid}:`, err);
@@ -1120,8 +1127,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const ___ = isFullscreen();
     
     // 遍历所有已连接的设备并更新分辨率
+    const connMap = untrack(() => connections());
     cachedDevices().forEach((device) => {
-      const conn = connections().get(device.udid);
+      const conn = connMap.get(device.udid);
       if (conn?.service && conn.state === 'connected') {
         const optimalScale = calculateOptimalResolution(device);
         conn.service.setResolution(optimalScale).catch(err => {
@@ -1274,20 +1282,20 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     e.preventDefault();
 
     const checked = getCheckedDevicesList();
+    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
+    const connMap = connections();
     
-    // 发送到各个设备
-    for (const udid of checked) {
-      const conn = connections().get(udid);
+    // 发送到已连接 WebRTC 的设备
+    for (const udid of viaWebRTC) {
+      const conn = connMap.get(udid);
       if (conn?.service && conn.state === 'connected') {
         conn.service.sendKeyCommand(deviceKey, 'down');
       }
     }
 
-    // 通过 WebSocket 同步到那些没用 WebRTC 的设备 (或者统一走 WS)
-    // 注意：这里为了保持实时性，如果用了 WebRTC 则优先走 WebRTC
-    // 但 keyDownMultiple 在 WebSocketService 中会发给所有指定设备
-    if (props.webSocketService && checked.length > 0) {
-      props.webSocketService.keyDownMultiple(checked, deviceKey);
+    // 通过 WebSocket 同步到未走 WebRTC 的设备
+    if (props.webSocketService && viaWebSocket.length > 0) {
+      props.webSocketService.keyDownMultiple(viaWebSocket, deviceKey);
     }
   };
 
@@ -1304,15 +1312,17 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     e.preventDefault();
 
     const checked = getCheckedDevicesList();
-    for (const udid of checked) {
-      const conn = connections().get(udid);
+    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
+    const connMap = connections();
+    for (const udid of viaWebRTC) {
+      const conn = connMap.get(udid);
       if (conn?.service && conn.state === 'connected') {
         conn.service.sendKeyCommand(deviceKey, 'up');
       }
     }
 
-    if (props.webSocketService && checked.length > 0) {
-      props.webSocketService.keyUpMultiple(checked, deviceKey);
+    if (props.webSocketService && viaWebSocket.length > 0) {
+      props.webSocketService.keyUpMultiple(viaWebSocket, deviceKey);
     }
   };
 

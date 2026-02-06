@@ -118,6 +118,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   let startX = 0;
   let startWidth = 0;
 
+  const [isMobile, setIsMobile] = createSignal(
+    window.matchMedia('(max-width: 768px)').matches
+  );
+  let mobileMedia: MediaQueryList | null = null;
+  let mobileMediaHandler: ((event?: MediaQueryListEvent) => void) | null = null;
+
   const handleResizeStart = (e: MouseEvent, colId: string) => {
     e.stopPropagation();
     resizingColumn = colId;
@@ -380,10 +386,34 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   onMount(() => {
     document.addEventListener('click', handleClickOutside);
+    mobileMedia = window.matchMedia('(max-width: 768px)');
+    mobileMediaHandler = (event?: MediaQueryListEvent) => {
+      const matches = event ? event.matches : mobileMedia?.matches ?? window.innerWidth <= 768;
+      setIsMobile(matches);
+    };
+    mobileMediaHandler();
+    if ('addEventListener' in mobileMedia) {
+      mobileMedia.addEventListener('change', mobileMediaHandler);
+    } else {
+      // @ts-expect-error Legacy Safari API
+      mobileMedia.addListener(mobileMediaHandler);
+    }
   });
   
   onCleanup(() => {
     document.removeEventListener('click', handleClickOutside);
+    if (mobileMedia) {
+      if (mobileMediaHandler) {
+        if ('removeEventListener' in mobileMedia) {
+          mobileMedia.removeEventListener('change', mobileMediaHandler);
+        } else {
+          // @ts-expect-error Legacy Safari API
+          mobileMedia.removeListener(mobileMediaHandler);
+        }
+      }
+      mobileMedia = null;
+      mobileMediaHandler = null;
+    }
     if (longPressTimer) {
       clearTimeout(longPressTimer);
     }
@@ -1495,316 +1525,320 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               </div>
             </Show>
             <Show when={filteredDevices().length > 0}>
-          <div 
-            class={styles.deviceTable}
-            style={{ 
-              'grid-template-columns': gridTemplateColumns()
-            }}
-          >
-              <div class={styles.tableHeader} style={{ 
+          <Show when={!isMobile()}>
+            <div 
+              class={styles.deviceTable}
+              style={{ 
                 'grid-template-columns': gridTemplateColumns()
-              }}>
-                <div class={styles.headerCell}>
-                  <div 
-                    class={`${styles.selectAllCheckbox} ${
-                      isAllSelected() ? styles.checked :
-                      isPartiallySelected() ? styles.indeterminate : ''
-                    }`}
-                    onClick={handleSelectAll}
-                  >
-                    {isAllSelected() ? '✓' : isPartiallySelected() ? '−' : ''}
+              }}
+            >
+                <div class={styles.tableHeader} style={{ 
+                  'grid-template-columns': gridTemplateColumns()
+                }}>
+                  <div class={styles.headerCell}>
+                    <div 
+                      class={`${styles.selectAllCheckbox} ${
+                        isAllSelected() ? styles.checked :
+                        isPartiallySelected() ? styles.indeterminate : ''
+                      }`}
+                      onClick={handleSelectAll}
+                    >
+                      {isAllSelected() ? '✓' : isPartiallySelected() ? '−' : ''}
+                    </div>
+                    <div 
+                      class={styles.resizeHandle} 
+                      onMouseDown={(e) => handleResizeStart(e, 'selection')}
+                    />
                   </div>
-                  <div 
-                    class={styles.resizeHandle} 
-                    onMouseDown={(e) => handleResizeStart(e, 'selection')}
-                  />
+                  
+                  <Show when={visibleColumns().includes('name')}>
+                    <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('name')}>
+                      设备名称
+                      <span class={styles.sortIndicator}>
+                        {sortField() === 'name' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </span>
+                      <div 
+                        class={styles.resizeHandle} 
+                        onMouseDown={(e) => handleResizeStart(e, 'name')}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </Show>
+                  
+                  <Show when={visibleColumns().includes('udid')}>
+                    <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('udid')}>
+                      UDID
+                      <span class={styles.sortIndicator}>
+                        {sortField() === 'udid' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </span>
+                      <div 
+                        class={styles.resizeHandle} 
+                        onMouseDown={(e) => handleResizeStart(e, 'udid')}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </Show>
+                  
+                  <Show when={visibleColumns().includes('ip')}>
+                    <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('ip')}>
+                      IP地址
+                      <span class={styles.sortIndicator}>
+                        {sortField() === 'ip' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </span>
+                      <div 
+                        class={styles.resizeHandle} 
+                        onMouseDown={(e) => handleResizeStart(e, 'ip')}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </Show>
+                  
+                  <Show when={visibleColumns().includes('version')}>
+                    <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('version')}>
+                      系统
+                      <span class={styles.sortIndicator}>
+                        {sortField() === 'version' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </span>
+                      <div 
+                        class={styles.resizeHandle} 
+                        onMouseDown={(e) => handleResizeStart(e, 'version')}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </Show>
+                  
+                  <Show when={visibleColumns().includes('battery')}>
+                    <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('battery')}>
+                      电量
+                      <span class={styles.sortIndicator}>
+                        {sortField() === 'battery' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </span>
+                      <div 
+                        class={styles.resizeHandle} 
+                        onMouseDown={(e) => handleResizeStart(e, 'battery')}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </Show>
+                  
+                  <Show when={visibleColumns().includes('running')}>
+                    <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('running')}>
+                      脚本
+                      <span class={styles.sortIndicator}>
+                        {sortField() === 'running' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </span>
+                      <div 
+                        class={styles.resizeHandle} 
+                        onMouseDown={(e) => handleResizeStart(e, 'running')}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </Show>
+                  
+                  <Show when={visibleColumns().includes('message')}>
+                    <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('message')}>
+                      消息
+                      <span class={styles.sortIndicator}>
+                        {sortField() === 'message' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </span>
+                      <div 
+                        class={styles.resizeHandle} 
+                        onMouseDown={(e) => handleResizeStart(e, 'message')}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </Show>
+                  
+                  <Show when={visibleColumns().includes('log')}>
+                    <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('log')}>
+                      最后日志
+                      <span class={styles.sortIndicator}>
+                        {sortField() === 'log' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </span>
+                      {/* Log is usually the last column, no handle needed unless we want to resize it against some future column */}
+                    </div>
+                  </Show>
                 </div>
                 
-                <Show when={visibleColumns().includes('name')}>
-                  <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('name')}>
-                    设备名称
-                    <span class={styles.sortIndicator}>
-                      {sortField() === 'name' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
-                    </span>
-                    <div 
-                      class={styles.resizeHandle} 
-                      onMouseDown={(e) => handleResizeStart(e, 'name')}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                </Show>
-                
-                <Show when={visibleColumns().includes('udid')}>
-                  <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('udid')}>
-                    UDID
-                    <span class={styles.sortIndicator}>
-                      {sortField() === 'udid' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
-                    </span>
-                    <div 
-                      class={styles.resizeHandle} 
-                      onMouseDown={(e) => handleResizeStart(e, 'udid')}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                </Show>
-                
-                <Show when={visibleColumns().includes('ip')}>
-                  <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('ip')}>
-                    IP地址
-                    <span class={styles.sortIndicator}>
-                      {sortField() === 'ip' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
-                    </span>
-                    <div 
-                      class={styles.resizeHandle} 
-                      onMouseDown={(e) => handleResizeStart(e, 'ip')}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                </Show>
-                
-                <Show when={visibleColumns().includes('version')}>
-                  <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('version')}>
-                    系统
-                    <span class={styles.sortIndicator}>
-                      {sortField() === 'version' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
-                    </span>
-                    <div 
-                      class={styles.resizeHandle} 
-                      onMouseDown={(e) => handleResizeStart(e, 'version')}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                </Show>
-                
-                <Show when={visibleColumns().includes('battery')}>
-                  <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('battery')}>
-                    电量
-                    <span class={styles.sortIndicator}>
-                      {sortField() === 'battery' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
-                    </span>
-                    <div 
-                      class={styles.resizeHandle} 
-                      onMouseDown={(e) => handleResizeStart(e, 'battery')}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                </Show>
-                
-                <Show when={visibleColumns().includes('running')}>
-                  <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('running')}>
-                    脚本
-                    <span class={styles.sortIndicator}>
-                      {sortField() === 'running' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
-                    </span>
-                    <div 
-                      class={styles.resizeHandle} 
-                      onMouseDown={(e) => handleResizeStart(e, 'running')}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                </Show>
-                
-                <Show when={visibleColumns().includes('message')}>
-                  <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('message')}>
-                    消息
-                    <span class={styles.sortIndicator}>
-                      {sortField() === 'message' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
-                    </span>
-                    <div 
-                      class={styles.resizeHandle} 
-                      onMouseDown={(e) => handleResizeStart(e, 'message')}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                </Show>
-                
-                <Show when={visibleColumns().includes('log')}>
-                  <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('log')}>
-                    最后日志
-                    <span class={styles.sortIndicator}>
-                      {sortField() === 'log' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
-                    </span>
-                    {/* Log is usually the last column, no handle needed unless we want to resize it against some future column */}
-                  </div>
-                </Show>
-              </div>
-              
-              <div class={styles.tableBody}>
-                <For each={filteredDevices()}>
-                  {(device) => {
-                  const info = formatDeviceInfo(device);
-                  const isSelected = () => selectedUdidSet().has(device.udid);
-                  
-                  return (
-                    <div 
-                      class={`${styles.tableRow} ${isSelected() ? styles.selected : ''}`}
-                      style={{ 
-                        'grid-template-columns': gridTemplateColumns()
-                      }}
-                      onClick={(e) => handleDeviceToggle(device, e)}
-                      onContextMenu={(e) => handleDeviceContextMenu(e, device)}
-                    >
-                      <div class={styles.tableCell}>
-                        <div 
-                          class={`${styles.deviceCheckbox} ${isSelected() ? styles.checked : ''}`}
-                        >
-                          {isSelected() ? '✓' : ''}
-                        </div>
-                      </div>
-                      
-                      <Show when={visibleColumns().includes('name')}>
-                        <div class={styles.tableCell}>
-                          <div class={styles.deviceName}>
-                            {info.name}
-                          </div>
-                        </div>
-                      </Show>
-                      
-                      <Show when={visibleColumns().includes('udid')}>
-                        <div class={styles.tableCell}>
-                          <div class={styles.deviceUdid}>
-                            {device.udid}
-                          </div>
-                        </div>
-                      </Show>
-                      
-                      <Show when={visibleColumns().includes('ip')}>
-                        <div class={styles.tableCell}>
-                          <div class={styles.deviceIp}>
-                            {device.system?.ip || '未知'}
-                          </div>
-                        </div>
-                      </Show>
-                      
-                      <Show when={visibleColumns().includes('version')}>
-                        <div class={styles.tableCell}>
-                          <div class={styles.deviceVersion}>
-                            {info.version}
-                          </div>
-                        </div>
-                      </Show>
-                      
-                      <Show when={visibleColumns().includes('battery')}>
+                <div class={styles.tableBody}>
+                  <For each={filteredDevices()}>
+                    {(device) => {
+                    const info = formatDeviceInfo(device);
+                    const isSelected = () => selectedUdidSet().has(device.udid);
+                    
+                    return (
+                      <div 
+                        class={`${styles.tableRow} ${isSelected() ? styles.selected : ''}`}
+                        style={{ 
+                          'grid-template-columns': gridTemplateColumns()
+                        }}
+                        onClick={(e) => handleDeviceToggle(device, e)}
+                        onContextMenu={(e) => handleDeviceContextMenu(e, device)}
+                      >
                         <div class={styles.tableCell}>
                           <div 
-                            class={styles.batteryIndicator}
+                            class={`${styles.deviceCheckbox} ${isSelected() ? styles.checked : ''}`}
+                          >
+                            {isSelected() ? '✓' : ''}
+                          </div>
+                        </div>
+                        
+                        <Show when={visibleColumns().includes('name')}>
+                          <div class={styles.tableCell}>
+                            <div class={styles.deviceName}>
+                              {info.name}
+                            </div>
+                          </div>
+                        </Show>
+                        
+                        <Show when={visibleColumns().includes('udid')}>
+                          <div class={styles.tableCell}>
+                            <div class={styles.deviceUdid}>
+                              {device.udid}
+                            </div>
+                          </div>
+                        </Show>
+                        
+                        <Show when={visibleColumns().includes('ip')}>
+                          <div class={styles.tableCell}>
+                            <div class={styles.deviceIp}>
+                              {device.system?.ip || '未知'}
+                            </div>
+                          </div>
+                        </Show>
+                        
+                        <Show when={visibleColumns().includes('version')}>
+                          <div class={styles.tableCell}>
+                            <div class={styles.deviceVersion}>
+                              {info.version}
+                            </div>
+                          </div>
+                        </Show>
+                        
+                        <Show when={visibleColumns().includes('battery')}>
+                          <div class={styles.tableCell}>
+                            <div 
+                              class={styles.batteryIndicator}
+                              style={{ color: getBatteryColor(info.battery) }}
+                            >
+                              {info.battery}%
+                            </div>
+                          </div>
+                        </Show>
+                        
+                        <Show when={visibleColumns().includes('running')}>
+                          <div class={styles.tableCell}>
+                            <div 
+                              class={`${styles.runningStatus} ${info.running ? (info.paused ? styles.paused : styles.running) : styles.stopped}`}
+                              title={device.script?.select || '无脚本'}
+                            >
+                              {info.running ? (info.paused ? '暂停中' : '运行中') : '已停止'}
+                            </div>
+                          </div>
+                        </Show>
+                        
+                        <Show when={visibleColumns().includes('message')}>
+                          <div class={styles.tableCell}>
+                            <div 
+                              class={styles.deviceMessage}
+                              title={deviceControlMessages()[device.udid] || device.system?.message || '无消息'}
+                            >
+                              {deviceControlMessages()[device.udid] || device.system?.message || ''}
+                            </div>
+                          </div>
+                        </Show>
+                        
+                        <Show when={visibleColumns().includes('log')}>
+                          <div class={styles.tableCell}>
+                            <div 
+                              class={styles.lastLog} 
+                              title={device.system?.log || '无日志'}
+                            >
+                              {device.system?.log ? 
+                                (device.system.log.length > 50 ? 
+                                  device.system.log.substring(0, 50) + '...' : 
+                                  device.system.log
+                                ) : 
+                                '无日志'
+                              }
+                            </div>
+                          </div>
+                        </Show>
+                      </div>
+                    );
+                    }}
+                  </For>
+                </div>
+            </div>
+          </Show>
+
+          <Show when={isMobile()}>
+            <div class={styles.deviceCardList}>
+              <For each={filteredDevices()}>
+                {(device) => {
+                  const info = formatDeviceInfo(device);
+                  const isSelected = () => selectedUdidSet().has(device.udid);
+                  return (
+                    <div 
+                      class={styles.deviceCard}
+                      classList={{ [styles.selected]: isSelected() }}
+                      onClick={(e) => handleDeviceToggle(device, e)}
+                      onContextMenu={(e) => handleDeviceContextMenu(e, device)}
+                      onTouchStart={() => handleDeviceTouchStart(device)}
+                      onTouchEnd={handleDeviceTouchEnd}
+                      onTouchMove={handleDeviceTouchEnd}
+                    >
+                      <div class={styles.deviceCardHeader}>
+                        <div class={styles.cardTitleSection}>
+                          <div class={styles.cardDeviceName}>{info.name}</div>
+                          <div class={styles.cardDeviceUdid}>{device.udid}</div>
+                        </div>
+                        <Show when={isSelected()}>
+                          <div class={styles.cardSelectionIndicator}>
+                            <span class={styles.checkIcon}>✓</span>
+                          </div>
+                        </Show>
+                        <div class={styles.cardStatusSection}>
+                          <div 
+                            class={styles.cardBattery} 
                             style={{ color: getBatteryColor(info.battery) }}
                           >
                             {info.battery}%
                           </div>
-                        </div>
-                      </Show>
-                      
-                      <Show when={visibleColumns().includes('running')}>
-                        <div class={styles.tableCell}>
-                          <div 
-                            class={`${styles.runningStatus} ${info.running ? (info.paused ? styles.paused : styles.running) : styles.stopped}`}
-                            title={device.script?.select || '无脚本'}
-                          >
+                          <div class={`${styles.cardRunningStatus} ${info.running ? (info.paused ? styles.paused : styles.running) : styles.stopped}`}>
                             {info.running ? (info.paused ? '暂停中' : '运行中') : '已停止'}
                           </div>
                         </div>
-                      </Show>
+                      </div>
                       
-                      <Show when={visibleColumns().includes('message')}>
-                        <div class={styles.tableCell}>
-                          <div 
-                            class={styles.deviceMessage}
-                            title={deviceControlMessages()[device.udid] || device.system?.message || '无消息'}
-                          >
-                            {deviceControlMessages()[device.udid] || device.system?.message || ''}
-                          </div>
+                      <div class={styles.cardDetailsGrid}>
+                        <div class={styles.detailItem}>
+                          <span class={styles.detailLabel}>IP地址</span>
+                          <span class={styles.detailValue}>{device.system?.ip || '未知'}</span>
+                        </div>
+                        <div class={styles.detailItem}>
+                          <span class={styles.detailLabel}>系统版本</span>
+                          <span class={styles.detailValue}>{info.version}</span>
+                        </div>
+                      </div>
+                      
+                      <Show when={device.system?.message}>
+                        <div class={styles.cardMessageArea}>
+                          <div class={styles.cardMessageText}>{device.system?.message}</div>
                         </div>
                       </Show>
                       
-                      <Show when={visibleColumns().includes('log')}>
-                        <div class={styles.tableCell}>
-                          <div 
-                            class={styles.lastLog} 
-                            title={device.system?.log || '无日志'}
-                          >
-                            {device.system?.log ? 
-                              (device.system.log.length > 50 ? 
-                                device.system.log.substring(0, 50) + '...' : 
-                                device.system.log
-                              ) : 
-                              '无日志'
-                            }
-                          </div>
+                      <Show when={device.system?.log}>
+                        <div class={styles.cardLogArea}>
+                          {device.system?.log}
                         </div>
                       </Show>
                     </div>
                   );
-                  }}
-                </For>
-              </div>
-          </div>
-
-          <div class={styles.deviceCardList}>
-            <For each={filteredDevices()}>
-              {(device) => {
-                const info = formatDeviceInfo(device);
-                const isSelected = () => selectedUdidSet().has(device.udid);
-                return (
-                  <div 
-                    class={styles.deviceCard}
-                    classList={{ [styles.selected]: isSelected() }}
-                    onClick={(e) => handleDeviceToggle(device, e)}
-                    onContextMenu={(e) => handleDeviceContextMenu(e, device)}
-                    onTouchStart={() => handleDeviceTouchStart(device)}
-                    onTouchEnd={handleDeviceTouchEnd}
-                    onTouchMove={handleDeviceTouchEnd}
-                  >
-                    <div class={styles.deviceCardHeader}>
-                      <div class={styles.cardTitleSection}>
-                        <div class={styles.cardDeviceName}>{info.name}</div>
-                        <div class={styles.cardDeviceUdid}>{device.udid}</div>
-                      </div>
-                      <Show when={isSelected()}>
-                        <div class={styles.cardSelectionIndicator}>
-                          <span class={styles.checkIcon}>✓</span>
-                        </div>
-                      </Show>
-                      <div class={styles.cardStatusSection}>
-                        <div 
-                          class={styles.cardBattery} 
-                          style={{ color: getBatteryColor(info.battery) }}
-                        >
-                          {info.battery}%
-                        </div>
-                        <div class={`${styles.cardRunningStatus} ${info.running ? (info.paused ? styles.paused : styles.running) : styles.stopped}`}>
-                          {info.running ? (info.paused ? '暂停中' : '运行中') : '已停止'}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div class={styles.cardDetailsGrid}>
-                      <div class={styles.detailItem}>
-                        <span class={styles.detailLabel}>IP地址</span>
-                        <span class={styles.detailValue}>{device.system?.ip || '未知'}</span>
-                      </div>
-                      <div class={styles.detailItem}>
-                        <span class={styles.detailLabel}>系统版本</span>
-                        <span class={styles.detailValue}>{info.version}</span>
-                      </div>
-                    </div>
-                    
-                    <Show when={device.system?.message}>
-                      <div class={styles.cardMessageArea}>
-                        <div class={styles.cardMessageText}>{device.system?.message}</div>
-                      </div>
-                    </Show>
-                    
-                    <Show when={device.system?.log}>
-                      <div class={styles.cardLogArea}>
-                        {device.system?.log}
-                      </div>
-                    </Show>
-                  </div>
-                );
-              }}
-            </For>
-          </div>
+                }}
+              </For>
+            </div>
+          </Show>
             </Show>
           </div>
         </div>
