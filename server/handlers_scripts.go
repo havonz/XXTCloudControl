@@ -154,6 +154,58 @@ func resolveDeviceScriptConfig(udid string, scriptName string, selectedGroups []
 	return nil
 }
 
+// buildDeviceScriptConfigIndex precomputes script config lookup for selected devices.
+// It preserves resolveDeviceScriptConfig priority semantics:
+// the first selected group (by current deviceGroups order) that contains a device and
+// has config for the script wins.
+func buildDeviceScriptConfigIndex(scriptName string, selectedGroups []string) map[string]map[string]interface{} {
+	for _, gid := range selectedGroups {
+		if gid == "__all__" {
+			return nil
+		}
+	}
+	if len(selectedGroups) == 0 {
+		return nil
+	}
+
+	selectedSet := make(map[string]struct{}, len(selectedGroups))
+	for _, gid := range selectedGroups {
+		selectedSet[gid] = struct{}{}
+	}
+
+	deviceToConfig := make(map[string]map[string]interface{})
+
+	// Acquire locks in consistent order to prevent deadlock.
+	deviceGroupsMu.RLock()
+	defer deviceGroupsMu.RUnlock()
+	groupScriptConfigsMu.RLock()
+	defer groupScriptConfigsMu.RUnlock()
+
+	for _, group := range deviceGroups {
+		if _, ok := selectedSet[group.ID]; !ok {
+			continue
+		}
+
+		scripts, ok := groupScriptConfigs[group.ID]
+		if !ok {
+			continue
+		}
+		config, ok := scripts[scriptName]
+		if !ok {
+			continue
+		}
+
+		for _, deviceID := range group.DeviceIDs {
+			// First matched group wins.
+			if _, exists := deviceToConfig[deviceID]; !exists {
+				deviceToConfig[deviceID] = config
+			}
+		}
+	}
+
+	return deviceToConfig
+}
+
 // snapshotDeviceConns copies currently connected device sockets for target devices.
 // This avoids holding the global device mutex while doing heavy per-device work.
 func snapshotDeviceConns(deviceIDs []string) map[string]*SafeConn {
@@ -311,21 +363,80 @@ func scriptsSendHandler(c *gin.Context) {
 		largeFileMD5[f.SourcePath] = md5Result{hash: md5Hash}
 	}
 
+	smallFilesCount := 0
+	largeFilesCount := 0
+	for _, f := range filesToSend {
+		if f.Data == "" {
+			largeFilesCount++
+		} else {
+			smallFilesCount++
+		}
+	}
+
+	deviceConfigIndex := buildDeviceScriptConfigIndex(req.Name, req.SelectedGroups)
+
+	mainJSONTemplates := make(map[string]map[string]interface{})
+	mainJSONParsed := make(map[string]bool)
+	mergedMainJSONCache := make(map[string]string)
+
+	parseMainJSONTemplate := func(pathKey string, encoded string) map[string]interface{} {
+		if mainJSONParsed[pathKey] {
+			return mainJSONTemplates[pathKey]
+		}
+		mainJSONParsed[pathKey] = true
+
+		rawJSON, decodeErr := base64.StdEncoding.DecodeString(encoded)
+		if decodeErr != nil {
+			return nil
+		}
+		var mainObj map[string]interface{}
+		if err := json.Unmarshal(rawJSON, &mainObj); err != nil {
+			return nil
+		}
+		mainJSONTemplates[pathKey] = mainObj
+		return mainObj
+	}
+
+	buildMergedMainJSONData := func(template map[string]interface{}, groupConfig map[string]interface{}) (string, bool) {
+		if template == nil || groupConfig == nil {
+			return "", false
+		}
+
+		mergedObj := make(map[string]interface{}, len(template))
+		for k, v := range template {
+			mergedObj[k] = v
+		}
+
+		configObj := make(map[string]interface{}, len(groupConfig))
+		if existingConfig, ok := template["Config"].(map[string]interface{}); ok {
+			for k, v := range existingConfig {
+				configObj[k] = v
+			}
+		}
+		for k, v := range groupConfig {
+			configObj[k] = v
+		}
+		mergedObj["Config"] = configObj
+
+		newJSON, err := json.Marshal(mergedObj)
+		if err != nil {
+			return "", false
+		}
+		return base64.StdEncoding.EncodeToString(newJSON), true
+	}
+
 	deviceConns := snapshotDeviceConns(req.Devices)
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
-			groupConfig := resolveDeviceScriptConfig(udid, req.Name, req.SelectedGroups)
-
-			smallFiles := 0
-			largeFiles := 0
-			for _, f := range filesToSend {
-				if f.Data == "" {
-					largeFiles++
-				} else {
-					smallFiles++
+			groupConfig := deviceConfigIndex[udid]
+			groupConfigKey := ""
+			if groupConfig != nil {
+				if configBytes, err := json.Marshal(groupConfig); err == nil {
+					groupConfigKey = string(configBytes)
 				}
 			}
-			broadcastDeviceMessage(udid, fmt.Sprintf("上传脚本 (%d小文件, %d大文件)", smallFiles, largeFiles))
+
+			broadcastDeviceMessage(udid, fmt.Sprintf("上传脚本 (%d小文件, %d大文件)", smallFilesCount, largeFilesCount))
 
 			for _, f := range filesToSend {
 				if f.Data != "" {
@@ -335,21 +446,22 @@ func scriptsSendHandler(c *gin.Context) {
 						strings.HasSuffix(normalizedPath, "/main.json")
 
 					if isMainJson && groupConfig != nil {
-						rawJson, decodeErr := base64.StdEncoding.DecodeString(f.Data)
-						if decodeErr == nil {
-							var mainObj map[string]interface{}
-							if json.Unmarshal(rawJson, &mainObj) == nil {
-								configObj, ok := mainObj["Config"].(map[string]interface{})
-								if !ok {
-									configObj = make(map[string]interface{})
+						cacheKey := ""
+						cacheHit := false
+						if groupConfigKey != "" {
+							cacheKey = normalizedPath + "|" + groupConfigKey
+							if cached, ok := mergedMainJSONCache[cacheKey]; ok {
+								finalData = cached
+								cacheHit = true
+							}
+						}
+						if !cacheHit {
+							template := parseMainJSONTemplate(normalizedPath, f.Data)
+							if mergedData, ok := buildMergedMainJSONData(template, groupConfig); ok {
+								finalData = mergedData
+								if cacheKey != "" {
+									mergedMainJSONCache[cacheKey] = mergedData
 								}
-								for k, v := range groupConfig {
-									configObj[k] = v
-								}
-								mainObj["Config"] = configObj
-
-								newJson, _ := json.Marshal(mainObj)
-								finalData = base64.StdEncoding.EncodeToString(newJson)
 							}
 						}
 					}
@@ -570,22 +682,81 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		largeFileMD5[f.SourcePath] = md5Result{hash: md5Hash}
 	}
 
+	smallFilesCount := 0
+	largeFilesCount := 0
+	for _, f := range filesToSend {
+		if f.Data == "" {
+			largeFilesCount++
+		} else {
+			smallFilesCount++
+		}
+	}
+
+	deviceConfigIndex := buildDeviceScriptConfigIndex(req.Name, req.SelectedGroups)
+
+	mainJSONTemplates := make(map[string]map[string]interface{})
+	mainJSONParsed := make(map[string]bool)
+	mergedMainJSONCache := make(map[string]string)
+
+	parseMainJSONTemplate := func(pathKey string, encoded string) map[string]interface{} {
+		if mainJSONParsed[pathKey] {
+			return mainJSONTemplates[pathKey]
+		}
+		mainJSONParsed[pathKey] = true
+
+		rawJSON, decodeErr := base64.StdEncoding.DecodeString(encoded)
+		if decodeErr != nil {
+			return nil
+		}
+		var mainObj map[string]interface{}
+		if err := json.Unmarshal(rawJSON, &mainObj); err != nil {
+			return nil
+		}
+		mainJSONTemplates[pathKey] = mainObj
+		return mainObj
+	}
+
+	buildMergedMainJSONData := func(template map[string]interface{}, groupConfig map[string]interface{}) (string, bool) {
+		if template == nil || groupConfig == nil {
+			return "", false
+		}
+
+		mergedObj := make(map[string]interface{}, len(template))
+		for k, v := range template {
+			mergedObj[k] = v
+		}
+
+		configObj := make(map[string]interface{}, len(groupConfig))
+		if existingConfig, ok := template["Config"].(map[string]interface{}); ok {
+			for k, v := range existingConfig {
+				configObj[k] = v
+			}
+		}
+		for k, v := range groupConfig {
+			configObj[k] = v
+		}
+		mergedObj["Config"] = configObj
+
+		newJSON, err := json.Marshal(mergedObj)
+		if err != nil {
+			return "", false
+		}
+		return base64.StdEncoding.EncodeToString(newJSON), true
+	}
+
 	deviceConns := snapshotDeviceConns(req.Devices)
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
-			groupConfig := resolveDeviceScriptConfig(udid, req.Name, req.SelectedGroups)
-
-			// 广播状态: 正在发送文件
-			smallFiles := 0
-			largeFiles := 0
-			for _, f := range filesToSend {
-				if f.Data == "" {
-					largeFiles++
-				} else {
-					smallFiles++
+			groupConfig := deviceConfigIndex[udid]
+			groupConfigKey := ""
+			if groupConfig != nil {
+				if configBytes, err := json.Marshal(groupConfig); err == nil {
+					groupConfigKey = string(configBytes)
 				}
 			}
-			broadcastDeviceMessage(udid, fmt.Sprintf("发送脚本 (%d小文件, %d大文件)", smallFiles, largeFiles))
+
+			// 广播状态: 正在发送文件
+			broadcastDeviceMessage(udid, fmt.Sprintf("发送脚本 (%d小文件, %d大文件)", smallFilesCount, largeFilesCount))
 
 			// Send small files via WebSocket, large files via HTTP
 			for _, f := range filesToSend {
@@ -598,21 +769,22 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 						strings.HasSuffix(normalizedPath, "/main.json")
 
 					if isMainJson && groupConfig != nil {
-						rawJson, decodeErr := base64.StdEncoding.DecodeString(f.Data)
-						if decodeErr == nil {
-							var mainObj map[string]interface{}
-							if json.Unmarshal(rawJson, &mainObj) == nil {
-								configObj, ok := mainObj["Config"].(map[string]interface{})
-								if !ok {
-									configObj = make(map[string]interface{})
+						cacheKey := ""
+						cacheHit := false
+						if groupConfigKey != "" {
+							cacheKey = normalizedPath + "|" + groupConfigKey
+							if cached, ok := mergedMainJSONCache[cacheKey]; ok {
+								finalData = cached
+								cacheHit = true
+							}
+						}
+						if !cacheHit {
+							template := parseMainJSONTemplate(normalizedPath, f.Data)
+							if mergedData, ok := buildMergedMainJSONData(template, groupConfig); ok {
+								finalData = mergedData
+								if cacheKey != "" {
+									mergedMainJSONCache[cacheKey] = mergedData
 								}
-								for k, v := range groupConfig {
-									configObj[k] = v
-								}
-								mainObj["Config"] = configObj
-
-								newJson, _ := json.Marshal(mainObj)
-								finalData = base64.StdEncoding.EncodeToString(newJson)
 							}
 						}
 					}

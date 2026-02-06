@@ -123,6 +123,25 @@ func snapshotDeviceConnsByIDsLocked(deviceIDs []string) map[string]*SafeConn {
 	return deviceConns
 }
 
+// ensureController marks a socket as controller once.
+// Uses a read-first fast path to avoid repeated write locking on hot control paths.
+func ensureController(conn *SafeConn) {
+	if conn == nil {
+		return
+	}
+
+	mu.RLock()
+	alreadyController := controllers[conn]
+	mu.RUnlock()
+	if alreadyController {
+		return
+	}
+
+	mu.Lock()
+	controllers[conn] = true
+	mu.Unlock()
+}
+
 // addLogSubscriberLocked registers a controller as a log subscriber for a device.
 // Caller must hold mu.Lock.
 func addLogSubscriberLocked(udid string, conn *SafeConn) bool {
@@ -326,13 +345,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return nil
 		}
 
-		mu.Lock()
-		controllers[conn] = true
+		ensureController(conn)
+
+		mu.RLock()
 		deviceTableSnapshot := make(map[string]interface{}, len(deviceTable))
 		for udid, deviceState := range deviceTable {
 			deviceTableSnapshot[udid] = deviceState
 		}
-		mu.Unlock()
+		mu.RUnlock()
 
 		response := Message{
 			Type: "control/devices",
@@ -350,14 +370,15 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return nil
 		}
 
+		ensureController(conn)
+
 		var deviceConns []*SafeConn
-		mu.Lock()
-		controllers[conn] = true
+		mu.RLock()
 		deviceConns = make([]*SafeConn, 0, len(deviceLinks))
 		for _, deviceConn := range deviceLinks {
 			deviceConns = append(deviceConns, deviceConn)
 		}
-		mu.Unlock()
+		mu.RUnlock()
 
 		refreshMsg := Message{
 			Type: "app/state",
@@ -383,11 +404,12 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return err
 		}
 
+		ensureController(conn)
+
 		var deviceConns map[string]*SafeConn
-		mu.Lock()
-		controllers[conn] = true
+		mu.RLock()
 		deviceConns = snapshotDeviceConnsByIDsLocked(cmdBody.Devices)
-		mu.Unlock()
+		mu.RUnlock()
 
 		cmdMsg := Message{
 			Type:      cmdBody.Type,
@@ -422,11 +444,12 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return err
 		}
 
+		ensureController(conn)
+
 		var deviceConns map[string]*SafeConn
-		mu.Lock()
-		controllers[conn] = true
+		mu.RLock()
 		deviceConns = snapshotDeviceConnsByIDsLocked(cmdsBody.Devices)
-		mu.Unlock()
+		mu.RUnlock()
 
 		commandPayloads := make([][]byte, 0, len(cmdsBody.Commands))
 		commandNames := make([]string, 0, len(cmdsBody.Commands))
@@ -523,11 +546,12 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return err
 		}
 
+		ensureController(conn)
+
 		var deviceConns map[string]*SafeConn
-		mu.Lock()
-		controllers[conn] = true
+		mu.RLock()
 		deviceConns = snapshotDeviceConnsByIDsLocked(httpReq.Devices)
-		mu.Unlock()
+		mu.RUnlock()
 
 		for _, udid := range httpReq.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
@@ -580,9 +604,10 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return err
 		}
 
+		ensureController(conn)
+
 		var deviceConns map[string]*SafeConn
 		mu.Lock()
-		controllers[conn] = true
 		binaryRoutes[httpReq.RequestID] = &BinaryRoute{
 			Controller: conn,
 			Devices:    httpReq.Devices,
@@ -619,7 +644,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 
 		subscribeTargets := make([]*SafeConn, 0, len(req.Devices))
 		mu.Lock()
-		controllers[conn] = true
+		if !controllers[conn] {
+			controllers[conn] = true
+		}
 		for _, udid := range req.Devices {
 			first := addLogSubscriberLocked(udid, conn)
 			if first {
@@ -654,7 +681,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 
 		unsubscribeTargets := make([]*SafeConn, 0, len(req.Devices))
 		mu.Lock()
-		controllers[conn] = true
+		if !controllers[conn] {
+			controllers[conn] = true
+		}
 		for _, udid := range req.Devices {
 			last := removeLogSubscriberLocked(udid, conn)
 			if last {
