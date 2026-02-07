@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -400,6 +402,21 @@ func scriptsSendHandler(c *gin.Context) {
 	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 
 	deviceConfigIndex := buildDeviceScriptConfigIndex(req.Name, req.SelectedGroups)
+	groupConfigKeyCache := make(map[uintptr]string)
+	groupConfigKeySeq := 0
+	getGroupConfigKey := func(groupConfig map[string]interface{}) string {
+		if groupConfig == nil {
+			return ""
+		}
+		ptr := reflect.ValueOf(groupConfig).Pointer()
+		if key, ok := groupConfigKeyCache[ptr]; ok {
+			return key
+		}
+		groupConfigKeySeq++
+		key := strconv.Itoa(groupConfigKeySeq)
+		groupConfigKeyCache[ptr] = key
+		return key
+	}
 
 	mainJSONTemplates := make(map[string]map[string]interface{})
 	mainJSONParsed := make(map[string]bool)
@@ -456,12 +473,7 @@ func scriptsSendHandler(c *gin.Context) {
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
 			groupConfig := deviceConfigIndex[udid]
-			groupConfigKey := ""
-			if groupConfig != nil {
-				if configBytes, err := json.Marshal(groupConfig); err == nil {
-					groupConfigKey = string(configBytes)
-				}
-			}
+			groupConfigKey := getGroupConfigKey(groupConfig)
 
 			broadcastDeviceMessage(udid, fmt.Sprintf("上传脚本 (%d小文件, %d大文件)", smallFilesCount, largeFilesCount))
 
@@ -630,6 +642,21 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 
 	deviceConfigIndex := buildDeviceScriptConfigIndex(req.Name, req.SelectedGroups)
+	groupConfigKeyCache := make(map[uintptr]string)
+	groupConfigKeySeq := 0
+	getGroupConfigKey := func(groupConfig map[string]interface{}) string {
+		if groupConfig == nil {
+			return ""
+		}
+		ptr := reflect.ValueOf(groupConfig).Pointer()
+		if key, ok := groupConfigKeyCache[ptr]; ok {
+			return key
+		}
+		groupConfigKeySeq++
+		key := strconv.Itoa(groupConfigKeySeq)
+		groupConfigKeyCache[ptr] = key
+		return key
+	}
 
 	mainJSONTemplates := make(map[string]map[string]interface{})
 	mainJSONParsed := make(map[string]bool)
@@ -702,12 +729,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
 			groupConfig := deviceConfigIndex[udid]
-			groupConfigKey := ""
-			if groupConfig != nil {
-				if configBytes, err := json.Marshal(groupConfig); err == nil {
-					groupConfigKey = string(configBytes)
-				}
-			}
+			groupConfigKey := getGroupConfigKey(groupConfig)
 
 			// 广播状态: 正在发送文件
 			broadcastDeviceMessage(udid, fmt.Sprintf("发送脚本 (%d小文件, %d大文件)", smallFilesCount, largeFilesCount))

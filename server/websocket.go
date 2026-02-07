@@ -430,6 +430,24 @@ func snapshotDeviceConnsByIDsLocked(deviceIDs []string) map[string]*SafeConn {
 	return deviceConns
 }
 
+type deviceTarget struct {
+	udid string
+	conn *SafeConn
+}
+
+func snapshotAllDeviceTargets() []deviceTarget {
+	mu.RLock()
+	targets := make([]deviceTarget, 0, len(deviceLinks))
+	for udid, deviceConn := range deviceLinks {
+		targets = append(targets, deviceTarget{
+			udid: udid,
+			conn: deviceConn,
+		})
+	}
+	mu.RUnlock()
+	return targets
+}
+
 // ensureController marks a socket as controller once.
 // Uses a read-first fast path to avoid repeated write locking on hot control paths.
 func ensureController(conn *SafeConn) {
@@ -580,19 +598,14 @@ func resetDeviceLife(conn *SafeConn) {
 
 // checkAndUpdateDeviceLife checks and updates all device life counters
 func checkAndUpdateDeviceLife() {
-	type disconnectTarget struct {
-		udid string
-		conn *SafeConn
-	}
-
-	disconnectTargets := make([]disconnectTarget, 0)
+	disconnectTargets := make([]deviceTarget, 0)
 
 	mu.Lock()
 	for udid, life := range deviceLife {
 		if life <= 0 {
 			fmt.Printf("Device %s life exhausted, will disconnect\n", udid)
 			if deviceConn, exists := deviceLinks[udid]; exists {
-				disconnectTargets = append(disconnectTargets, disconnectTarget{
+				disconnectTargets = append(disconnectTargets, deviceTarget{
 					udid: udid,
 					conn: deviceConn,
 				})
@@ -1416,14 +1429,8 @@ func stopStateRefreshTimer() {
 
 // sendStateRequestToAllDevices sends app/state requests to all connected devices
 func sendStateRequestToAllDevices() {
-	mu.RLock()
-	deviceConns := make(map[string]*SafeConn, len(deviceLinks))
-	for udid, deviceConn := range deviceLinks {
-		deviceConns[udid] = deviceConn
-	}
-	mu.RUnlock()
-
-	deviceCount := len(deviceConns)
+	deviceTargets := snapshotAllDeviceTargets()
+	deviceCount := len(deviceTargets)
 	if deviceCount == 0 {
 		return
 	}
@@ -1438,9 +1445,9 @@ func sendStateRequestToAllDevices() {
 		return
 	}
 
-	for udid, deviceConn := range deviceConns {
-		deviceUDID := udid
-		dc := deviceConn
+	for _, target := range deviceTargets {
+		deviceUDID := target.udid
+		dc := target.conn
 		runAsyncWrite(func() {
 			if err := writeTextMessage(dc, statePayload); err != nil {
 				log.Printf("Failed to send state request to device %s: %v", deviceUDID, err)
@@ -1453,21 +1460,15 @@ func sendStateRequestToAllDevices() {
 func sendPingToAllDevices() {
 	checkAndUpdateDeviceLife()
 
-	mu.RLock()
-	deviceConns := make(map[string]*SafeConn, len(deviceLinks))
-	for udid, deviceConn := range deviceLinks {
-		deviceConns[udid] = deviceConn
-	}
-	mu.RUnlock()
-
-	deviceCount := len(deviceConns)
+	deviceTargets := snapshotAllDeviceTargets()
+	deviceCount := len(deviceTargets)
 	if deviceCount == 0 {
 		return
 	}
 
-	for udid, deviceConn := range deviceConns {
-		deviceUDID := udid
-		dc := deviceConn
+	for _, target := range deviceTargets {
+		deviceUDID := target.udid
+		dc := target.conn
 		runAsyncWrite(func() {
 			if err := dc.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 				log.Printf("Failed to send ping to device %s: %v", deviceUDID, err)
