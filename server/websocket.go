@@ -101,6 +101,313 @@ func toInt(value interface{}) (int, bool) {
 	return 0, false
 }
 
+func toString(value interface{}) (string, bool) {
+	switch v := value.(type) {
+	case string:
+		return v, true
+	case json.Number:
+		return v.String(), true
+	}
+	return "", false
+}
+
+func toStringSlice(value interface{}) ([]string, bool) {
+	switch v := value.(type) {
+	case nil:
+		return nil, true
+	case []string:
+		out := make([]string, len(v))
+		copy(out, v)
+		return out, true
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, s)
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func toMapStringInterface(value interface{}) (map[string]interface{}, bool) {
+	switch v := value.(type) {
+	case nil:
+		return nil, true
+	case map[string]interface{}:
+		return v, true
+	default:
+		return nil, false
+	}
+}
+
+func toMapStringString(value interface{}) (map[string]string, bool) {
+	switch v := value.(type) {
+	case nil:
+		return nil, true
+	case map[string]string:
+		out := make(map[string]string, len(v))
+		for k, val := range v {
+			out[k] = val
+		}
+		return out, true
+	case map[string]interface{}:
+		out := make(map[string]string, len(v))
+		for k, raw := range v {
+			s, ok := raw.(string)
+			if !ok {
+				return nil, false
+			}
+			out[k] = s
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func decodeBodyMap(body interface{}) (map[string]interface{}, error) {
+	switch v := body.(type) {
+	case nil:
+		return map[string]interface{}{}, nil
+	case map[string]interface{}:
+		return v, nil
+	case json.RawMessage:
+		if len(v) == 0 {
+			return map[string]interface{}{}, nil
+		}
+		var out map[string]interface{}
+		if err := json.Unmarshal(v, &out); err != nil {
+			return nil, err
+		}
+		if out == nil {
+			out = make(map[string]interface{})
+		}
+		return out, nil
+	case []byte:
+		if len(v) == 0 {
+			return map[string]interface{}{}, nil
+		}
+		var out map[string]interface{}
+		if err := json.Unmarshal(v, &out); err != nil {
+			return nil, err
+		}
+		if out == nil {
+			out = make(map[string]interface{})
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("invalid body type %T", body)
+	}
+}
+
+func parseControlCommandBody(body interface{}) (ControlCommand, error) {
+	bodyMap, err := decodeBodyMap(body)
+	if err != nil {
+		return ControlCommand{}, err
+	}
+
+	var out ControlCommand
+	if devices, ok := toStringSlice(bodyMap["devices"]); ok {
+		out.Devices = devices
+	} else if _, exists := bodyMap["devices"]; exists {
+		return ControlCommand{}, fmt.Errorf("invalid devices in control/command")
+	}
+	if typ, ok := toString(bodyMap["type"]); ok {
+		out.Type = typ
+	} else if _, exists := bodyMap["type"]; exists {
+		return ControlCommand{}, fmt.Errorf("invalid type in control/command")
+	}
+	out.Body = bodyMap["body"]
+	if requestID, ok := toString(bodyMap["requestId"]); ok {
+		out.RequestID = requestID
+	} else if _, exists := bodyMap["requestId"]; exists {
+		return ControlCommand{}, fmt.Errorf("invalid requestId in control/command")
+	}
+
+	return out, nil
+}
+
+func toCommands(value interface{}) ([]Command, bool) {
+	switch v := value.(type) {
+	case nil:
+		return nil, true
+	case []Command:
+		out := make([]Command, len(v))
+		copy(out, v)
+		return out, true
+	case []interface{}:
+		out := make([]Command, 0, len(v))
+		for _, raw := range v {
+			cmdMap, ok := raw.(map[string]interface{})
+			if !ok {
+				return nil, false
+			}
+			var cmd Command
+			if typ, ok := toString(cmdMap["type"]); ok {
+				cmd.Type = typ
+			} else if _, exists := cmdMap["type"]; exists {
+				return nil, false
+			}
+			cmd.Body = cmdMap["body"]
+			out = append(out, cmd)
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func parseControlCommandsBody(body interface{}) (ControlCommands, error) {
+	bodyMap, err := decodeBodyMap(body)
+	if err != nil {
+		return ControlCommands{}, err
+	}
+
+	var out ControlCommands
+	if devices, ok := toStringSlice(bodyMap["devices"]); ok {
+		out.Devices = devices
+	} else if _, exists := bodyMap["devices"]; exists {
+		return ControlCommands{}, fmt.Errorf("invalid devices in control/commands")
+	}
+
+	if commands, ok := toCommands(bodyMap["commands"]); ok {
+		out.Commands = commands
+	} else if _, exists := bodyMap["commands"]; exists {
+		return ControlCommands{}, fmt.Errorf("invalid commands in control/commands")
+	}
+
+	return out, nil
+}
+
+func parseHTTPProxyRequestBody(body interface{}) (HTTPProxyRequest, error) {
+	bodyMap, err := decodeBodyMap(body)
+	if err != nil {
+		return HTTPProxyRequest{}, err
+	}
+
+	var out HTTPProxyRequest
+	if devices, ok := toStringSlice(bodyMap["devices"]); ok {
+		out.Devices = devices
+	} else if _, exists := bodyMap["devices"]; exists {
+		return HTTPProxyRequest{}, fmt.Errorf("invalid devices in control/http")
+	}
+	if requestID, ok := toString(bodyMap["requestId"]); ok {
+		out.RequestID = requestID
+	} else if _, exists := bodyMap["requestId"]; exists {
+		return HTTPProxyRequest{}, fmt.Errorf("invalid requestId in control/http")
+	}
+	if method, ok := toString(bodyMap["method"]); ok {
+		out.Method = method
+	} else if _, exists := bodyMap["method"]; exists {
+		return HTTPProxyRequest{}, fmt.Errorf("invalid method in control/http")
+	}
+	if path, ok := toString(bodyMap["path"]); ok {
+		out.Path = path
+	} else if _, exists := bodyMap["path"]; exists {
+		return HTTPProxyRequest{}, fmt.Errorf("invalid path in control/http")
+	}
+
+	if query, ok := toMapStringInterface(bodyMap["query"]); ok {
+		out.Query = query
+	} else if _, exists := bodyMap["query"]; exists {
+		return HTTPProxyRequest{}, fmt.Errorf("invalid query in control/http")
+	}
+	if headers, ok := toMapStringString(bodyMap["headers"]); ok {
+		out.Headers = headers
+	} else if _, exists := bodyMap["headers"]; exists {
+		return HTTPProxyRequest{}, fmt.Errorf("invalid headers in control/http")
+	}
+	if rawBody, ok := toString(bodyMap["body"]); ok {
+		out.Body = rawBody
+	} else if _, exists := bodyMap["body"]; exists {
+		return HTTPProxyRequest{}, fmt.Errorf("invalid body in control/http")
+	}
+	if port, ok := toInt(bodyMap["port"]); ok {
+		out.Port = port
+	} else if _, exists := bodyMap["port"]; exists {
+		return HTTPProxyRequest{}, fmt.Errorf("invalid port in control/http")
+	}
+
+	return out, nil
+}
+
+func parseHTTPProxyRequestBinBody(body interface{}) (HTTPProxyRequestBin, error) {
+	bodyMap, err := decodeBodyMap(body)
+	if err != nil {
+		return HTTPProxyRequestBin{}, err
+	}
+
+	var out HTTPProxyRequestBin
+	if devices, ok := toStringSlice(bodyMap["devices"]); ok {
+		out.Devices = devices
+	} else if _, exists := bodyMap["devices"]; exists {
+		return HTTPProxyRequestBin{}, fmt.Errorf("invalid devices in control/http-bin")
+	}
+	if requestID, ok := toString(bodyMap["requestId"]); ok {
+		out.RequestID = requestID
+	} else if _, exists := bodyMap["requestId"]; exists {
+		return HTTPProxyRequestBin{}, fmt.Errorf("invalid requestId in control/http-bin")
+	}
+	if method, ok := toString(bodyMap["method"]); ok {
+		out.Method = method
+	} else if _, exists := bodyMap["method"]; exists {
+		return HTTPProxyRequestBin{}, fmt.Errorf("invalid method in control/http-bin")
+	}
+	if path, ok := toString(bodyMap["path"]); ok {
+		out.Path = path
+	} else if _, exists := bodyMap["path"]; exists {
+		return HTTPProxyRequestBin{}, fmt.Errorf("invalid path in control/http-bin")
+	}
+
+	if query, ok := toMapStringInterface(bodyMap["query"]); ok {
+		out.Query = query
+	} else if _, exists := bodyMap["query"]; exists {
+		return HTTPProxyRequestBin{}, fmt.Errorf("invalid query in control/http-bin")
+	}
+	if headers, ok := toMapStringString(bodyMap["headers"]); ok {
+		out.Headers = headers
+	} else if _, exists := bodyMap["headers"]; exists {
+		return HTTPProxyRequestBin{}, fmt.Errorf("invalid headers in control/http-bin")
+	}
+	if port, ok := toInt(bodyMap["port"]); ok {
+		out.Port = port
+	} else if _, exists := bodyMap["port"]; exists {
+		return HTTPProxyRequestBin{}, fmt.Errorf("invalid port in control/http-bin")
+	}
+	if bodySize, ok := toInt(bodyMap["bodySize"]); ok {
+		out.BodySize = bodySize
+	} else if _, exists := bodyMap["bodySize"]; exists {
+		return HTTPProxyRequestBin{}, fmt.Errorf("invalid bodySize in control/http-bin")
+	}
+	if chunkSize, ok := toInt(bodyMap["chunkSize"]); ok {
+		out.ChunkSize = chunkSize
+	} else if _, exists := bodyMap["chunkSize"]; exists {
+		return HTTPProxyRequestBin{}, fmt.Errorf("invalid chunkSize in control/http-bin")
+	}
+
+	return out, nil
+}
+
+func parseLogSubscribeRequestBody(body interface{}) (LogSubscribeRequest, error) {
+	bodyMap, err := decodeBodyMap(body)
+	if err != nil {
+		return LogSubscribeRequest{}, err
+	}
+
+	var out LogSubscribeRequest
+	if devices, ok := toStringSlice(bodyMap["devices"]); ok {
+		out.Devices = devices
+	} else if _, exists := bodyMap["devices"]; exists {
+		return LogSubscribeRequest{}, fmt.Errorf("invalid devices in log subscribe request")
+	}
+	return out, nil
+}
+
 // snapshotControllerConnsLocked copies controller sockets.
 // Caller must hold mu lock (read or write).
 func snapshotControllerConnsLocked() []*SafeConn {
@@ -398,9 +705,8 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return nil
 		}
 
-		var cmdBody ControlCommand
-		bodyBytes, _ := json.Marshal(data.Body)
-		if err := json.Unmarshal(bodyBytes, &cmdBody); err != nil {
+		cmdBody, err := parseControlCommandBody(data.Body)
+		if err != nil {
 			return err
 		}
 
@@ -438,9 +744,8 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return nil
 		}
 
-		var cmdsBody ControlCommands
-		bodyBytes, _ := json.Marshal(data.Body)
-		if err := json.Unmarshal(bodyBytes, &cmdsBody); err != nil {
+		cmdsBody, err := parseControlCommandsBody(data.Body)
+		if err != nil {
 			return err
 		}
 
@@ -485,9 +790,8 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return nil
 		}
 
-		var httpReq HTTPProxyRequest
-		bodyBytes, _ := json.Marshal(data.Body)
-		if err := json.Unmarshal(bodyBytes, &httpReq); err != nil {
+		httpReq, err := parseHTTPProxyRequestBody(data.Body)
+		if err != nil {
 			log.Printf("[http] Failed to parse request: %v", err)
 			return err
 		}
@@ -574,9 +878,8 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return nil
 		}
 
-		var httpReq HTTPProxyRequestBin
-		bodyBytes, _ := json.Marshal(data.Body)
-		if err := json.Unmarshal(bodyBytes, &httpReq); err != nil {
+		httpReq, err := parseHTTPProxyRequestBinBody(data.Body)
+		if err != nil {
 			log.Printf("[http-bin] Failed to parse request: %v", err)
 			return err
 		}
@@ -636,9 +939,8 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return nil
 		}
 
-		var req LogSubscribeRequest
-		bodyBytes, _ := json.Marshal(data.Body)
-		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		req, err := parseLogSubscribeRequestBody(data.Body)
+		if err != nil {
 			return err
 		}
 
@@ -673,9 +975,8 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return nil
 		}
 
-		var req LogSubscribeRequest
-		bodyBytes, _ := json.Marshal(data.Body)
-		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		req, err := parseLogSubscribeRequestBody(data.Body)
+		if err != nil {
 			return err
 		}
 
