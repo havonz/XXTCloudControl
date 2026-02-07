@@ -42,14 +42,18 @@ type md5CacheEntry struct {
 }
 
 type sharedTempRef struct {
-	path      string
-	remaining int
+	path           string
+	remaining      int
+	pendingCleanup bool
+	generation     uint64
 }
 
 const (
 	md5CacheMaxEntries  = 2048
 	md5CacheTrimEntries = 1536
 )
+
+var sharedTempCleanupGrace = 10 * time.Second
 
 // Transfer token storage
 var (
@@ -95,14 +99,17 @@ func registerSharedTempRef(sharedID, filePath string) {
 	entry := sharedTempRefs.entries[sharedID]
 	if entry == nil {
 		sharedTempRefs.entries[sharedID] = &sharedTempRef{
-			path:      filePath,
-			remaining: 1,
+			path:       filePath,
+			remaining:  1,
+			generation: 1,
 		}
 		sharedTempRefs.Unlock()
 		return
 	}
 	// Keep the original file path for this shared batch; only count tokens.
 	entry.remaining++
+	entry.pendingCleanup = false
+	entry.generation++
 	sharedTempRefs.Unlock()
 }
 
@@ -145,19 +152,40 @@ func releaseSharedTempRef(sharedID string) {
 		return
 	}
 
-	var cleanupPath string
+	var (
+		cleanupPath string
+		generation  uint64
+	)
+
 	sharedTempRefs.Lock()
 	if entry := sharedTempRefs.entries[sharedID]; entry != nil {
 		entry.remaining--
 		if entry.remaining <= 0 {
+			entry.remaining = 0
+			entry.pendingCleanup = true
+			entry.generation++
+			generation = entry.generation
 			cleanupPath = entry.path
-			delete(sharedTempRefs.entries, sharedID)
 		}
 	}
 	sharedTempRefs.Unlock()
 
 	if cleanupPath != "" {
-		go removeTempFileWithRetry(cleanupPath)
+		delay := sharedTempCleanupGrace
+		go func(id string, path string, gen uint64, wait time.Duration) {
+			time.Sleep(wait)
+
+			sharedTempRefs.Lock()
+			entry := sharedTempRefs.entries[id]
+			if entry == nil || entry.generation != gen || entry.remaining > 0 || !entry.pendingCleanup {
+				sharedTempRefs.Unlock()
+				return
+			}
+			delete(sharedTempRefs.entries, id)
+			sharedTempRefs.Unlock()
+
+			removeTempFileWithRetry(path)
+		}(sharedID, cleanupPath, generation, delay)
 	}
 }
 
