@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,9 +24,11 @@ var upgrader = websocket.Upgrader{
 }
 
 const binaryHeaderSize = 24
+const stateRefreshIdleInterval = 300 * time.Second
 
 // Cap concurrent async socket writes to avoid goroutine spikes under fan-out traffic.
 var asyncWriteSlots = make(chan struct{}, 512)
+var lastStateRefreshWithoutControllersUnix int64
 
 func runAsyncWrite(task func()) {
 	select {
@@ -1445,10 +1448,39 @@ func stopStateRefreshTimer() {
 
 // sendStateRequestToAllDevices sends app/state requests to all connected devices
 func sendStateRequestToAllDevices() {
-	deviceTargets := snapshotAllDeviceTargets()
+	var (
+		controllerCount int
+		deviceTargets   []deviceTarget
+	)
+	mu.RLock()
+	controllerCount = len(controllers)
+	deviceTargets = make([]deviceTarget, 0, len(deviceLinks))
+	for udid, deviceConn := range deviceLinks {
+		deviceTargets = append(deviceTargets, deviceTarget{
+			udid: udid,
+			conn: deviceConn,
+		})
+	}
+	mu.RUnlock()
+
 	deviceCount := len(deviceTargets)
 	if deviceCount == 0 {
 		return
+	}
+
+	if controllerCount == 0 {
+		now := time.Now()
+		lastUnix := atomic.LoadInt64(&lastStateRefreshWithoutControllersUnix)
+		if lastUnix > 0 {
+			lastTime := time.Unix(lastUnix, 0)
+			if now.Sub(lastTime) < stateRefreshIdleInterval {
+				return
+			}
+		}
+		atomic.StoreInt64(&lastStateRefreshWithoutControllersUnix, now.Unix())
+	} else {
+		// Reset idle throttle when controllers are online.
+		atomic.StoreInt64(&lastStateRefreshWithoutControllersUnix, 0)
 	}
 
 	stateMsg := Message{
