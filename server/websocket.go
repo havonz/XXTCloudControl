@@ -580,28 +580,35 @@ func resetDeviceLife(conn *SafeConn) {
 
 // checkAndUpdateDeviceLife checks and updates all device life counters
 func checkAndUpdateDeviceLife() {
-	mu.Lock()
-	defer mu.Unlock()
-
-	disconnectDevices := make([]string, 0)
-
-	for udid, life := range deviceLife {
-		if life <= 0 {
-			disconnectDevices = append(disconnectDevices, udid)
-			fmt.Printf("Device %s life exhausted, will disconnect\n", udid)
-		} else {
-			deviceLife[udid] = life - 1
-		}
+	type disconnectTarget struct {
+		udid string
+		conn *SafeConn
 	}
 
-	for _, udid := range disconnectDevices {
-		if deviceConn, exists := deviceLinks[udid]; exists {
-			go func(dc *SafeConn, deviceUDID string) {
-				fmt.Printf("Disconnecting device %s due to life exhaustion\n", deviceUDID)
-				dc.Close()
-				handleDisconnection(dc)
-			}(deviceConn, udid)
+	disconnectTargets := make([]disconnectTarget, 0)
+
+	mu.Lock()
+	for udid, life := range deviceLife {
+		if life <= 0 {
+			fmt.Printf("Device %s life exhausted, will disconnect\n", udid)
+			if deviceConn, exists := deviceLinks[udid]; exists {
+				disconnectTargets = append(disconnectTargets, disconnectTarget{
+					udid: udid,
+					conn: deviceConn,
+				})
+			}
+			continue
 		}
+		deviceLife[udid] = life - 1
+	}
+	mu.Unlock()
+
+	for _, target := range disconnectTargets {
+		go func(dc *SafeConn, deviceUDID string) {
+			fmt.Printf("Disconnecting device %s due to life exhaustion\n", deviceUDID)
+			dc.Close()
+			handleDisconnection(dc)
+		}(target.conn, target.udid)
 	}
 }
 

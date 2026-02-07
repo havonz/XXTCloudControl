@@ -14,31 +14,171 @@ import (
 	"github.com/google/uuid"
 )
 
-// isSelectableScript checks if a file/directory is a selectable script
-func isSelectableScript(basePath string, name string, isDir bool) bool {
+const scriptLargeFileThreshold int64 = 128 * 1024
+
+type scriptFileData struct {
+	Path           string
+	NormalizedPath string
+	SourcePath     string
+	Data           string
+	Size           int64
+	IsMainJSON     bool
+}
+
+type md5Result struct {
+	hash string
+	err  error
+}
+
+func normalizeScriptPath(path string) string {
+	return strings.ReplaceAll(path, "\\", "/")
+}
+
+func isMainJSONPath(path string) bool {
+	normalized := normalizeScriptPath(path)
+	return normalized == "lua/scripts/main.json" || strings.HasSuffix(normalized, "/main.json")
+}
+
+func getSelectableScriptPath(basePath string, name string, isDir bool) (string, bool) {
 	fullPath := filepath.Join(basePath, name)
 
 	if !isDir {
 		ext := strings.ToLower(filepath.Ext(name))
-		return ext == ".lua" || ext == ".xxt"
+		if ext == ".lua" || ext == ".xxt" {
+			return name, true
+		}
+		return "", false
 	}
 
 	// Directory: check if it's a .xpp
 	if strings.ToLower(filepath.Ext(name)) == ".xpp" {
-		return true
+		return name, true
 	}
 
 	// Directory: check if it's a piled script with lua/scripts/main.lua or main.xxt
 	mainLua := filepath.Join(fullPath, "lua", "scripts", "main.lua")
 	if _, err := os.Stat(mainLua); err == nil {
-		return true
+		return "main.lua", true
 	}
 	mainXxt := filepath.Join(fullPath, "lua", "scripts", "main.xxt")
 	if _, err := os.Stat(mainXxt); err == nil {
-		return true
+		return "main.xxt", true
 	}
 
-	return false
+	return "", false
+}
+
+func collectScriptFiles(scriptRootPath string, scriptName string, isDir bool, isPiled bool) ([]scriptFileData, error) {
+	filesToSend := make([]scriptFileData, 0)
+
+	appendFile := func(targetPath string, sourcePath string, size int64, encodedData string) {
+		normalizedPath := normalizeScriptPath(targetPath)
+		filesToSend = append(filesToSend, scriptFileData{
+			Path:           targetPath,
+			NormalizedPath: normalizedPath,
+			SourcePath:     sourcePath,
+			Data:           encodedData,
+			Size:           size,
+			IsMainJSON:     isMainJSONPath(normalizedPath),
+		})
+	}
+
+	if !isDir {
+		content, err := os.ReadFile(scriptRootPath)
+		if err != nil {
+			return nil, err
+		}
+
+		fileSize := int64(len(content))
+		encodedData := ""
+		if fileSize < scriptLargeFileThreshold {
+			encodedData = base64.StdEncoding.EncodeToString(content)
+		}
+
+		appendFile("lua/scripts/"+scriptName, scriptRootPath, fileSize, encodedData)
+		return filesToSend, nil
+	}
+
+	walkErr := filepath.Walk(scriptRootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+
+		relPath, _ := filepath.Rel(scriptRootPath, path)
+		normalizedRelPath := normalizeScriptPath(relPath)
+
+		targetPath := normalizedRelPath
+		if !isPiled {
+			targetPath = "lua/scripts/" + scriptName + "/" + normalizedRelPath
+		}
+
+		fileSize := info.Size()
+		encodedData := ""
+		if fileSize < scriptLargeFileThreshold {
+			content, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			encodedData = base64.StdEncoding.EncodeToString(content)
+		}
+
+		appendFile(targetPath, path, fileSize, encodedData)
+		return nil
+	})
+
+	if walkErr != nil {
+		return nil, walkErr
+	}
+
+	return filesToSend, nil
+}
+
+func calculateLargeFileMD5(filesToSend []scriptFileData) map[string]md5Result {
+	largeFileMD5 := make(map[string]md5Result)
+	for _, f := range filesToSend {
+		if f.Data != "" {
+			continue
+		}
+		if _, exists := largeFileMD5[f.SourcePath]; exists {
+			continue
+		}
+
+		md5Hash, err := calculateFileMD5(f.SourcePath)
+		if err != nil {
+			fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
+			largeFileMD5[f.SourcePath] = md5Result{err: err}
+			continue
+		}
+		largeFileMD5[f.SourcePath] = md5Result{hash: md5Hash}
+	}
+	return largeFileMD5
+}
+
+func countScriptFileKinds(filesToSend []scriptFileData) (smallFilesCount int, largeFilesCount int) {
+	for _, f := range filesToSend {
+		if f.Data == "" {
+			largeFilesCount++
+		} else {
+			smallFilesCount++
+		}
+	}
+	return smallFilesCount, largeFilesCount
+}
+
+func buildFilePutPayload(path string, data string) ([]byte, error) {
+	return json.Marshal(Message{
+		Type: "file/put",
+		Body: gin.H{
+			"path": path,
+			"data": data,
+		},
+	})
+}
+
+// isSelectableScript checks if a file/directory is a selectable script
+func isSelectableScript(basePath string, name string, isDir bool) bool {
+	_, selectable := getSelectableScriptPath(basePath, name, isDir)
+	return selectable
 }
 
 // selectableScriptsHandler handles GET /api/scripts/selectable
@@ -70,25 +210,9 @@ func selectableScriptsHandler(c *gin.Context) {
 			continue
 		}
 
-		if !isSelectableScript(scriptsDir, name, entry.IsDir()) {
+		scriptPath, selectable := getSelectableScriptPath(scriptsDir, name, entry.IsDir())
+		if !selectable {
 			continue
-		}
-
-		scriptPath := name // Default: use the name as-is
-
-		if entry.IsDir() {
-			fullPath := filepath.Join(scriptsDir, name)
-
-			// Check if it's a piled script (has lua/scripts/ structure)
-			mainLua := filepath.Join(fullPath, "lua", "scripts", "main.lua")
-			mainXxt := filepath.Join(fullPath, "lua", "scripts", "main.xxt")
-
-			if _, err := os.Stat(mainLua); err == nil {
-				scriptPath = "main.lua"
-			} else if _, err := os.Stat(mainXxt); err == nil {
-				scriptPath = "main.xxt"
-			}
-			// For .xpp directories, keep the name as-is
 		}
 
 		selectableScripts = append(selectableScripts, ScriptEntry{
@@ -262,122 +386,23 @@ func scriptsSendHandler(c *gin.Context) {
 		}
 	}
 
-	type FileData struct {
-		Path       string
-		SourcePath string
-		Data       string
-		Size       int64
-	}
-	filesToSend := make([]FileData, 0)
-
-	const LargeFileThreshold int64 = 128 * 1024
-
-	if !isDir {
-		content, err := os.ReadFile(scriptPath)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script file"})
-			return
+	filesToSend, err := collectScriptFiles(scriptPath, req.Name, isDir, isPiled)
+	if err != nil {
+		errorMsg := "failed to read script directory"
+		if !isDir {
+			errorMsg = "failed to read script file"
 		}
-		fileSize := int64(len(content))
-		fd := FileData{
-			Path:       "lua/scripts/" + req.Name,
-			SourcePath: scriptPath,
-			Size:       fileSize,
-		}
-		if fileSize < LargeFileThreshold {
-			fd.Data = base64.StdEncoding.EncodeToString(content)
-		}
-		filesToSend = append(filesToSend, fd)
-	} else if isPiled {
-		err := filepath.Walk(scriptPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return err
-			}
-			relPath, _ := filepath.Rel(scriptPath, path)
-			fileSize := info.Size()
-			fd := FileData{
-				Path:       strings.ReplaceAll(relPath, "\\", "/"),
-				SourcePath: path,
-				Size:       fileSize,
-			}
-			if fileSize < LargeFileThreshold {
-				content, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-				fd.Data = base64.StdEncoding.EncodeToString(content)
-			}
-			filesToSend = append(filesToSend, fd)
-			return nil
-		})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script directory"})
-			return
-		}
-	} else {
-		err := filepath.Walk(scriptPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return err
-			}
-			relPath, _ := filepath.Rel(scriptPath, path)
-			fileSize := info.Size()
-			fd := FileData{
-				Path:       "lua/scripts/" + req.Name + "/" + strings.ReplaceAll(relPath, "\\", "/"),
-				SourcePath: path,
-				Size:       fileSize,
-			}
-			if fileSize < LargeFileThreshold {
-				content, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-				fd.Data = base64.StdEncoding.EncodeToString(content)
-			}
-			filesToSend = append(filesToSend, fd)
-			return nil
-		})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script directory"})
-			return
-		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errorMsg})
+		return
 	}
 
-	type md5Result struct {
-		hash string
-		err  error
-	}
-	largeFileMD5 := make(map[string]md5Result)
-	for _, f := range filesToSend {
-		if f.Data != "" {
-			continue
-		}
-		if _, exists := largeFileMD5[f.SourcePath]; exists {
-			continue
-		}
-		md5Hash, err := calculateFileMD5(f.SourcePath)
-		if err != nil {
-			fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
-			largeFileMD5[f.SourcePath] = md5Result{err: err}
-			continue
-		}
-		largeFileMD5[f.SourcePath] = md5Result{hash: md5Hash}
-	}
-
-	smallFilesCount := 0
-	largeFilesCount := 0
-	for _, f := range filesToSend {
-		if f.Data == "" {
-			largeFilesCount++
-		} else {
-			smallFilesCount++
-		}
-	}
+	largeFileMD5 := calculateLargeFileMD5(filesToSend)
+	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 
 	deviceConfigIndex := buildDeviceScriptConfigIndex(req.Name, req.SelectedGroups)
 
 	mainJSONTemplates := make(map[string]map[string]interface{})
 	mainJSONParsed := make(map[string]bool)
-	mergedMainJSONCache := make(map[string]string)
 
 	parseMainJSONTemplate := func(pathKey string, encoded string) map[string]interface{} {
 		if mainJSONParsed[pathKey] {
@@ -426,6 +451,8 @@ func scriptsSendHandler(c *gin.Context) {
 	}
 
 	deviceConns := snapshotDeviceConns(req.Devices)
+	basePutPayloadCache := make(map[string][]byte, len(filesToSend))
+	mergedPutPayloadCache := make(map[string][]byte)
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
 			groupConfig := deviceConfigIndex[udid]
@@ -440,40 +467,44 @@ func scriptsSendHandler(c *gin.Context) {
 
 			for _, f := range filesToSend {
 				if f.Data != "" {
+					// Most file/put payloads are identical across devices, cache encoded JSON bytes.
+					if !f.IsMainJSON || groupConfig == nil {
+						payload, ok := basePutPayloadCache[f.Path]
+						if !ok {
+							encoded, buildErr := buildFilePutPayload(f.Path, f.Data)
+							if buildErr != nil {
+								continue
+							}
+							payload = encoded
+							basePutPayloadCache[f.Path] = payload
+						}
+						writeTextMessageAsync(conn, payload)
+						continue
+					}
+
+					cacheKey := ""
+					if groupConfigKey != "" {
+						cacheKey = f.NormalizedPath + "|" + groupConfigKey
+						if cachedPayload, ok := mergedPutPayloadCache[cacheKey]; ok {
+							writeTextMessageAsync(conn, cachedPayload)
+							continue
+						}
+					}
+
 					finalData := f.Data
-					normalizedPath := strings.ReplaceAll(f.Path, "\\", "/")
-					isMainJson := normalizedPath == "lua/scripts/main.json" ||
-						strings.HasSuffix(normalizedPath, "/main.json")
-
-					if isMainJson && groupConfig != nil {
-						cacheKey := ""
-						cacheHit := false
-						if groupConfigKey != "" {
-							cacheKey = normalizedPath + "|" + groupConfigKey
-							if cached, ok := mergedMainJSONCache[cacheKey]; ok {
-								finalData = cached
-								cacheHit = true
-							}
-						}
-						if !cacheHit {
-							template := parseMainJSONTemplate(normalizedPath, f.Data)
-							if mergedData, ok := buildMergedMainJSONData(template, groupConfig); ok {
-								finalData = mergedData
-								if cacheKey != "" {
-									mergedMainJSONCache[cacheKey] = mergedData
-								}
-							}
-						}
+					template := parseMainJSONTemplate(f.NormalizedPath, f.Data)
+					if mergedData, ok := buildMergedMainJSONData(template, groupConfig); ok {
+						finalData = mergedData
 					}
 
-					putMsg := Message{
-						Type: "file/put",
-						Body: gin.H{
-							"path": f.Path,
-							"data": finalData,
-						},
+					payload, buildErr := buildFilePutPayload(f.Path, finalData)
+					if buildErr != nil {
+						continue
 					}
-					sendMessageAsync(conn, putMsg)
+					if cacheKey != "" {
+						mergedPutPayloadCache[cacheKey] = payload
+					}
+					writeTextMessageAsync(conn, payload)
 				} else {
 					broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
 
@@ -516,7 +547,11 @@ func scriptsSendHandler(c *gin.Context) {
 							"timeout":    300,
 						},
 					}
-					sendMessageAsync(conn, fetchMsg)
+					fetchPayload, marshalErr := json.Marshal(fetchMsg)
+					if marshalErr != nil {
+						continue
+					}
+					writeTextMessageAsync(conn, fetchPayload)
 				}
 			}
 
@@ -581,122 +616,23 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		}
 	}
 
-	type FileData struct {
-		Path       string // Target path on device
-		SourcePath string // Source path on server (for large file transfer)
-		Data       string // Base64 encoded data (empty for large files)
-		Size       int64  // File size in bytes
-	}
-	filesToSend := make([]FileData, 0)
-
-	const LargeFileThreshold int64 = 128 * 1024 // 128KB
-
-	if !isDir {
-		content, err := os.ReadFile(scriptPath)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script file"})
-			return
+	filesToSend, err := collectScriptFiles(scriptPath, req.Name, isDir, isPiled)
+	if err != nil {
+		errorMsg := "failed to read script directory"
+		if !isDir {
+			errorMsg = "failed to read script file"
 		}
-		fileSize := int64(len(content))
-		fd := FileData{
-			Path:       "lua/scripts/" + req.Name,
-			SourcePath: scriptPath,
-			Size:       fileSize,
-		}
-		if fileSize < LargeFileThreshold {
-			fd.Data = base64.StdEncoding.EncodeToString(content)
-		}
-		filesToSend = append(filesToSend, fd)
-	} else if isPiled {
-		err := filepath.Walk(scriptPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return err
-			}
-			relPath, _ := filepath.Rel(scriptPath, path)
-			fileSize := info.Size()
-			fd := FileData{
-				Path:       strings.ReplaceAll(relPath, "\\", "/"),
-				SourcePath: path,
-				Size:       fileSize,
-			}
-			if fileSize < LargeFileThreshold {
-				content, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-				fd.Data = base64.StdEncoding.EncodeToString(content)
-			}
-			filesToSend = append(filesToSend, fd)
-			return nil
-		})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script directory"})
-			return
-		}
-	} else {
-		err := filepath.Walk(scriptPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return err
-			}
-			relPath, _ := filepath.Rel(scriptPath, path)
-			fileSize := info.Size()
-			fd := FileData{
-				Path:       "lua/scripts/" + req.Name + "/" + strings.ReplaceAll(relPath, "\\", "/"),
-				SourcePath: path,
-				Size:       fileSize,
-			}
-			if fileSize < LargeFileThreshold {
-				content, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-				fd.Data = base64.StdEncoding.EncodeToString(content)
-			}
-			filesToSend = append(filesToSend, fd)
-			return nil
-		})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read script directory"})
-			return
-		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errorMsg})
+		return
 	}
 
-	type md5Result struct {
-		hash string
-		err  error
-	}
-	largeFileMD5 := make(map[string]md5Result)
-	for _, f := range filesToSend {
-		if f.Data != "" {
-			continue
-		}
-		if _, exists := largeFileMD5[f.SourcePath]; exists {
-			continue
-		}
-		md5Hash, err := calculateFileMD5(f.SourcePath)
-		if err != nil {
-			fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
-			largeFileMD5[f.SourcePath] = md5Result{err: err}
-			continue
-		}
-		largeFileMD5[f.SourcePath] = md5Result{hash: md5Hash}
-	}
-
-	smallFilesCount := 0
-	largeFilesCount := 0
-	for _, f := range filesToSend {
-		if f.Data == "" {
-			largeFilesCount++
-		} else {
-			smallFilesCount++
-		}
-	}
+	largeFileMD5 := calculateLargeFileMD5(filesToSend)
+	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 
 	deviceConfigIndex := buildDeviceScriptConfigIndex(req.Name, req.SelectedGroups)
 
 	mainJSONTemplates := make(map[string]map[string]interface{})
 	mainJSONParsed := make(map[string]bool)
-	mergedMainJSONCache := make(map[string]string)
 
 	parseMainJSONTemplate := func(pathKey string, encoded string) map[string]interface{} {
 		if mainJSONParsed[pathKey] {
@@ -753,7 +689,16 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		}
 	}
 
+	runPayload, runPayloadErr := json.Marshal(Message{
+		Type: "script/run",
+		Body: gin.H{
+			"name": runName,
+		},
+	})
+
 	deviceConns := snapshotDeviceConns(req.Devices)
+	basePutPayloadCache := make(map[string][]byte, len(filesToSend))
+	mergedPutPayloadCache := make(map[string][]byte)
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
 			groupConfig := deviceConfigIndex[udid]
@@ -771,41 +716,43 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			for _, f := range filesToSend {
 				// Handle main.json config merging for small files
 				if f.Data != "" {
+					if !f.IsMainJSON || groupConfig == nil {
+						payload, ok := basePutPayloadCache[f.Path]
+						if !ok {
+							encoded, buildErr := buildFilePutPayload(f.Path, f.Data)
+							if buildErr != nil {
+								continue
+							}
+							payload = encoded
+							basePutPayloadCache[f.Path] = payload
+						}
+						writeTextMessageAsync(conn, payload)
+						continue
+					}
+
+					cacheKey := ""
+					if groupConfigKey != "" {
+						cacheKey = f.NormalizedPath + "|" + groupConfigKey
+						if cachedPayload, ok := mergedPutPayloadCache[cacheKey]; ok {
+							writeTextMessageAsync(conn, cachedPayload)
+							continue
+						}
+					}
+
 					finalData := f.Data
-					// Check if this is main.json and we have group-specific config
-					normalizedPath := strings.ReplaceAll(f.Path, "\\", "/")
-					isMainJson := normalizedPath == "lua/scripts/main.json" ||
-						strings.HasSuffix(normalizedPath, "/main.json")
-
-					if isMainJson && groupConfig != nil {
-						cacheKey := ""
-						cacheHit := false
-						if groupConfigKey != "" {
-							cacheKey = normalizedPath + "|" + groupConfigKey
-							if cached, ok := mergedMainJSONCache[cacheKey]; ok {
-								finalData = cached
-								cacheHit = true
-							}
-						}
-						if !cacheHit {
-							template := parseMainJSONTemplate(normalizedPath, f.Data)
-							if mergedData, ok := buildMergedMainJSONData(template, groupConfig); ok {
-								finalData = mergedData
-								if cacheKey != "" {
-									mergedMainJSONCache[cacheKey] = mergedData
-								}
-							}
-						}
+					template := parseMainJSONTemplate(f.NormalizedPath, f.Data)
+					if mergedData, ok := buildMergedMainJSONData(template, groupConfig); ok {
+						finalData = mergedData
 					}
 
-					putMsg := Message{
-						Type: "file/put",
-						Body: gin.H{
-							"path": f.Path,
-							"data": finalData,
-						},
+					payload, buildErr := buildFilePutPayload(f.Path, finalData)
+					if buildErr != nil {
+						continue
 					}
-					sendMessageAsync(conn, putMsg)
+					if cacheKey != "" {
+						mergedPutPayloadCache[cacheKey] = payload
+					}
+					writeTextMessageAsync(conn, payload)
 				} else {
 					// Large file: use HTTP transfer
 					broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
@@ -851,25 +798,32 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 							"timeout":    300, // 5 minutes
 						},
 					}
-					sendMessageAsync(conn, fetchMsg)
+					fetchPayload, marshalErr := json.Marshal(fetchMsg)
+					if marshalErr != nil {
+						continue
+					}
+					writeTextMessageAsync(conn, fetchPayload)
 				}
 			}
 
 			// 广播状态: 正在启动脚本
 			broadcastDeviceMessage(udid, "启动脚本...")
 
-			runMsg := Message{
-				Type: "script/run",
-				Body: gin.H{
-					"name": runName,
-				},
-			}
-			go func(c *SafeConn, m Message, deviceId string) {
+			go func(c *SafeConn, deviceId string) {
 				time.Sleep(ScriptStartDelay)
-				sendMessage(c, m)
+				if runPayloadErr == nil {
+					_ = writeTextMessage(c, runPayload)
+				} else {
+					_ = sendMessage(c, Message{
+						Type: "script/run",
+						Body: gin.H{
+							"name": runName,
+						},
+					})
+				}
 				// 脚本启动后更新状态并保持显示
 				broadcastDeviceMessage(deviceId, "脚本已启动")
-			}(conn, runMsg, udid)
+			}(conn, udid)
 		}
 	}
 
