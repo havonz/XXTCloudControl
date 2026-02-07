@@ -20,6 +20,7 @@ import (
 const (
 	authSkewSeconds   int64 = 60
 	nonceTTLSeconds   int64 = 120
+	nonceCleanupEvery       = 30 * time.Second
 	authQueryTSKey          = "ts"
 	authQueryNonceKey       = "nonce"
 	authQuerySignKey        = "sign"
@@ -46,24 +47,44 @@ func isTimestampValid(ts int64) bool {
 	return ts >= currentTime-authSkewSeconds && ts <= currentTime+authSkewSeconds
 }
 
+func cleanupExpiredNonces(now int64) int {
+	cutoff := now - nonceTTLSeconds
+	removed := 0
+
+	usedNonces.Lock()
+	for k, ts := range usedNonces.store {
+		if ts < cutoff {
+			delete(usedNonces.store, k)
+			removed++
+		}
+	}
+	usedNonces.Unlock()
+
+	return removed
+}
+
+func startNonceCleanupTicker() {
+	ticker := time.NewTicker(nonceCleanupEvery)
+	go func() {
+		defer ticker.Stop()
+		for range ticker.C {
+			cleanupExpiredNonces(time.Now().Unix())
+		}
+	}()
+}
+
 func checkAndStoreNonce(namespace, nonce string) bool {
 	if nonce == "" {
 		return false
 	}
 	currentTime := time.Now().Unix()
 	cutoff := currentTime - nonceTTLSeconds
+	key := namespace + ":" + nonce
 
 	usedNonces.Lock()
 	defer usedNonces.Unlock()
 
-	for k, ts := range usedNonces.store {
-		if ts < cutoff {
-			delete(usedNonces.store, k)
-		}
-	}
-
-	key := namespace + ":" + nonce
-	if _, exists := usedNonces.store[key]; exists {
+	if ts, exists := usedNonces.store[key]; exists && ts >= cutoff {
 		debugAuthf("[auth] nonce replay rejected: ns=%s nonce=%s", namespace, nonce)
 		return false
 	}
@@ -190,4 +211,8 @@ func verifyMessageSignature(data Message) bool {
 		return false
 	}
 	return checkAndStoreNonce("ws", data.Nonce)
+}
+
+func init() {
+	startNonceCleanupTicker()
 }
