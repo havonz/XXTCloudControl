@@ -558,13 +558,23 @@ func isDataValid(data Message) bool {
 	return verifyMessageSignature(data)
 }
 
+func getDeviceLifeLimit() int {
+	if serverConfig.PingTimeout > 0 {
+		return serverConfig.PingTimeout
+	}
+	if DefaultConfig.PingTimeout > 0 {
+		return DefaultConfig.PingTimeout
+	}
+	return DefaultDeviceLife
+}
+
 // resetDeviceLife resets a device's life counter to default
 func resetDeviceLife(conn *SafeConn) {
 	mu.Lock()
 	defer mu.Unlock()
 
 	if udid, exists := deviceLinksMap[conn]; exists {
-		deviceLife[udid] = DefaultDeviceLife
+		deviceLife[udid] = getDeviceLifeLimit()
 	}
 }
 
@@ -607,6 +617,13 @@ func handleWebSocketConnection(c *gin.Context) {
 
 	safeConn := &SafeConn{conn: conn}
 	defer safeConn.Close()
+
+	// Count PONG frames as liveness signals to avoid false disconnects when
+	// device has no frequent text/binary traffic.
+	safeConn.conn.SetPongHandler(func(string) error {
+		resetDeviceLife(safeConn)
+		return nil
+	})
 
 	fmt.Printf("New connection from: %s\n", safeConn.RemoteAddr())
 
@@ -1086,7 +1103,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 		deviceLinks[udid] = conn
 		deviceLinksMap[conn] = udid
 		deviceTable[udid] = data.Body
-		deviceLife[udid] = DefaultDeviceLife
+		deviceLife[udid] = getDeviceLifeLimit()
 		if subs, ok := logSubscriptions[udid]; ok && len(subs) > 0 {
 			needsLogSubscribe = true
 		}
