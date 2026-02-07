@@ -539,7 +539,7 @@ export class WebSocketService {
       return;
     }
 
-    if (!fileData) {
+    if (fileData === undefined || fileData === null) {
       console.error('文件数据为空，无法上传文件');
       return;
     }

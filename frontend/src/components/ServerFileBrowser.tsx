@@ -120,6 +120,26 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   
   const toast = useToast();
 
+  const runWithConcurrency = async <T,>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<void>
+  ) => {
+    if (items.length === 0) return;
+    const concurrency = Math.max(1, Math.min(limit, items.length));
+    let cursor = 0;
+
+    const tasks = Array.from({ length: concurrency }, async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        await worker(items[index]);
+      }
+    });
+
+    await Promise.all(tasks);
+  };
+
   // 目标路径选项
   const targetPathOptions = [
     { value: '/lua/scripts/', label: '脚本目录 - /lua/scripts/' },
@@ -404,6 +424,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         console.error('Delete failed:', name, err);
       }
     }
+
     setSelectedItems(new Set<string>());
     loadFiles();
   };
@@ -474,10 +495,12 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       }
       
       // 发送所有文件到设备
+      // 语义保持：按 filesToSend 顺序逐个文件发送；
+      // 每个文件内部对多设备并发，提高吞吐但不改变多文件先后关系。
       for (const fileInfo of filesToSend) {
-        for (const device of devices) {
+        await runWithConcurrency(devices, 6, async (device) => {
           const targetPath = targetDevicePath() + fileInfo.targetRelPath;
-          
+
           try {
             await authFetch(`${props.serverBaseUrl}/api/transfer/push-to-device`, {
               method: 'POST',
@@ -494,7 +517,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
           } catch (err) {
             console.error(`Failed to push ${fileInfo.path} to ${device.udid}:`, err);
           }
-        }
+        });
       }
       
       toast.showSuccess(`已发送 ${sentCount} 个文件请求`);

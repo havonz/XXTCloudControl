@@ -79,6 +79,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const mainBackdropClose = createBackdropClose(() => props.onClose());
   const editorBackdropClose = createBackdropClose(() => setShowEditorModal(false));
   let dragCounter = 0;
+  let listRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   // 剪贴板状态
   const [clipboard, setClipboard] = createSignal<{
@@ -151,6 +152,16 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     props.onListFiles(props.deviceUdid, path);
   };
 
+  const scheduleListRefresh = (delayMs: number) => {
+    if (listRefreshTimer) {
+      clearTimeout(listRefreshTimer);
+    }
+    listRefreshTimer = setTimeout(() => {
+      listRefreshTimer = null;
+      props.onListFiles(props.deviceUdid, currentPath());
+    }, delayMs);
+  };
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       if (contextMenuFile()) {
@@ -195,6 +206,10 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
 
   onCleanup(() => {
     window.removeEventListener('keydown', handleKeyDown);
+    if (listRefreshTimer) {
+      clearTimeout(listRefreshTimer);
+      listRefreshTimer = null;
+    }
   });
 
   const handleFileClick = (file: FileItem, e?: MouseEvent) => {
@@ -240,9 +255,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       : `${currentPath()}/${file.name}`;
     props.onDeleteFile(props.deviceUdid, fullPath);
     // 刷新文件列表
-    setTimeout(() => {
-      props.onListFiles(props.deviceUdid, currentPath());
-    }, 500);
+    scheduleListRefresh(500);
   };
 
   const handleDownloadFile = async (file: FileItem) => {
@@ -301,9 +314,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     props.onMoveFile(props.deviceUdid, fromPath, toPath);
 
     // 刷新文件列表
-    setTimeout(() => {
-      props.onListFiles(props.deviceUdid, currentPath());
-    }, 500);
+    scheduleListRefresh(500);
   };
 
   // 编辑文件
@@ -335,11 +346,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     const file = new File([blob], editorFileName(), { type: 'text/plain' });
     
     props.onUploadFile(props.deviceUdid, path, file);
-    
+
+    scheduleListRefresh(800);
     setTimeout(() => {
       setEditorSaving(false);
       setShowEditorModal(false);
-      props.onListFiles(props.deviceUdid, currentPath());
     }, 800);
   };
 
@@ -352,11 +363,9 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       : `${currentPath()}/${folderName.trim()}`;
     
     props.onCreateDirectory(props.deviceUdid, folderPath);
-    
+
     // 刷新当前目录
-    setTimeout(() => {
-      props.onListFiles(props.deviceUdid, currentPath());
-    }, 500);
+    scheduleListRefresh(500);
   };
 
   const handleCreateFile = async () => {
@@ -379,11 +388,9 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     // 创建空文件（模拟上传一个空 Blob）
     const emptyFile = new File([], name, { type: 'text/plain' });
     props.onUploadFile(props.deviceUdid, filePath, emptyFile);
-    
+
     // 刷新当前目录
-    setTimeout(() => {
-      props.onListFiles(props.deviceUdid, currentPath());
-    }, 1000);
+    scheduleListRefresh(1000);
   };
 
 
@@ -433,11 +440,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
           props.onUploadFile(props.deviceUdid, fullPath, file);
         }
       }
-      
+
       // 刷新当前目录
+      scheduleListRefresh(2000);
       setTimeout(() => {
         setIsUploading(false);
-        props.onListFiles(props.deviceUdid, currentPath());
       }, 2000);
     }
   };
@@ -515,9 +522,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     }
     
     // 刷新文件列表
-    setTimeout(() => {
-      props.onListFiles(props.deviceUdid, currentPath());
-    }, 500 * cb.items.length);
+    scheduleListRefresh(500 * cb.items.length);
   };
 
   // 检查是否可以粘贴
@@ -882,9 +887,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                       }
                       setSelectedItems(new Set<string>());
                       // 刷新文件列表
-                      setTimeout(() => {
-                        props.onListFiles(props.deviceUdid, currentPath());
-                      }, 500);
+                      scheduleListRefresh(500);
                     }
                   }}
                 >

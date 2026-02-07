@@ -194,9 +194,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   };
   
   // Device control operation messages (temporary messages shown in "消息" column)
-  const [deviceControlMessages, setDeviceControlMessages] = createSignal<Record<string, string>>({});
+  const [deviceControlMessages, setDeviceControlMessages] = createSignal<Record<string, string>>({}, { equals: false });
   const setDeviceMessage = (udid: string, message: string) => {
-    setDeviceControlMessages(prev => ({ ...prev, [udid]: message }));
+    setDeviceControlMessages((prev) => {
+      if (prev[udid] === message) {
+        return prev;
+      }
+      prev[udid] = message;
+      return prev;
+    });
   };
   
   // Device context menu state

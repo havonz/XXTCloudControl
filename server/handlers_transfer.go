@@ -46,6 +46,11 @@ type sharedTempRef struct {
 	remaining int
 }
 
+const (
+	md5CacheMaxEntries  = 2048
+	md5CacheTrimEntries = 1536
+)
+
 // Transfer token storage
 var (
 	transferTokens   = make(map[string]*TransferToken)
@@ -118,6 +123,21 @@ func removeTempFileWithRetry(filePath string) {
 		}
 	}
 	log.Printf("⚠️ Failed to clean temp file: %s", filePath)
+}
+
+func trimMD5CacheLocked() {
+	if len(md5Cache.entries) <= md5CacheMaxEntries {
+		return
+	}
+
+	toRemove := len(md5Cache.entries) - md5CacheTrimEntries
+	for key := range md5Cache.entries {
+		delete(md5Cache.entries, key)
+		toRemove--
+		if toRemove <= 0 {
+			break
+		}
+	}
 }
 
 func releaseSharedTempRef(sharedID string) {
@@ -556,9 +576,7 @@ func transferUploadHandler(c *gin.Context) {
 	md5Hash := hex.EncodeToString(hashWriter.Sum(nil))
 	if info, statErr := file.Stat(); statErr == nil {
 		md5Cache.Lock()
-		if len(md5Cache.entries) > 2048 {
-			md5Cache.entries = make(map[string]md5CacheEntry, 512)
-		}
+		trimMD5CacheLocked()
 		md5Cache.entries[tokenInfo.FilePath] = md5CacheEntry{
 			size:    info.Size(),
 			modTime: info.ModTime().UnixNano(),
@@ -604,9 +622,7 @@ func calculateFileMD5Cached(filePath string, info os.FileInfo) (string, error) {
 	}
 
 	md5Cache.Lock()
-	if len(md5Cache.entries) > 2048 {
-		md5Cache.entries = make(map[string]md5CacheEntry, 512)
-	}
+	trimMD5CacheLocked()
 	md5Cache.entries[filePath] = md5CacheEntry{
 		size:    size,
 		modTime: modTime,
@@ -809,9 +825,9 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		base64Data := base64.StdEncoding.EncodeToString(content)
 
 		// Send file/put command via WebSocket
-		mu.Lock()
+		mu.RLock()
 		conn, exists := deviceLinks[req.DeviceSN]
-		mu.Unlock()
+		mu.RUnlock()
 
 		if !exists {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "device not connected"})
