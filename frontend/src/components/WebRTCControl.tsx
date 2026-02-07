@@ -5,6 +5,7 @@ import styles from './WebRTCControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
 import type { WebSocketService } from '../services/WebSocketService';
+import { debugLog, debugWarn } from '../utils/debugLogger';
 
 export interface WebRTCControlProps {
   isOpen: boolean;
@@ -209,7 +210,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     // 调试日志 - 用向下取整到偶数后的值计算像素数
     const displayW = floorToEven(nativeW * clampedScale);
     const displayH = floorToEven(nativeH * clampedScale);
-    console.log('[Resolution] 计算详情:', {
+    debugLog('webrtc', '[Resolution] 计算详情:', {
       '设备原始尺寸': `${nativeW}x${nativeH} (${nativePixels} px)`,
       '容器尺寸(CSS)': `${Math.round(size.width)}x${Math.round(size.height)}`,
       'DPI': dpr,
@@ -305,7 +306,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
             setConnectionState('disconnected');
           },
           onTrack: (stream) => {
-            console.log('[WebRTC] Setting remote stream signal');
+            debugLog('webrtc', '[WebRTC] Setting remote stream signal');
             setRemoteStream(stream);
           },
           onClipboard: (contentType, content) => {
@@ -460,7 +461,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     if (deviceUdid === selectedControlDevice()) return;
     
-    console.log(`切换WebRTC控制设备: ${selectedControlDevice()} -> ${deviceUdid}`);
+    debugLog('webrtc', `切换WebRTC控制设备: ${selectedControlDevice()} -> ${deviceUdid}`);
     setSelectedControlDevice(deviceUdid);
   };
 
@@ -1145,7 +1146,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
           return;
         }
       } catch (error) {
-        console.warn('Clipboard API 失败，尝试 fallback:', error);
+        debugWarn('webrtc', 'Clipboard API 失败，尝试 fallback:', error);
       }
     }
     
@@ -1257,7 +1258,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   createEffect(() => {
     const stream = remoteStream();
     if (stream && videoRef) {
-      console.log('[WebRTC] Applying stream to video element:', stream.id);
+      debugLog('webrtc', '[WebRTC] Applying stream to video element:', stream.id);
       videoRef.srcObject = stream;
       videoRef.play().catch(e => console.error('[WebRTC] Video play error:', e));
     }
@@ -1270,7 +1271,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       // 只有当变化超过一定阈值时才调整，避免过度频繁请求
       // 或者当 user limit 改变时调整
       if (Math.abs(target - lastAppliedResolution) > 0.05) {
-        console.log(`[WebRTC] Dynamically updating resolution: ${lastAppliedResolution} -> ${target}`);
+        debugLog('webrtc', `[WebRTC] Dynamically updating resolution: ${lastAppliedResolution} -> ${target}`);
         webrtcService.setResolution(target).catch(e => console.error('Failed to update resolution:', e));
         lastAppliedResolution = target;
       }
@@ -1283,7 +1284,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       const fps = frameRate();
       // 只有当帧率确实改变时才发送请求
       if (fps !== lastAppliedFrameRate) {
-        console.log(`[WebRTC] Dynamically updating frame rate: ${lastAppliedFrameRate} -> ${fps}`);
+        debugLog('webrtc', `[WebRTC] Dynamically updating frame rate: ${lastAppliedFrameRate} -> ${fps}`);
         webrtcService.setFrameRate(fps).catch(e => console.error('Failed to update frame rate:', e));
         lastAppliedFrameRate = fps;
       }
@@ -1571,11 +1572,11 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   playsinline
                   muted
                   onLoadedMetadata={() => {
-                    console.log('[WebRTC] Video metadata loaded:', videoRef?.videoWidth, 'x', videoRef?.videoHeight);
+                    debugLog('webrtc', '[WebRTC] Video metadata loaded:', videoRef?.videoWidth, 'x', videoRef?.videoHeight);
                     videoRef?.play().catch(e => console.error('[WebRTC] Meta play error:', e));
                   }}
-                  onPlay={() => console.log('[WebRTC] Video started playing')}
-                  onResize={() => console.log('[WebRTC] Video resized:', videoRef?.videoWidth, 'x', videoRef?.videoHeight)}
+                  onPlay={() => debugLog('webrtc', '[WebRTC] Video started playing')}
+                  onResize={() => debugLog('webrtc', '[WebRTC] Video resized:', videoRef?.videoWidth, 'x', videoRef?.videoHeight)}
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}

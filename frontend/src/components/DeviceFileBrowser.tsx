@@ -31,6 +31,7 @@ import styles from './DeviceFileBrowser.module.css';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
 import SendToCloudModal from './SendToCloudModal';
 import ContextMenu, { ContextMenuButton, ContextMenuDivider } from './ContextMenu';
+import { debugLog } from '../utils/debugLogger';
 
 export interface FileItem {
   name: string;
@@ -252,7 +253,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     // Use large file transfer for files > 128KB
     const fileSize = file.size || 0;
     if (fileSize > LARGE_FILE_THRESHOLD && props.onDownloadLargeFile) {
-      console.log(`📥 Large file detected (${fileSize} bytes), using HTTP transfer`);
+      debugLog('transfer', `📥 Large file detected (${fileSize} bytes), using HTTP transfer`);
       await props.onDownloadLargeFile(props.deviceUdid, fullPath, file.name);
     } else {
       props.onDownloadFile(props.deviceUdid, fullPath);
@@ -426,7 +427,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
         
         // Use large file transfer for files > 128KB
         if (file.size > LARGE_FILE_THRESHOLD && props.onUploadLargeFile) {
-          console.log(`📤 Large file detected (${file.size} bytes), using HTTP transfer`);
+          debugLog('transfer', `📤 Large file detected (${file.size} bytes), using HTTP transfer`);
           await props.onUploadLargeFile(props.deviceUdid, fullPath, file);
         } else {
           props.onUploadFile(props.deviceUdid, fullPath, file);

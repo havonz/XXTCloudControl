@@ -1,4 +1,5 @@
 import { AuthService } from './AuthService';
+import { debugLog } from '../utils/debugLogger';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -940,14 +941,14 @@ export class WebSocketService {
 
     // 处理设备列表响应
     if (message.type === 'control/devices' && message.body && typeof message.body === 'object') {
-      console.log('收到设备列表响应');
+      debugLog('ws', '收到设备列表响应');
       
       // 标记已收到设备列表响应
       this.hasReceivedDeviceList = true;
       
       // 如果正在认证中，认为认证成功
       if (this.isAuthenticating) {
-        console.log('认证成功，收到设备列表响应');
+        debugLog('ws', '认证成功，收到设备列表响应');
         this.isAuthenticating = false;
         this.isInitialLogin = false; // 标记为非首次登录
         this.notifyAuthResult(true);
@@ -974,7 +975,7 @@ export class WebSocketService {
 
     // 处理文件操作响应
     if (message.type === 'file/list' || message.type === 'file/put' || message.type === 'file/delete') {
-      console.log('文件操作响应:', message);
+      debugLog('ws', '文件操作响应:', message);
       
       // 处理 file/list 的异步回调
       if (message.type === 'file/list' && message.udid) {
@@ -1014,7 +1015,7 @@ export class WebSocketService {
   private clearStoredPasswordAndReturnToLogin(): void {
     // 清除存储的密码hash
     localStorage.removeItem('xxt_password_hash');
-    console.log('已清除存储的密码hash');
+    debugLog('ws', '已清除存储的密码hash');
     
     // 重置认证状态
     this.isInitialLogin = true;
@@ -1063,7 +1064,7 @@ export class WebSocketService {
         this.devices[existingIndex].tempOldSelect = deviceData.script.select;
       }
       
-      console.log(`设备 ${udid} 状态已更新`);
+      debugLog('ws', `设备 ${udid} 状态已更新`);
     } else {
       // 新设备，添加到列表
       const newDevice = { udid, ...deviceData };
@@ -1085,7 +1086,7 @@ export class WebSocketService {
       
       this.devices.push(newDevice);
       this.deviceIndexByUdid.set(udid, this.devices.length - 1);
-      console.log(`新设备 ${udid} 已添加`);
+      debugLog('ws', `新设备 ${udid} 已添加`);
     }
     
     // 通知界面更新
@@ -1103,12 +1104,12 @@ export class WebSocketService {
       for (let i = existingIndex; i < this.devices.length; i++) {
         this.deviceIndexByUdid.set(this.devices[i].udid, i);
       }
-      console.log(`设备 ${udid} 已从列表中移除`);
+      debugLog('ws', `设备 ${udid} 已从列表中移除`);
       
       // 通知界面更新
       this.scheduleDeviceUpdate();
     } else {
-      console.log(`设备 ${udid} 不在列表中，无需移除`);
+      debugLog('ws', `设备 ${udid} 不在列表中，无需移除`);
     }
   }
 
@@ -1131,12 +1132,12 @@ export class WebSocketService {
       device.system.running = isRunning;
       device.system.paused = false; // 脚本开始运行时不是暂停状态
       
-      console.log(`设备 ${udid} 脚本状态已更新: ${isRunning ? '运行中' : '已停止'}`);
+      debugLog('ws', `设备 ${udid} 脚本状态已更新: ${isRunning ? '运行中' : '已停止'}`);
       
       // 通知界面更新
       this.scheduleDeviceUpdate();
     } else {
-      console.log(`设备 ${udid} 不在列表中，无法更新脚本状态`);
+      debugLog('ws', `设备 ${udid} 不在列表中，无法更新脚本状态`);
     }
   }
 
@@ -1155,7 +1156,7 @@ export class WebSocketService {
       // 同步 tempOldSelect 以防心跳包触发多余消息逻辑
       (device as any).tempOldSelect = scriptName;
       
-      console.log(`设备 ${udid} 选中脚本已通过消息回复更新: ${scriptName}`);
+      debugLog('ws', `设备 ${udid} 选中脚本已通过消息回复更新: ${scriptName}`);
       
       // 通知界面更新
       this.scheduleDeviceUpdate();
@@ -1235,7 +1236,7 @@ export class WebSocketService {
   private scheduleReconnect(): void {
     if (!this.shouldReconnect) return;
     this.reconnectAttempts++;
-    console.log(`尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+    debugLog('ws', `尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -1467,7 +1468,7 @@ export class WebSocketService {
       );
       
       this.send(message);
-      console.log(`已发送按键命令: ${keyType} ${keyCode} 设备: ${deviceUdids.join(', ')}`);
+      debugLog('ws', `已发送按键命令: ${keyType} ${keyCode} 设备: ${deviceUdids.join(', ')}`);
     } catch (error) {
       console.error('发送按键命令失败:', error);
     }
@@ -1545,7 +1546,7 @@ export class WebSocketService {
       );
       
       this.send(message);
-      console.log(`已发送设置词典值请求: ${key}=${value} 到设备:`, deviceUdids);
+      debugLog('ws', `已发送设置词典值请求: ${key}=${value} 到设备:`, deviceUdids);
     } catch (error) {
       console.error('设置词典值失败:', error);
     }
@@ -1585,7 +1586,7 @@ export class WebSocketService {
       );
       
       this.send(message);
-      console.log(`已发送推送到队列请求: ${key}=${value} 到设备:`, deviceUdids);
+      debugLog('ws', `已发送推送到队列请求: ${key}=${value} 到设备:`, deviceUdids);
     } catch (error) {
       console.error('推送到队列失败:', error);
     }
@@ -1617,7 +1618,7 @@ export class WebSocketService {
       );
       
       this.send(message);
-      console.log(`已发送选择脚本请求: ${scriptName} 到设备:`, deviceUdids);
+      debugLog('ws', `已发送选择脚本请求: ${scriptName} 到设备:`, deviceUdids);
     } catch (error) {
       console.error('选择脚本失败:', error);
     }

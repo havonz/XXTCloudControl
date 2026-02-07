@@ -16,6 +16,7 @@ import { IconMoon, IconSun, IconDesktop } from './icons';
 import styles from './App.module.css';
 import { ScannedFile } from './utils/fileUpload';
 import { setApiBaseUrl } from './services/httpAuth';
+import { debugLog } from './utils/debugLogger';
 
 const VERSION_CACHE_KEY = 'xxt_server_version';
 
@@ -276,7 +277,7 @@ const App: Component = () => {
           }
         } else if (message.type === 'transfer/progress') {
           const { percent, currentBytes, totalBytes, targetPath } = message.body;
-          console.log(`⏳ Transfer progress (${targetPath}): ${percent.toFixed(1)}% (${currentBytes}/${totalBytes})`);
+          debugLog('transfer', `⏳ Transfer progress (${targetPath}): ${percent.toFixed(1)}% (${currentBytes}/${totalBytes})`);
           // Note: Device message update is now handled in WebSocketService.ts
         } else if (message.type === 'device/message') {
           // Note: Device message update is now handled in WebSocketService.ts
@@ -286,7 +287,7 @@ const App: Component = () => {
           if (message.error) {
             console.error('❌ 大文件传输失败:', message.error);
           } else {
-            console.log('✅ 大文件传输成功:', message.body);
+            debugLog('transfer', '✅ 大文件传输成功:', message.body);
             
             // 如果是从设备上传到服务器完成（设备主动发送 file/upload/complete）
             // 服务器此时已经收到了文件，我们需要触发浏览器下载
@@ -294,7 +295,7 @@ const App: Component = () => {
               const downloadPath = `/api/server-files/download/files/${message.body.savePath}`;
               const fileName = message.body.sourcePath.split('/').pop() || 'downloaded_file';
               const tempFilePath = message.body.savePath;
-              console.log(`💾 Triggering authenticated browser download: ${downloadPath}`);
+              debugLog('transfer', `💾 Triggering authenticated browser download: ${downloadPath}`);
               
               // Use authenticated fetch to download the file (wrapped in async IIFE)
               (async () => {
@@ -313,11 +314,11 @@ const App: Component = () => {
                     
                     // Clean up blob URL
                     URL.revokeObjectURL(blobUrl);
-                    console.log(`✅ File downloaded: ${fileName}`);
+                    debugLog('transfer', `✅ File downloaded: ${fileName}`);
                     
                     // Clean up temp file on server
                     await fileTransferService.deleteTempFile('files', tempFilePath);
-                    console.log(`🧹 Cleaned up temp file: ${tempFilePath}`);
+                    debugLog('transfer', `🧹 Cleaned up temp file: ${tempFilePath}`);
                   } else {
                     console.error(`❌ Download failed: ${response.status} ${response.statusText}`);
                   }
@@ -608,7 +609,7 @@ const App: Component = () => {
 
   // Large file upload handler (for files > 128KB)
   const handleUploadLargeFile = async (deviceUdid: string, path: string, file: File) => {
-    console.log(`📤 Large file upload: ${file.name} (${file.size} bytes) to device ${deviceUdid}`);
+    debugLog('transfer', `📤 Large file upload: ${file.name} (${file.size} bytes) to device ${deviceUdid}`);
     
     const result = await fileTransferService.uploadFileToDevice(
       deviceUdid,
@@ -617,7 +618,7 @@ const App: Component = () => {
     );
     
     if (result.success) {
-      console.log(`✅ Large file upload initiated: token=${result.token}`);
+      debugLog('transfer', `✅ Large file upload initiated: token=${result.token}`);
     } else {
       console.error(`❌ Large file upload failed: ${result.error}`);
     }
@@ -631,7 +632,7 @@ const App: Component = () => {
 
   // Large file download handler (for files > 128KB)
   const handleDownloadLargeFile = async (deviceUdid: string, path: string, fileName: string) => {
-    console.log(`📥 Large file download: ${path} from device ${deviceUdid}`);
+    debugLog('transfer', `📥 Large file download: ${path} from device ${deviceUdid}`);
     
     const result = await fileTransferService.downloadFileFromDevice(
       deviceUdid,
@@ -640,7 +641,7 @@ const App: Component = () => {
     );
     
     if (result.success) {
-      console.log(`✅ Large file download initiated: token=${result.token}, savePath=${result.savePath}`);
+      debugLog('transfer', `✅ Large file download initiated: token=${result.token}, savePath=${result.savePath}`);
       // TODO: Listen for file/upload/complete WebSocket message, then download from server
     } else {
       console.error(`❌ Large file download failed: ${result.error}`);
@@ -654,7 +655,7 @@ const App: Component = () => {
     category: 'scripts' | 'files' | 'reports', 
     targetPath: string
   ): Promise<{success: boolean; error?: string}> => {
-    console.log(`📥 Pull file from device: ${sourcePath} -> ${category}/${targetPath}`);
+    debugLog('transfer', `📥 Pull file from device: ${sourcePath} -> ${category}/${targetPath}`);
     
     try {
       const result = await fileTransferService.pullFromDevice(
@@ -665,7 +666,7 @@ const App: Component = () => {
       );
       
       if (result.success) {
-        console.log(`✅ Pull file initiated: token=${result.token}`);
+        debugLog('transfer', `✅ Pull file initiated: token=${result.token}`);
         return { success: true };
       } else {
         console.error(`❌ Pull file failed: ${result.error}`);

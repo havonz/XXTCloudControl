@@ -5,6 +5,7 @@
 
 import type { WebSocketService } from './WebSocketService';
 import { AuthService } from './AuthService';
+import { debugLog, debugWarn } from '../utils/debugLogger';
 
 export interface WebRTCStartOptions {
   resolution?: number; // 0.25 - 1.0, default 0.6
@@ -227,7 +228,7 @@ export class WebRTCService {
         this.peerConnection.ontrack = (event) => {
           const track = event.track;
           const streams = event.streams;
-          console.log('[WebRTC] Received remote track:', {
+          debugLog('webrtc', '[WebRTC] Received remote track:', {
             kind: track.kind,
             id: track.id,
             enabled: track.enabled,
@@ -241,14 +242,14 @@ export class WebRTCService {
               try {
                 event.receiver.playoutDelayHint = 0;
               } catch (error) {
-                console.warn('[WebRTC] 设置播放延迟提示失败:', error);
+                debugWarn('webrtc', '[WebRTC] 设置播放延迟提示失败:', error);
               }
             }
             if (event.receiver && 'jitterBufferTarget' in event.receiver) {
               try {
                 event.receiver.jitterBufferTarget = 0;
               } catch (error) {
-                console.warn('[WebRTC] 设置抖动缓冲目标失败:', error);
+                debugWarn('webrtc', '[WebRTC] 设置抖动缓冲目标失败:', error);
               }
             }
             let stream = streams[0];
@@ -290,7 +291,7 @@ export class WebRTCService {
             const warningKey = `${event.errorCode}:${event.url || ''}`;
             if (!this.loggedIceCandidateWarnings.has(warningKey)) {
               this.loggedIceCandidateWarnings.add(warningKey);
-              console.warn('[WebRTC] ICE candidate warning:', detail);
+              debugWarn('webrtc', '[WebRTC] ICE candidate warning:', detail);
             }
             return;
           }
@@ -448,7 +449,7 @@ export class WebRTCService {
         break;
 
       case 'kicked':
-        console.warn('[WebRTC] Kicked by another connection');
+        debugWarn('webrtc', '[WebRTC] Kicked by another connection');
         this.stopPolling();
         this.events.onError?.('Connection kicked by another user');
         break;

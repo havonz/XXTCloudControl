@@ -4,6 +4,7 @@ import styles from './BatchRemoteControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
 import type { WebSocketService } from '../services/WebSocketService';
+import { debugLog, debugWarn } from '../utils/debugLogger';
 
 export interface BatchRemoteControlProps {
   isOpen: boolean;
@@ -190,7 +191,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
               if (device) {
                 const currentConn = connections().get(udid);
                 if (!currentConn?.service || currentConn.state === 'disconnected') {
-                  console.log(`[BatchRemote] Device ${udid} visible, reconnecting...`);
+                  debugLog('batch_remote', `[BatchRemote] Device ${udid} visible, reconnecting...`);
                   connectDevice(device);
                 }
               }
@@ -198,7 +199,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
               // 变为不可见 - 断开连接
               const currentConn = connections().get(udid);
               if (currentConn?.service && currentConn.state === 'connected') {
-                console.log(`[BatchRemote] Device ${udid} hidden, disconnecting...`);
+                debugLog('batch_remote', `[BatchRemote] Device ${udid} hidden, disconnecting...`);
                 disconnectDevice(udid);
               }
             }
@@ -507,7 +508,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
     try {
       const clampedScale = calculateOptimalResolution(device);
-      console.log(`[BatchRemote] Device ${device.udid} resolution scale: ${clampedScale.toFixed(3)}`);
+      debugLog('batch_remote', `[BatchRemote] Device ${device.udid} resolution scale: ${clampedScale.toFixed(3)}`);
       
       const options: WebRTCStartOptions = {
         resolution: clampedScale,
@@ -549,7 +550,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message !== 'Service destroyed') {
-        console.warn(`[BatchRemote] Failed to stop stream for ${udid}:`, error);
+        debugWarn('batch_remote', `[BatchRemote] Failed to stop stream for ${udid}:`, error);
       }
     }
     
@@ -1054,7 +1055,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         conn.service.setFrameRate(fps).catch(err => {
           console.error(`[BatchRemote] Failed to set FPS for ${udid}:`, err);
         });
-        console.log(`[BatchRemote] Device ${udid} FPS updated to ${fps}`);
+        debugLog('batch_remote', `[BatchRemote] Device ${udid} FPS updated to ${fps}`);
       }
     });
   });
@@ -1075,7 +1076,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         conn.service.setResolution(optimalScale).catch(err => {
           console.error(`[BatchRemote] Failed to set resolution for ${device.udid}:`, err);
         });
-        console.log(`[BatchRemote] Device ${device.udid} resolution updated to ${optimalScale.toFixed(3)}`);
+        debugLog('batch_remote', `[BatchRemote] Device ${device.udid} resolution updated to ${optimalScale.toFixed(3)}`);
       }
     });
   });
