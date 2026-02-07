@@ -684,69 +684,53 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
   };
   
-  // Sort devices based on current sort settings
-  const sortDevices = (devices: Device[]) => {
-    if (!sortField()) return devices;
-    
-    return [...devices].sort((a, b) => {
-      let aValue: any;
-      let bValue: any;
-      
-      switch (sortField()) {
-        case 'name':
-          aValue = a.system?.name || '';
-          bValue = b.system?.name || '';
-          break;
-        case 'udid':
-          aValue = a.udid || '';
-          bValue = b.udid || '';
-          break;
-        case 'ip':
-          aValue = a.system?.ip || '';
-          bValue = b.system?.ip || '';
-          break;
-        case 'version':
-          aValue = a.system?.version || '';
-          bValue = b.system?.version || '';
-          break;
-        case 'battery':
-          aValue = a.system?.battery || 0;
-          bValue = b.system?.battery || 0;
-          break;
-        case 'running':
-          aValue = a.script?.running ? 1 : 0;
-          bValue = b.script?.running ? 1 : 0;
-          break;
-        case 'script':
-          aValue = a.script?.select || '';
-          bValue = b.script?.select || '';
-          break;
-        case 'log':
-          aValue = a.system?.log || '';
-          bValue = b.system?.log || '';
-          break;
-        default:
-          return 0;
-      }
-      
-      // Handle string comparison
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        const comparison = aValue.localeCompare(bValue);
-        return sortDirection() === 'asc' ? comparison : -comparison;
-      }
-      
-      // Handle numeric comparison
-      if (typeof aValue === 'number' && typeof bValue === 'number') {
-        const comparison = aValue - bValue;
-        return sortDirection() === 'asc' ? comparison : -comparison;
-      }
-      
-      return 0;
-    });
+  const sortConfig = createMemo(() => ({
+    field: sortField(),
+    direction: sortDirection(),
+  }));
+
+  const getSortValue = (device: Device, field: string): string | number => {
+    switch (field) {
+      case 'name':
+        return device.system?.name || '';
+      case 'udid':
+        return device.udid || '';
+      case 'ip':
+        return device.system?.ip || '';
+      case 'version':
+        return device.system?.version || '';
+      case 'battery':
+        return device.system?.battery || 0;
+      case 'running':
+        return device.script?.running ? 1 : 0;
+      case 'script':
+        return device.script?.select || '';
+      case 'log':
+        return device.system?.log || '';
+      default:
+        return '';
+    }
   };
 
   const filteredDevices = createMemo(() => {
-    return sortDevices(props.devices);
+    const { field, direction } = sortConfig();
+    if (!field) return props.devices;
+
+    const sorted = [...props.devices];
+    const multiplier = direction === 'asc' ? 1 : -1;
+    sorted.sort((a, b) => {
+      const aValue = getSortValue(a, field);
+      const bValue = getSortValue(b, field);
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return aValue.localeCompare(bValue) * multiplier;
+      }
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return (aValue - bValue) * multiplier;
+      }
+      return 0;
+    });
+    return sorted;
   });
 
   const selectedUdidSet = createMemo(() => {

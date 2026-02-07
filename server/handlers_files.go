@@ -76,7 +76,7 @@ func validateFileName(name string) error {
 func serverFilesListHandler(c *gin.Context) {
 	category := c.DefaultQuery("category", "scripts")
 	subPath := c.DefaultQuery("path", "")
-	includeMeta := true
+	includeMeta := false
 	if metaParam, ok := c.GetQuery("meta"); ok {
 		switch strings.ToLower(metaParam) {
 		case "0", "false", "no":

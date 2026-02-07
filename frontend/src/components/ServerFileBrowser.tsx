@@ -140,7 +140,8 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     try {
       const params = new URLSearchParams({
         category: currentCategory(),
-        path: currentPath()
+        path: currentPath(),
+        meta: '1',
       });
       
       const response = await authFetch(`${props.serverBaseUrl}/api/server-files/list?${params}`);
@@ -426,7 +427,8 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       try {
         const params = new URLSearchParams({
           category: currentCategory(),
-          path: dirPath
+          path: dirPath,
+          meta: '1',
         });
         const response = await authFetch(`${props.serverBaseUrl}/api/server-files/list?${params}`);
         const data = await response.json();

@@ -30,6 +30,9 @@ type TransferToken struct {
 	TotalBytes int64     // File size (for progress calculation)
 	MD5        string    // File MD5 hash (for download verification)
 	Category   string    // File category (scripts/files/reports)
+	// SharedSourceID links multiple one-time tokens to one temp source file.
+	// When all related tokens are consumed/expired, the temp file is deleted once.
+	SharedSourceID string
 }
 
 type md5CacheEntry struct {
@@ -38,11 +41,22 @@ type md5CacheEntry struct {
 	hash    string
 }
 
+type sharedTempRef struct {
+	path      string
+	remaining int
+}
+
 // Transfer token storage
 var (
 	transferTokens   = make(map[string]*TransferToken)
 	transferTokensMu sync.RWMutex
-	md5Cache         = struct {
+	sharedTempRefs   = struct {
+		sync.Mutex
+		entries map[string]*sharedTempRef
+	}{
+		entries: make(map[string]*sharedTempRef),
+	}
+	md5Cache = struct {
 		sync.RWMutex
 		entries map[string]md5CacheEntry
 	}{
@@ -61,16 +75,90 @@ type TransferProgress struct {
 	Percent      float64 `json:"percent"`
 }
 
+func isTempFilePath(filePath string) bool {
+	clean := filepath.Clean(filePath)
+	needle := string(filepath.Separator) + "_temp" + string(filepath.Separator)
+	return strings.Contains(clean, needle)
+}
+
+func registerSharedTempRef(sharedID, filePath string) {
+	if sharedID == "" || !isTempFilePath(filePath) {
+		return
+	}
+
+	sharedTempRefs.Lock()
+	entry := sharedTempRefs.entries[sharedID]
+	if entry == nil {
+		sharedTempRefs.entries[sharedID] = &sharedTempRef{
+			path:      filePath,
+			remaining: 1,
+		}
+		sharedTempRefs.Unlock()
+		return
+	}
+	// Keep the original file path for this shared batch; only count tokens.
+	entry.remaining++
+	sharedTempRefs.Unlock()
+}
+
+func removeTempFileWithRetry(filePath string) {
+	if filePath == "" {
+		return
+	}
+	for i := 0; i < 3; i++ {
+		err := os.Remove(filePath)
+		if err == nil || os.IsNotExist(err) {
+			if err == nil {
+				debugLogf("🧹 Cleaned temp file: %s", filepath.Base(filePath))
+			}
+			return
+		}
+		if i < 2 {
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+	log.Printf("⚠️ Failed to clean temp file: %s", filePath)
+}
+
+func releaseSharedTempRef(sharedID string) {
+	if sharedID == "" {
+		return
+	}
+
+	var cleanupPath string
+	sharedTempRefs.Lock()
+	if entry := sharedTempRefs.entries[sharedID]; entry != nil {
+		entry.remaining--
+		if entry.remaining <= 0 {
+			cleanupPath = entry.path
+			delete(sharedTempRefs.entries, sharedID)
+		}
+	}
+	sharedTempRefs.Unlock()
+
+	if cleanupPath != "" {
+		go removeTempFileWithRetry(cleanupPath)
+	}
+}
+
 // cleanupExpiredTokens removes expired tokens periodically
 func cleanupExpiredTokens() {
-	transferTokensMu.Lock()
-	defer transferTokensMu.Unlock()
+	expiredSharedIDs := make([]string, 0)
 
 	now := time.Now()
+	transferTokensMu.Lock()
 	for token, info := range transferTokens {
 		if now.After(info.ExpiresAt) {
 			delete(transferTokens, token)
+			if info.SharedSourceID != "" {
+				expiredSharedIDs = append(expiredSharedIDs, info.SharedSourceID)
+			}
 		}
+	}
+	transferTokensMu.Unlock()
+
+	for _, sharedID := range expiredSharedIDs {
+		releaseSharedTempRef(sharedID)
 	}
 }
 
@@ -292,9 +380,16 @@ func transferDownloadHandler(c *gin.Context) {
 
 	// Check expiration
 	if time.Now().After(tokenInfo.ExpiresAt) {
+		var sharedID string
 		transferTokensMu.Lock()
-		delete(transferTokens, token)
+		if info, ok := transferTokens[token]; ok {
+			delete(transferTokens, token)
+			sharedID = info.SharedSourceID
+		}
 		transferTokensMu.Unlock()
+		if sharedID != "" {
+			releaseSharedTempRef(sharedID)
+		}
 		c.JSON(http.StatusGone, gin.H{"error": "token expired"})
 		return
 	}
@@ -306,17 +401,27 @@ func transferDownloadHandler(c *gin.Context) {
 	}
 
 	// Invalidate one-time token
+	releaseSharedID := ""
 	if tokenInfo.OneTime {
 		transferTokensMu.Lock()
-		delete(transferTokens, token)
+		if info, ok := transferTokens[token]; ok {
+			delete(transferTokens, token)
+			releaseSharedID = info.SharedSourceID
+		}
 		transferTokensMu.Unlock()
 	}
 
 	// Open file
 	file, err := os.Open(tokenInfo.FilePath)
 	if err != nil {
+		if releaseSharedID != "" {
+			releaseSharedTempRef(releaseSharedID)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open file"})
 		return
+	}
+	if releaseSharedID != "" {
+		defer releaseSharedTempRef(releaseSharedID)
 	}
 	defer file.Close()
 
@@ -361,15 +466,10 @@ func transferDownloadHandler(c *gin.Context) {
 	debugLogf("✅ Download completed: %s → device %s", fileName, tokenInfo.DeviceSN)
 
 	// Clean up temp files after successful download
-	// Only delete files from the _temp directory
-	if strings.Contains(tokenInfo.FilePath, string(filepath.Separator)+"_temp"+string(filepath.Separator)) {
-		go func(filePath string) {
-			if err := os.Remove(filePath); err != nil {
-				log.Printf("⚠️ Failed to clean temp file: %s - %v", filePath, err)
-			} else {
-				debugLogf("🧹 Cleaned temp file: %s", filepath.Base(filePath))
-			}
-		}(tokenInfo.FilePath)
+	// Shared temp file cleanup is managed by shared token ref-count.
+	// Non-shared temp files keep existing one-time cleanup behavior.
+	if tokenInfo.SharedSourceID == "" && isTempFilePath(tokenInfo.FilePath) {
+		go removeTempFileWithRetry(tokenInfo.FilePath)
 	}
 }
 
@@ -659,12 +759,13 @@ func sendFileUploadCommand(deviceSN string, uploadURL string, sourcePath string,
 // Uses file/put for small files (<128KB) and transfer/fetch for large files
 func pushFileToDeviceHandler(c *gin.Context) {
 	var req struct {
-		DeviceSN      string `json:"deviceSN"`
-		Category      string `json:"category"`
-		Path          string `json:"path"`
-		TargetPath    string `json:"targetPath"`
-		Timeout       int    `json:"timeout"`       // Download timeout in seconds
-		ServerBaseUrl string `json:"serverBaseUrl"` // Server base URL for device to download from
+		DeviceSN       string `json:"deviceSN"`
+		Category       string `json:"category"`
+		Path           string `json:"path"`
+		TargetPath     string `json:"targetPath"`
+		Timeout        int    `json:"timeout"`       // Download timeout in seconds
+		ServerBaseUrl  string `json:"serverBaseUrl"` // Server base URL for device to download from
+		SharedSourceID string `json:"sharedSourceId"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -750,16 +851,20 @@ func pushFileToDeviceHandler(c *gin.Context) {
 	md5Hash, _ := calculateFileMD5Cached(filePath, info)
 
 	transferTokensMu.Lock()
+	if req.SharedSourceID != "" {
+		registerSharedTempRef(req.SharedSourceID, filePath)
+	}
 	transferTokens[token] = &TransferToken{
-		Type:       "download",
-		FilePath:   filePath,
-		TargetPath: req.TargetPath,
-		DeviceSN:   req.DeviceSN,
-		ExpiresAt:  expiresAt,
-		OneTime:    true,
-		TotalBytes: info.Size(),
-		MD5:        md5Hash,
-		Category:   req.Category,
+		Type:           "download",
+		FilePath:       filePath,
+		TargetPath:     req.TargetPath,
+		DeviceSN:       req.DeviceSN,
+		ExpiresAt:      expiresAt,
+		OneTime:        true,
+		TotalBytes:     info.Size(),
+		MD5:            md5Hash,
+		Category:       req.Category,
+		SharedSourceID: req.SharedSourceID,
 	}
 	transferTokensMu.Unlock()
 
@@ -784,9 +889,16 @@ func pushFileToDeviceHandler(c *gin.Context) {
 
 	if err := sendFileDownloadCommand(req.DeviceSN, downloadURL, req.TargetPath, md5Hash, info.Size(), timeout); err != nil {
 		// Cleanup token on failure
+		sharedID := ""
 		transferTokensMu.Lock()
+		if info, ok := transferTokens[token]; ok {
+			sharedID = info.SharedSourceID
+		}
 		delete(transferTokens, token)
 		transferTokensMu.Unlock()
+		if sharedID != "" {
+			releaseSharedTempRef(sharedID)
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

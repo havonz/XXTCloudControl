@@ -411,7 +411,27 @@ const App: Component = () => {
 
 
 
-	  const handleUploadFiles = async (scannedFiles: ScannedFile[], uploadPath: string) => {
+  const runWithConcurrency = async <T,>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<void>
+  ) => {
+    if (items.length === 0) return;
+    const concurrency = Math.max(1, Math.min(limit, items.length));
+    let cursor = 0;
+
+    const tasks = Array.from({ length: concurrency }, async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        await worker(items[index]);
+      }
+    });
+
+    await Promise.all(tasks);
+  };
+
+  const handleUploadFiles = async (scannedFiles: ScannedFile[], uploadPath: string) => {
     if (!wsService) {
       console.warn('WebSocket服务未连接');
       return;
@@ -427,33 +447,32 @@ const App: Component = () => {
       return;
     }
 
-	    const deviceUdids = selectedDevices().map(device => device.udid);
-	    
-	    // 上传每个文件
-	    for (const { file, relativePath } of scannedFiles) {
-	      try {
-	        // 构建完整的文件路径
-	        const fullPath = uploadPath.endsWith('/') ? `${uploadPath}${relativePath}` : `${uploadPath}/${relativePath}`;
+    const activeWsService = wsService;
+    const deviceUdids = selectedDevices().map(device => device.udid);
 
-	        // 大文件走 HTTP 传输，避免 WebSocket + Base64 带来的额外内存和带宽开销
-	        if (FileTransferService.shouldUseLargeFileTransfer(file)) {
-	          const results = await fileTransferService.uploadFileToDevices(deviceUdids, file, fullPath);
-	          results.forEach((result, index) => {
-	            if (!result.success) {
-	              console.error(`上传大文件 ${relativePath} 到设备 ${deviceUdids[index]} 失败:`, result.error);
-	            }
-	          });
-	          continue;
-	        }
+    await runWithConcurrency(scannedFiles, 3, async ({ file, relativePath }) => {
+      try {
+        // 构建完整的文件路径
+        const fullPath = uploadPath.endsWith('/') ? `${uploadPath}${relativePath}` : `${uploadPath}/${relativePath}`;
 
-	        // 小文件走 WebSocket 直传
-	        const base64Data = await fileToBase64(file);
-	        await wsService.uploadFile(deviceUdids, fullPath, base64Data);
+        // 大文件走 HTTP 传输，避免 WebSocket + Base64 带来的额外内存和带宽开销
+        if (FileTransferService.shouldUseLargeFileTransfer(file)) {
+          const results = await fileTransferService.uploadFileToDevices(deviceUdids, file, fullPath);
+          results.forEach((result, index) => {
+            if (!result.success) {
+              console.error(`上传大文件 ${relativePath} 到设备 ${deviceUdids[index]} 失败:`, result.error);
+            }
+          });
+          return;
+        }
 
-	      } catch (error) {
-	        console.error(`上传文件 ${relativePath} 失败:`, error);
-	      }
-	    }
+        // 小文件走 WebSocket 直传
+        const base64Data = await fileToBase64(file);
+        await activeWsService.uploadFile(deviceUdids, fullPath, base64Data);
+      } catch (error) {
+        console.error(`上传文件 ${relativePath} 失败:`, error);
+      }
+    });
   };
 
   // 将文件转换为Base64格式
@@ -689,51 +708,61 @@ const App: Component = () => {
     }
   };
 
-  // Load groups and group settings when authenticated
-  createEffect(() => {
-    if (isAuthenticated()) {
-      groupStore.loadGroups();
-      groupStore.loadGroupSettings();
-      
-      // Fetch server version and check for updates
-      const fetchVersion = async () => {
-        const host = serverHost().trim();
-        const port = serverPort().trim();
-        if (!host || !port) {
-          return;
-        }
+  const fetchServerVersion = async (host: string, port: string) => {
+    try {
+      const baseUrl = authService.getHttpBaseUrl(host, port);
+      const response = await fetch(`${baseUrl}/api/config?format=json`);
+      if (!response.ok) {
+        return;
+      }
 
-        try {
-          const baseUrl = authService.getHttpBaseUrl(host, port);
-          const response = await fetch(`${baseUrl}/api/config?format=json`);
-          if (response.ok) {
-            const config = await response.json();
-            if (config.version) {
-              const cachedVersion = localStorage.getItem(VERSION_CACHE_KEY);
-              
-              // If cached version exists and differs from server version, trigger refresh
-              if (cachedVersion && cachedVersion !== config.version) {
-                toast.showWarning(`检测到新版本 ${config.version}，3秒后自动刷新...`, 3000);
-                
-                // Clear cached version and refresh after 3 seconds
-                setTimeout(() => {
-                  localStorage.removeItem(VERSION_CACHE_KEY);
-                  window.location.reload();
-                }, 3000);
-              } else {
-                // Cache the current version
-                localStorage.setItem(VERSION_CACHE_KEY, config.version);
-              }
-              
-              setServerVersion(config.version);
-            }
-          }
-        } catch (e) {
-          // Ignore network errors
-        }
-      };
-      fetchVersion();
+      const config = await response.json();
+      if (!config.version) {
+        return;
+      }
+
+      const cachedVersion = localStorage.getItem(VERSION_CACHE_KEY);
+
+      // If cached version exists and differs from server version, trigger refresh
+      if (cachedVersion && cachedVersion !== config.version) {
+        toast.showWarning(`检测到新版本 ${config.version}，3秒后自动刷新...`, 3000);
+
+        // Clear cached version and refresh after 3 seconds
+        setTimeout(() => {
+          localStorage.removeItem(VERSION_CACHE_KEY);
+          window.location.reload();
+        }, 3000);
+      } else {
+        // Cache the current version
+        localStorage.setItem(VERSION_CACHE_KEY, config.version);
+      }
+
+      setServerVersion(config.version);
+    } catch (e) {
+      // Ignore network errors
     }
+  };
+
+  // Load groups and group settings once authenticated.
+  createEffect(() => {
+    if (!isAuthenticated()) {
+      return;
+    }
+    groupStore.loadGroups();
+    groupStore.loadGroupSettings();
+  });
+
+  // Fetch server version when login target is ready.
+  createEffect(() => {
+    if (!isAuthenticated()) {
+      return;
+    }
+    const host = serverHost().trim();
+    const port = serverPort().trim();
+    if (!host || !port) {
+      return;
+    }
+    fetchServerVersion(host, port);
   });
 
   // Handle adding selected devices to a group

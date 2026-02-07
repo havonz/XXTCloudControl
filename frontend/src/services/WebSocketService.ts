@@ -1180,8 +1180,23 @@ export class WebSocketService {
   private updateDeviceLog(udid: string, chunk: string): void {
     if (!udid || typeof chunk !== 'string') return;
 
-    const lines = chunk.split(/\r?\n/).filter(line => line.length > 0);
-    const lastLine = lines.length > 0 ? lines[lines.length - 1] : chunk.trim();
+    let end = chunk.length;
+    while (end > 0) {
+      const ch = chunk.charCodeAt(end - 1);
+      if (ch === 10 || ch === 13) {
+        end--;
+        continue;
+      }
+      break;
+    }
+    if (end === 0) {
+      return;
+    }
+
+    const lastLF = chunk.lastIndexOf('\n', end - 1);
+    const lastCR = chunk.lastIndexOf('\r', end - 1);
+    const start = Math.max(lastLF, lastCR) + 1;
+    const lastLine = chunk.slice(start, end);
     if (lastLine === '') {
       return;
     }

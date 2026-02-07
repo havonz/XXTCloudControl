@@ -75,17 +75,25 @@ export function createGroupStore(): GroupStoreState {
   const [dragOverListEnd, setDragOverListEnd] = createSignal(false);
   const [groupSortLocked, setGroupSortLocked] = createSignal(false); // Default: 不锁定排序
 
+  const groupById = createMemo(() => {
+    const map = new Map<string, GroupInfo>();
+    for (const group of groups()) {
+      map.set(group.id, group);
+    }
+    return map;
+  });
+
   // Compute visible device IDs based on checked groups
   const visibleDeviceIds = createMemo<Set<string> | null>(() => {
     const checked = checkedGroups();
     if (checked.has('__all__')) return null; // Show all devices
     
     const result = new Set<string>();
-    const groupList = groups();
+    const map = groupById();
     
     for (const gid of checked) {
       if (gid === '__all__') continue;
-      const group = groupList.find(g => g.id === gid);
+      const group = map.get(gid);
       if (group?.deviceIds) {
         for (const deviceId of group.deviceIds) {
           if (deviceId) result.add(deviceId);
@@ -109,11 +117,11 @@ export function createGroupStore(): GroupStoreState {
       // Multi-select mode:
       // - "所有设备" doesn't affect selection at all
       // - Only specific groups affect selection
-      const groupList = groups();
+      const map = groupById();
       
       for (const gid of checked) {
         if (gid === '__all__') continue; // Skip "所有设备" - it doesn't affect selection in multi-select mode
-        const group = groupList.find(g => g.id === gid);
+        const group = map.get(gid);
         if (group?.deviceIds) {
           for (const deviceId of group.deviceIds) {
             if (deviceId) result.add(deviceId);
@@ -130,9 +138,9 @@ export function createGroupStore(): GroupStoreState {
         }
       } else {
         // A specific group is selected - select all its devices
-        const groupList = groups();
+        const map = groupById();
         for (const gid of checked) {
-          const group = groupList.find(g => g.id === gid);
+          const group = map.get(gid);
           if (group?.deviceIds) {
             for (const deviceId of group.deviceIds) {
               if (deviceId) result.add(deviceId);

@@ -145,7 +145,7 @@ func calculateLargeFileMD5(filesToSend []scriptFileData) map[string]md5Result {
 			continue
 		}
 
-		md5Hash, err := calculateFileMD5(f.SourcePath)
+		md5Hash, err := calculateFileMD5Cached(f.SourcePath, nil)
 		if err != nil {
 			fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
 			largeFileMD5[f.SourcePath] = md5Result{err: err}
