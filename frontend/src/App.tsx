@@ -437,13 +437,10 @@ const App: Component = () => {
 
 	        // 大文件走 HTTP 传输，避免 WebSocket + Base64 带来的额外内存和带宽开销
 	        if (FileTransferService.shouldUseLargeFileTransfer(file)) {
-	          const results = await Promise.allSettled(
-	            deviceUdids.map(deviceUdid => fileTransferService.uploadFileToDevice(deviceUdid, file, fullPath))
-	          );
+	          const results = await fileTransferService.uploadFileToDevices(deviceUdids, file, fullPath);
 	          results.forEach((result, index) => {
-	            if (result.status === 'rejected' || !result.value.success) {
-	              const reason = result.status === 'rejected' ? (result.reason as Error)?.message : result.value.error;
-	              console.error(`上传大文件 ${relativePath} 到设备 ${deviceUdids[index]} 失败:`, reason);
+	            if (!result.success) {
+	              console.error(`上传大文件 ${relativePath} 到设备 ${deviceUdids[index]} 失败:`, result.error);
 	            }
 	          });
 	          continue;

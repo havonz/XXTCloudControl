@@ -26,6 +26,12 @@ export interface PullFileResult {
   error?: string;
 }
 
+interface ServerUploadResult {
+  success: boolean;
+  path?: string;
+  error?: string;
+}
+
 /**
  * FileTransferService handles large file transfers using HTTP with temporary tokens.
  * For files > 128KB, this is more efficient than WebSocket + Base64.
@@ -56,6 +62,181 @@ export class FileTransferService {
   
   static shouldUseLargeFileTransferForBytes(size: number): boolean {
     return size > LARGE_FILE_THRESHOLD;
+  }
+
+  private splitServerPath(path: string): { dir: string; name: string } {
+    const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    const idx = normalized.lastIndexOf('/');
+    if (idx < 0) {
+      return { dir: '', name: normalized };
+    }
+    return {
+      dir: normalized.slice(0, idx),
+      name: normalized.slice(idx + 1),
+    };
+  }
+
+  private joinServerPath(dir: string, name: string): string {
+    const cleanDir = dir.replace(/\/+$/, '');
+    return cleanDir ? `${cleanDir}/${name}` : name;
+  }
+
+  private createFanoutBatchId(): string {
+    const randomBytes = new Uint8Array(4);
+    crypto.getRandomValues(randomBytes);
+    const suffix = Array.from(randomBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+    return `${Date.now()}_${suffix}`;
+  }
+
+  async uploadFileToServer(
+    file: File,
+    category: string = 'files',
+    path: string = '_temp'
+  ): Promise<ServerUploadResult> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('category', category);
+      formData.append('path', path);
+
+      const uploadResponse = await authFetch(`${this.baseUrl}/api/server-files/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await uploadResponse.json().catch(() => ({}));
+      if (!uploadResponse.ok) {
+        return { success: false, error: result.error || 'Server upload failed' };
+      }
+
+      return {
+        success: true,
+        path: result.path || this.joinServerPath(path, file.name),
+      };
+    } catch (e) {
+      return {
+        success: false,
+        error: (e as Error).message,
+      };
+    }
+  }
+
+  private async copyServerFile(
+    category: string,
+    sourcePath: string,
+    destinationDir: string
+  ): Promise<ServerUploadResult> {
+    const { dir: srcDir, name: srcName } = this.splitServerPath(sourcePath);
+    if (!srcName) {
+      return { success: false, error: 'Invalid source file path' };
+    }
+
+    try {
+      const response = await authFetch(`${this.baseUrl}/api/server-files/batch-copy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          srcCategory: category,
+          dstCategory: category,
+          srcPath: srcDir,
+          dstPath: destinationDir,
+          items: [srcName],
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        const firstError = Array.isArray(result.errors) ? result.errors[0] : undefined;
+        return { success: false, error: result.error || firstError || 'Server copy failed' };
+      }
+
+      return {
+        success: true,
+        path: this.joinServerPath(destinationDir, srcName),
+      };
+    } catch (e) {
+      return {
+        success: false,
+        error: (e as Error).message,
+      };
+    }
+  }
+
+  /**
+   * Upload a file from browser to server once, then push to multiple devices.
+   * To keep per-device transfer behavior unchanged, this creates one server-side temp copy per device.
+   */
+  async uploadFileToDevices(
+    deviceSNs: string[],
+    file: File,
+    deviceTargetPath: string
+  ): Promise<PushFileResult[]> {
+    if (deviceSNs.length === 0) {
+      return [];
+    }
+
+    const uploadResult = await this.uploadFileToServer(file, 'files', '_temp');
+    if (!uploadResult.success || !uploadResult.path) {
+      const error = uploadResult.error || 'Server upload failed';
+      return deviceSNs.map(() => ({ success: false, error }));
+    }
+
+    const sourcePath = uploadResult.path;
+    const preparedPathByDevice = new Map<string, string>();
+    const prepareErrorByDevice = new Map<string, string>();
+
+    if (deviceSNs.length === 1) {
+      preparedPathByDevice.set(deviceSNs[0], sourcePath);
+    } else {
+      const batchId = this.createFanoutBatchId();
+      const copyResults = await Promise.all(
+        deviceSNs.map(async (deviceSN, idx) => {
+          const destinationDir = `_temp/_fanout/${batchId}/${idx}`;
+          const copied = await this.copyServerFile('files', sourcePath, destinationDir);
+          return { deviceSN, copied };
+        })
+      );
+
+      for (const { deviceSN, copied } of copyResults) {
+        if (copied.success && copied.path) {
+          preparedPathByDevice.set(deviceSN, copied.path);
+        } else {
+          prepareErrorByDevice.set(deviceSN, copied.error || 'Server copy failed');
+        }
+      }
+
+      // Remove the template file after per-device copies are created.
+      await this.deleteTempFile('files', sourcePath);
+    }
+
+    const pushResults = await Promise.all(
+      deviceSNs.map(async (deviceSN) => {
+        const preparedPath = preparedPathByDevice.get(deviceSN);
+        if (!preparedPath) {
+          return {
+            success: false,
+            error: prepareErrorByDevice.get(deviceSN) || 'Failed to prepare server file',
+          };
+        }
+        return this.pushToDevice(deviceSN, 'files', preparedPath, deviceTargetPath);
+      })
+    );
+
+    if (deviceSNs.length > 1) {
+      await Promise.all(
+        deviceSNs.map(async (deviceSN, idx) => {
+          if (pushResults[idx]?.success) {
+            return;
+          }
+          const preparedPath = preparedPathByDevice.get(deviceSN);
+          if (preparedPath) {
+            await this.deleteTempFile('files', preparedPath);
+          }
+        })
+      );
+    }
+
+    return pushResults;
   }
   
   /**
@@ -159,42 +340,8 @@ export class FileTransferService {
     file: File,
     deviceTargetPath: string
   ): Promise<PushFileResult> {
-    try {
-      // Upload to server's "files" category in _temp folder
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('category', 'files');
-      formData.append('path', '_temp');
-      
-      const uploadResponse = await authFetch(`${this.baseUrl}/api/server-files/upload`, {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!uploadResponse.ok) {
-        const err = await uploadResponse.json();
-        return { success: false, error: err.error || 'Server upload failed' };
-      }
-      
-      const uploadResult = await uploadResponse.json();
-      const serverPath = uploadResult.path || `_temp/${file.name}`;
-      
-      // Now push from server to device
-      const pushResult = await this.pushToDevice(
-        deviceSN,
-        'files',
-        serverPath,
-        deviceTargetPath
-      );
-      
-      return pushResult;
-      
-    } catch (e) {
-      return {
-        success: false,
-        error: (e as Error).message,
-      };
-    }
+    const [result] = await this.uploadFileToDevices([deviceSN], file, deviceTargetPath);
+    return result || { success: false, error: 'Upload failed' };
   }
   
   /**
