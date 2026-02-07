@@ -411,7 +411,7 @@ const App: Component = () => {
 
 
 
-  const handleUploadFiles = async (scannedFiles: ScannedFile[], uploadPath: string) => {
+	  const handleUploadFiles = async (scannedFiles: ScannedFile[], uploadPath: string) => {
     if (!wsService) {
       console.warn('WebSocket服务未连接');
       return;
@@ -427,23 +427,36 @@ const App: Component = () => {
       return;
     }
 
-    const deviceUdids = selectedDevices().map(device => device.udid);
-    
-    // 上传每个文件
-    for (const { file, relativePath } of scannedFiles) {
-      try {
-        // 将文件转换为Base64
-        const base64Data = await fileToBase64(file);
-        // 构建完整的文件路径
-        const fullPath = uploadPath.endsWith('/') ? `${uploadPath}${relativePath}` : `${uploadPath}/${relativePath}`;
-        
-        // 发送上传请求
-        await wsService.uploadFile(deviceUdids, fullPath, base64Data);
+	    const deviceUdids = selectedDevices().map(device => device.udid);
+	    
+	    // 上传每个文件
+	    for (const { file, relativePath } of scannedFiles) {
+	      try {
+	        // 构建完整的文件路径
+	        const fullPath = uploadPath.endsWith('/') ? `${uploadPath}${relativePath}` : `${uploadPath}/${relativePath}`;
 
-      } catch (error) {
-        console.error(`上传文件 ${relativePath} 失败:`, error);
-      }
-    }
+	        // 大文件走 HTTP 传输，避免 WebSocket + Base64 带来的额外内存和带宽开销
+	        if (FileTransferService.shouldUseLargeFileTransfer(file)) {
+	          const results = await Promise.allSettled(
+	            deviceUdids.map(deviceUdid => fileTransferService.uploadFileToDevice(deviceUdid, file, fullPath))
+	          );
+	          results.forEach((result, index) => {
+	            if (result.status === 'rejected' || !result.value.success) {
+	              const reason = result.status === 'rejected' ? (result.reason as Error)?.message : result.value.error;
+	              console.error(`上传大文件 ${relativePath} 到设备 ${deviceUdids[index]} 失败:`, reason);
+	            }
+	          });
+	          continue;
+	        }
+
+	        // 小文件走 WebSocket 直传
+	        const base64Data = await fileToBase64(file);
+	        await wsService.uploadFile(deviceUdids, fullPath, base64Data);
+
+	      } catch (error) {
+	        console.error(`上传文件 ${relativePath} 失败:`, error);
+	      }
+	    }
   };
 
   // 将文件转换为Base64格式

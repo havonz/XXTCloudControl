@@ -444,16 +444,28 @@ func transferUploadHandler(c *gin.Context) {
 		tokenInfo.DeviceSN, fileName, contentLength)
 
 	// Copy with progress tracking
-	written, err := io.Copy(file, pr)
+	hashWriter := md5.New()
+	written, err := io.Copy(io.MultiWriter(file, hashWriter), pr)
 	if err != nil {
 		log.Printf("❌ Upload failed: %s - %v", fileName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file"})
 		return
 	}
 
-	// Calculate MD5 of uploaded file
-	file.Seek(0, 0)
-	md5Hash, _ := calculateFileMD5Cached(tokenInfo.FilePath, nil)
+	// MD5 is computed while streaming upload data to avoid a second full-file read.
+	md5Hash := hex.EncodeToString(hashWriter.Sum(nil))
+	if info, statErr := file.Stat(); statErr == nil {
+		md5Cache.Lock()
+		if len(md5Cache.entries) > 2048 {
+			md5Cache.entries = make(map[string]md5CacheEntry, 512)
+		}
+		md5Cache.entries[tokenInfo.FilePath] = md5CacheEntry{
+			size:    info.Size(),
+			modTime: info.ModTime().UnixNano(),
+			hash:    md5Hash,
+		}
+		md5Cache.Unlock()
+	}
 
 	debugLogf("✅ Upload completed: device %s → %s (%d bytes, MD5: %s)",
 		tokenInfo.DeviceSN, fileName, written, md5Hash)

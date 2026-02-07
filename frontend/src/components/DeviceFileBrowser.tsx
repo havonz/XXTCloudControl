@@ -618,7 +618,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   };
 
   // 执行发送到云控
-  const handleSendToCloud = async (category: 'scripts' | 'files' | 'reports', targetPath: string) => {
+	  const handleSendToCloud = async (category: 'scripts' | 'files' | 'reports', targetPath: string) => {
     if (!props.onPullFileFromDevice) {
       dialog.alert('发送到云控功能不可用');
       return;
@@ -627,42 +627,55 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     const items = sendToCloudPendingItems();
     if (items.length === 0) return;
     
-    setShowSendToCloudModal(false);
-    setIsSendingToCloud(true);
-    
-    let successCount = 0;
-    let failCount = 0;
-    
-    for (const name of items) {
-      const sourcePath = currentPath() === '/' 
-        ? `/${name}` 
-        : `${currentPath()}/${name}`;
-      
-      // 构建目标路径：targetPath + 文件名
-      const finalTargetPath = targetPath === '/' || targetPath === '' 
-        ? name 
-        : (targetPath.endsWith('/') ? targetPath + name : targetPath + '/' + name);
-      
-      try {
-        const result = await props.onPullFileFromDevice(
-          props.deviceUdid, 
-          sourcePath, 
-          category, 
-          finalTargetPath
-        );
-        if (result.success) {
-          successCount++;
-        } else {
-          failCount++;
-          console.error(`发送文件失败 ${name}:`, result.error);
-        }
-      } catch (err) {
-        failCount++;
-        console.error(`发送文件失败 ${name}:`, err);
-      }
-    }
-    
-    setIsSendingToCloud(false);
+	    setShowSendToCloudModal(false);
+	    setIsSendingToCloud(true);
+	    
+	    let successCount = 0;
+	    let failCount = 0;
+
+	    // 使用小并发池提升批量发送吞吐，避免单文件串行等待。
+	    const concurrency = Math.min(4, items.length);
+	    let nextIndex = 0;
+	    const worker = async () => {
+	      while (true) {
+	        const currentIndex = nextIndex;
+	        nextIndex++;
+	        if (currentIndex >= items.length) {
+	          return;
+	        }
+
+	        const name = items[currentIndex];
+	        const sourcePath = currentPath() === '/'
+	          ? `/${name}`
+	          : `${currentPath()}/${name}`;
+
+	        const finalTargetPath = targetPath === '/' || targetPath === ''
+	          ? name
+	          : (targetPath.endsWith('/') ? targetPath + name : targetPath + '/' + name);
+
+	        try {
+	          const result = await props.onPullFileFromDevice(
+	            props.deviceUdid,
+	            sourcePath,
+	            category,
+	            finalTargetPath
+	          );
+	          if (result.success) {
+	            successCount++;
+	          } else {
+	            failCount++;
+	            console.error(`发送文件失败 ${name}:`, result.error);
+	          }
+	        } catch (err) {
+	          failCount++;
+	          console.error(`发送文件失败 ${name}:`, err);
+	        }
+	      }
+	    };
+
+	    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+	    
+	    setIsSendingToCloud(false);
     
     if (successCount > 0 && failCount === 0) {
       toast.showSuccess(`成功发送 ${successCount} 个文件到云控`);

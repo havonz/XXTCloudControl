@@ -15,6 +15,14 @@ func generateGroupID() string {
 	return fmt.Sprintf("g%d", time.Now().UnixNano())
 }
 
+func persistGroupSnapshot(c *gin.Context, snapshot []GroupInfo) bool {
+	if err := saveGroupsSnapshot(snapshot); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		return false
+	}
+	return true
+}
+
 // groupsListHandler handles GET /api/groups
 func groupsListHandler(c *gin.Context) {
 	deviceGroupsMu.RLock()
@@ -39,7 +47,6 @@ func groupsCreateHandler(c *gin.Context) {
 	}
 
 	deviceGroupsMu.Lock()
-	defer deviceGroupsMu.Unlock()
 
 	newGroup := GroupInfo{
 		ID:        generateGroupID(),
@@ -48,9 +55,10 @@ func groupsCreateHandler(c *gin.Context) {
 		SortOrder: len(deviceGroups),
 	}
 	deviceGroups = append(deviceGroups, newGroup)
+	snapshot := cloneGroupInfos(deviceGroups)
+	deviceGroupsMu.Unlock()
 
-	if err := saveGroups(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+	if !persistGroupSnapshot(c, snapshot) {
 		return
 	}
 
@@ -75,7 +83,6 @@ func groupsUpdateHandler(c *gin.Context) {
 	}
 
 	deviceGroupsMu.Lock()
-	defer deviceGroupsMu.Unlock()
 
 	found := false
 	for i := range deviceGroups {
@@ -87,12 +94,14 @@ func groupsUpdateHandler(c *gin.Context) {
 	}
 
 	if !found {
+		deviceGroupsMu.Unlock()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
 		return
 	}
+	snapshot := cloneGroupInfos(deviceGroups)
+	deviceGroupsMu.Unlock()
 
-	if err := saveGroups(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+	if !persistGroupSnapshot(c, snapshot) {
 		return
 	}
 
@@ -104,7 +113,6 @@ func groupsDeleteHandler(c *gin.Context) {
 	groupID := c.Param("id")
 
 	deviceGroupsMu.Lock()
-	defer deviceGroupsMu.Unlock()
 
 	found := false
 	newGroups := make([]GroupInfo, 0, len(deviceGroups))
@@ -117,14 +125,16 @@ func groupsDeleteHandler(c *gin.Context) {
 	}
 
 	if !found {
+		deviceGroupsMu.Unlock()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
 		return
 	}
 
 	deviceGroups = newGroups
+	snapshot := cloneGroupInfos(deviceGroups)
+	deviceGroupsMu.Unlock()
 
-	if err := saveGroups(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+	if !persistGroupSnapshot(c, snapshot) {
 		return
 	}
 
@@ -147,7 +157,6 @@ func groupsReorderHandler(c *gin.Context) {
 	}
 
 	deviceGroupsMu.Lock()
-	defer deviceGroupsMu.Unlock()
 
 	orderMap := make(map[string]int)
 	for i, id := range req.Order {
@@ -163,9 +172,10 @@ func groupsReorderHandler(c *gin.Context) {
 	sort.Slice(deviceGroups, func(i, j int) bool {
 		return deviceGroups[i].SortOrder < deviceGroups[j].SortOrder
 	})
+	snapshot := cloneGroupInfos(deviceGroups)
+	deviceGroupsMu.Unlock()
 
-	if err := saveGroups(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+	if !persistGroupSnapshot(c, snapshot) {
 		return
 	}
 
@@ -184,7 +194,6 @@ func groupsAddDevicesHandler(c *gin.Context) {
 	}
 
 	deviceGroupsMu.Lock()
-	defer deviceGroupsMu.Unlock()
 
 	found := false
 	for i := range deviceGroups {
@@ -205,12 +214,14 @@ func groupsAddDevicesHandler(c *gin.Context) {
 	}
 
 	if !found {
+		deviceGroupsMu.Unlock()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
 		return
 	}
+	snapshot := cloneGroupInfos(deviceGroups)
+	deviceGroupsMu.Unlock()
 
-	if err := saveGroups(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+	if !persistGroupSnapshot(c, snapshot) {
 		return
 	}
 
@@ -229,7 +240,6 @@ func groupsRemoveDevicesHandler(c *gin.Context) {
 	}
 
 	deviceGroupsMu.Lock()
-	defer deviceGroupsMu.Unlock()
 
 	found := false
 	for i := range deviceGroups {
@@ -251,12 +261,14 @@ func groupsRemoveDevicesHandler(c *gin.Context) {
 	}
 
 	if !found {
+		deviceGroupsMu.Unlock()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
 		return
 	}
+	snapshot := cloneGroupInfos(deviceGroups)
+	deviceGroupsMu.Unlock()
 
-	if err := saveGroups(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+	if !persistGroupSnapshot(c, snapshot) {
 		return
 	}
 
@@ -276,7 +288,6 @@ func groupsBindScriptHandler(c *gin.Context) {
 	}
 
 	deviceGroupsMu.Lock()
-	defer deviceGroupsMu.Unlock()
 
 	found := false
 	for i := range deviceGroups {
@@ -288,12 +299,14 @@ func groupsBindScriptHandler(c *gin.Context) {
 	}
 
 	if !found {
+		deviceGroupsMu.Unlock()
 		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
 		return
 	}
+	snapshot := cloneGroupInfos(deviceGroups)
+	deviceGroupsMu.Unlock()
 
-	if err := saveGroups(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+	if !persistGroupSnapshot(c, snapshot) {
 		return
 	}
 

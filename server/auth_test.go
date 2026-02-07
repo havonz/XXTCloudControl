@@ -8,6 +8,7 @@ import (
 func resetUsedNoncesForTest() {
 	usedNonces.Lock()
 	usedNonces.store = make(map[string]int64)
+	usedNonces.expiryBuckets = make(map[int64]map[string]struct{})
 	usedNonces.Unlock()
 }
 
@@ -27,7 +28,11 @@ func TestCheckAndStoreNonceAllowsReuseAfterTTL(t *testing.T) {
 
 	now := time.Now().Unix()
 	usedNonces.Lock()
-	usedNonces.store["http:nonce-2"] = now - nonceTTLSeconds - 1
+	oldExpiry := now - 1
+	usedNonces.store["http:nonce-2"] = oldExpiry
+	usedNonces.expiryBuckets[oldExpiry] = map[string]struct{}{
+		"http:nonce-2": {},
+	}
 	usedNonces.Unlock()
 
 	if ok := checkAndStoreNonce("http", "nonce-2"); !ok {
@@ -43,8 +48,16 @@ func TestCleanupExpiredNonces(t *testing.T) {
 
 	now := time.Now().Unix()
 	usedNonces.Lock()
-	usedNonces.store["ws:old"] = now - nonceTTLSeconds - 10
-	usedNonces.store["ws:new"] = now
+	oldExpiry := now - 10
+	newExpiry := now + nonceTTLSeconds
+	usedNonces.store["ws:old"] = oldExpiry
+	usedNonces.store["ws:new"] = newExpiry
+	usedNonces.expiryBuckets[oldExpiry] = map[string]struct{}{
+		"ws:old": {},
+	}
+	usedNonces.expiryBuckets[newExpiry] = map[string]struct{}{
+		"ws:new": {},
+	}
 	usedNonces.Unlock()
 
 	removed := cleanupExpiredNonces(now)

@@ -310,6 +310,17 @@ func getGroupsFilePath() string {
 	return filepath.Join(serverConfig.DataDir, "groups.json")
 }
 
+func cloneGroupInfos(src []GroupInfo) []GroupInfo {
+	out := make([]GroupInfo, len(src))
+	for i, group := range src {
+		out[i] = group
+		if group.DeviceIDs != nil {
+			out[i].DeviceIDs = append([]string(nil), group.DeviceIDs...)
+		}
+	}
+	return out
+}
+
 // getGroupScriptConfigsFilePath returns the path to the group script configs file
 func getGroupScriptConfigsFilePath() string {
 	return filepath.Join(serverConfig.DataDir, "group_script_configs.json")
@@ -340,8 +351,15 @@ func loadGroups() error {
 
 // saveGroups saves device groups to disk
 func saveGroups() error {
+	deviceGroupsMu.RLock()
+	snapshot := cloneGroupInfos(deviceGroups)
+	deviceGroupsMu.RUnlock()
+	return saveGroupsSnapshot(snapshot)
+}
+
+func saveGroupsSnapshot(groups []GroupInfo) error {
 	filePath := getGroupsFilePath()
-	data, err := json.MarshalIndent(deviceGroups, "", "  ")
+	data, err := json.MarshalIndent(groups, "", "  ")
 	if err != nil {
 		return err
 	}

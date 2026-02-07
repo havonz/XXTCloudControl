@@ -27,9 +27,11 @@ const (
 
 var usedNonces = struct {
 	sync.Mutex
-	store map[string]int64
+	store         map[string]int64
+	expiryBuckets map[int64]map[string]struct{}
 }{
-	store: make(map[string]int64),
+	store:         make(map[string]int64),
+	expiryBuckets: make(map[int64]map[string]struct{}),
 }
 
 func debugAuthf(format string, args ...interface{}) {
@@ -47,15 +49,20 @@ func isTimestampValid(ts int64) bool {
 }
 
 func cleanupExpiredNonces(now int64) int {
-	cutoff := now - nonceTTLSeconds
 	removed := 0
 
 	usedNonces.Lock()
-	for k, ts := range usedNonces.store {
-		if ts < cutoff {
-			delete(usedNonces.store, k)
-			removed++
+	for expiresAt, keys := range usedNonces.expiryBuckets {
+		if expiresAt > now {
+			continue
 		}
+		for key := range keys {
+			if storedExpiresAt, ok := usedNonces.store[key]; ok && storedExpiresAt <= now {
+				delete(usedNonces.store, key)
+				removed++
+			}
+		}
+		delete(usedNonces.expiryBuckets, expiresAt)
 	}
 	usedNonces.Unlock()
 
@@ -76,18 +83,34 @@ func checkAndStoreNonce(namespace, nonce string) bool {
 	if nonce == "" {
 		return false
 	}
-	currentTime := time.Now().Unix()
-	cutoff := currentTime - nonceTTLSeconds
+	now := time.Now().Unix()
+	expiresAt := now + nonceTTLSeconds
 	key := namespace + ":" + nonce
 
 	usedNonces.Lock()
 	defer usedNonces.Unlock()
 
-	if ts, exists := usedNonces.store[key]; exists && ts >= cutoff {
-		debugAuthf("[auth] nonce replay rejected: ns=%s nonce=%s", namespace, nonce)
-		return false
+	if storedExpiresAt, exists := usedNonces.store[key]; exists {
+		if storedExpiresAt > now {
+			debugAuthf("[auth] nonce replay rejected: ns=%s nonce=%s", namespace, nonce)
+			return false
+		}
+		// Clean stale index entry from its previous expiry bucket.
+		if bucket, ok := usedNonces.expiryBuckets[storedExpiresAt]; ok {
+			delete(bucket, key)
+			if len(bucket) == 0 {
+				delete(usedNonces.expiryBuckets, storedExpiresAt)
+			}
+		}
 	}
-	usedNonces.store[key] = currentTime
+
+	usedNonces.store[key] = expiresAt
+	bucket := usedNonces.expiryBuckets[expiresAt]
+	if bucket == nil {
+		bucket = make(map[string]struct{})
+		usedNonces.expiryBuckets[expiresAt] = bucket
+	}
+	bucket[key] = struct{}{}
 	return true
 }
 

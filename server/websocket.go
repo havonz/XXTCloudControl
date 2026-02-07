@@ -1294,24 +1294,21 @@ func sendMessageAsync(conn *SafeConn, msg Message) {
 
 // handleDisconnection handles WebSocket disconnection
 func handleDisconnection(conn *SafeConn) {
-	mu.Lock()
-	defer mu.Unlock()
+	var (
+		unsubscribeTargets []*SafeConn
+		disconnectTargets  []*SafeConn
+		disconnectUDID     string
+	)
 
+	mu.Lock()
 	wsDebugf("Connection closed: %s", conn.RemoteAddr())
 
 	if _, isController := controllers[conn]; isController {
 		wsDebugf("Controller %s disconnected", conn.RemoteAddr())
 		emptied := removeLogSubscriberFromAllLocked(conn)
-		if len(emptied) > 0 {
-			unsubscribePayload, err := json.Marshal(Message{Type: "system/log/unsubscribe"})
-			if err != nil {
-				log.Printf("Failed to marshal unsubscribe message: %v", err)
-			} else {
-				for _, udid := range emptied {
-					if deviceConn, exists := deviceLinks[udid]; exists {
-						writeTextMessageAsync(deviceConn, unsubscribePayload)
-					}
-				}
+		for _, udid := range emptied {
+			if deviceConn, exists := deviceLinks[udid]; exists {
+				unsubscribeTargets = append(unsubscribeTargets, deviceConn)
 			}
 		}
 		for id, route := range binaryRoutes {
@@ -1320,6 +1317,18 @@ func handleDisconnection(conn *SafeConn) {
 			}
 		}
 		delete(controllers, conn)
+		mu.Unlock()
+
+		if len(unsubscribeTargets) > 0 {
+			unsubscribePayload, err := json.Marshal(Message{Type: "system/log/unsubscribe"})
+			if err != nil {
+				log.Printf("Failed to marshal unsubscribe message: %v", err)
+			} else {
+				for _, deviceConn := range unsubscribeTargets {
+					writeTextMessageAsync(deviceConn, unsubscribePayload)
+				}
+			}
+		}
 		return
 	}
 
@@ -1329,6 +1338,7 @@ func handleDisconnection(conn *SafeConn) {
 		delete(deviceLinksMap, conn)
 
 		if currentConn, ok := deviceLinks[udid]; ok && currentConn != conn {
+			mu.Unlock()
 			return
 		}
 
@@ -1348,19 +1358,25 @@ func handleDisconnection(conn *SafeConn) {
 		}
 
 		if len(controllers) > 0 {
-			disconnectMsg := Message{
-				Type: "device/disconnect",
-				Body: udid,
-			}
-			disconnectPayload, err := json.Marshal(disconnectMsg)
-			if err != nil {
-				log.Printf("Failed to marshal disconnect message for %s: %v", udid, err)
-				return
-			}
+			disconnectUDID = udid
+			disconnectTargets = snapshotControllerConnsLocked()
+		}
+	}
+	mu.Unlock()
 
-			for controllerConn := range controllers {
-				writeTextMessageAsync(controllerConn, disconnectPayload)
-			}
+	if disconnectUDID != "" && len(disconnectTargets) > 0 {
+		disconnectMsg := Message{
+			Type: "device/disconnect",
+			Body: disconnectUDID,
+		}
+		disconnectPayload, err := json.Marshal(disconnectMsg)
+		if err != nil {
+			log.Printf("Failed to marshal disconnect message for %s: %v", disconnectUDID, err)
+			return
+		}
+
+		for _, controllerConn := range disconnectTargets {
+			writeTextMessageAsync(controllerConn, disconnectPayload)
 		}
 	}
 }
