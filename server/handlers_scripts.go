@@ -744,6 +744,15 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		return base64.StdEncoding.EncodeToString(newJSON), true
 	}
 
+	runName := req.Name
+	if isPiled {
+		if _, err := os.Stat(filepath.Join(scriptPath, "lua", "scripts", "main.lua")); err == nil {
+			runName = "main.lua"
+		} else {
+			runName = "main.xxt"
+		}
+	}
+
 	deviceConns := snapshotDeviceConns(req.Devices)
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
@@ -843,15 +852,6 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 						},
 					}
 					sendMessageAsync(conn, fetchMsg)
-				}
-			}
-
-			runName := req.Name
-			if isPiled {
-				if _, err := os.Stat(filepath.Join(scriptPath, "lua", "scripts", "main.lua")); err == nil {
-					runName = "main.lua"
-				} else {
-					runName = "main.xxt"
 				}
 			}
 
