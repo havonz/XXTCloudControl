@@ -520,8 +520,27 @@ func calculateFileMD5(filePath string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+func snapshotControllerConns() []*SafeConn {
+	mu.RLock()
+	if len(controllers) == 0 {
+		mu.RUnlock()
+		return nil
+	}
+	controllerList := make([]*SafeConn, 0, len(controllers))
+	for conn := range controllers {
+		controllerList = append(controllerList, conn)
+	}
+	mu.RUnlock()
+	return controllerList
+}
+
 // broadcastTransferProgress sends transfer progress to all connected controllers
 func broadcastTransferProgress(progress TransferProgress) {
+	controllerList := snapshotControllerConns()
+	if len(controllerList) == 0 {
+		return
+	}
+
 	msg := Message{
 		Type: "transfer/progress",
 		Body: progress,
@@ -533,13 +552,6 @@ func broadcastTransferProgress(progress TransferProgress) {
 		return
 	}
 
-	mu.RLock()
-	controllerList := make([]*SafeConn, 0, len(controllers))
-	for conn := range controllers {
-		controllerList = append(controllerList, conn)
-	}
-	mu.RUnlock()
-
 	for _, conn := range controllerList {
 		writeTextMessageAsync(conn, data)
 	}
@@ -547,6 +559,11 @@ func broadcastTransferProgress(progress TransferProgress) {
 
 // broadcastDeviceMessage sends a status message for a device to all connected controllers
 func broadcastDeviceMessage(udid string, message string) {
+	controllerList := snapshotControllerConns()
+	if len(controllerList) == 0 {
+		return
+	}
+
 	msg := Message{
 		Type: "device/message",
 		Body: map[string]string{
@@ -560,14 +577,6 @@ func broadcastDeviceMessage(udid string, message string) {
 		fmt.Printf("❌ Failed to marshal device message: %v\n", err)
 		return
 	}
-
-	// Copy controllers list to avoid deadlock when called from functions holding mu.Lock()
-	mu.RLock()
-	controllerList := make([]*SafeConn, 0, len(controllers))
-	for conn := range controllers {
-		controllerList = append(controllerList, conn)
-	}
-	mu.RUnlock()
 
 	// Send messages without holding the lock
 	for _, conn := range controllerList {

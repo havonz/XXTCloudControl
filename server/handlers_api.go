@@ -43,7 +43,11 @@ func isRequestAuthorized(c *gin.Context) bool {
 	}
 	var bodyBytes []byte
 	contentType := c.GetHeader("Content-Type")
-	if !strings.HasPrefix(contentType, "multipart/form-data") {
+	shouldReadBody := !strings.HasPrefix(contentType, "multipart/form-data") &&
+		(c.Request.ContentLength != 0 || len(c.Request.TransferEncoding) > 0) &&
+		c.Request.Method != http.MethodGet &&
+		c.Request.Method != http.MethodHead
+	if shouldReadBody {
 		bodyBytes, c.Request.Body, err = readRequestBodyBytes(c.Request.Body)
 		if err != nil {
 			return false
