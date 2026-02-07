@@ -186,7 +186,7 @@ func serverFilesUploadHandler(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("📤 File uploaded: %s/%s/%s\n", category, subPath, header.Filename)
+	debugLogf("📤 File uploaded: %s/%s/%s", category, subPath, header.Filename)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
@@ -291,7 +291,7 @@ func serverFilesDeleteHandler(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("🗑️ Deleted: %s/%s\n", category, subPath)
+	debugLogf("🗑️ Deleted: %s/%s", category, subPath)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
@@ -356,7 +356,7 @@ func serverFilesCreateHandler(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory"})
 			return
 		}
-		fmt.Printf("📁 Created directory: %s/%s/%s\n", req.Category, req.Path, req.Name)
+		debugLogf("📁 Created directory: %s/%s/%s", req.Category, req.Path, req.Name)
 	} else {
 		file, err := os.Create(targetPath)
 		if err != nil {
@@ -371,7 +371,7 @@ func serverFilesCreateHandler(c *gin.Context) {
 				return
 			}
 		}
-		fmt.Printf("📄 Created file: %s/%s/%s\n", req.Category, req.Path, req.Name)
+		debugLogf("📄 Created file: %s/%s/%s", req.Category, req.Path, req.Name)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -424,7 +424,7 @@ func serverFilesRenameHandler(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("📝 Renamed: %s/%s -> %s\n", req.Category, req.OldName, req.NewName)
+	debugLogf("📝 Renamed: %s/%s -> %s", req.Category, req.OldName, req.NewName)
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
@@ -522,7 +522,7 @@ func serverFilesSaveHandler(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("💾 Saved file: %s/%s\n", req.Category, req.Path)
+	debugLogf("💾 Saved file: %s/%s", req.Category, req.Path)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -745,7 +745,7 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 		successCount++
 	}
 
-	fmt.Printf("📋 Batch copy: %d/%d items copied from %s/%s to %s/%s\n", successCount, len(req.Items), srcCategory, req.SrcPath, dstCategory, req.DstPath)
+	debugLogf("📋 Batch copy: %d/%d items copied from %s/%s to %s/%s", successCount, len(req.Items), srcCategory, req.SrcPath, dstCategory, req.DstPath)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":      successCount == len(req.Items),
@@ -879,7 +879,7 @@ func serverFilesBatchMoveHandler(c *gin.Context) {
 		successCount++
 	}
 
-	fmt.Printf("✂️ Batch move: %d/%d items moved from %s/%s to %s/%s\n", successCount, len(req.Items), srcCategory, req.SrcPath, dstCategory, req.DstPath)
+	debugLogf("✂️ Batch move: %d/%d items moved from %s/%s to %s/%s", successCount, len(req.Items), srcCategory, req.SrcPath, dstCategory, req.DstPath)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":      successCount == len(req.Items),

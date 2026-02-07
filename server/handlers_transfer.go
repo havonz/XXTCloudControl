@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -180,7 +181,7 @@ func createTransferTokenHandler(c *gin.Context) {
 		transferURL = fmt.Sprintf("/api/transfer/upload/%s", token)
 	}
 
-	fmt.Printf("🔑 Transfer token created: %s (%s) for device %s\n", token[:8]+"...", req.Type, req.DeviceSN)
+	debugLogf("🔑 Transfer token created: %s (%s) for device %s", token[:8]+"...", req.Type, req.DeviceSN)
 
 	c.JSON(http.StatusOK, gin.H{
 		"token":      token,
@@ -347,26 +348,26 @@ func transferDownloadHandler(c *gin.Context) {
 		},
 	}
 
-	fmt.Printf("📥 Download started: %s → device %s (%d bytes)\n",
+	debugLogf("📥 Download started: %s → device %s (%d bytes)",
 		fileName, tokenInfo.DeviceSN, info.Size())
 
 	// Stream file content
 	_, err = io.Copy(pw, file)
 	if err != nil {
-		fmt.Printf("❌ Download failed: %s - %v\n", fileName, err)
+		log.Printf("❌ Download failed: %s - %v", fileName, err)
 		return
 	}
 
-	fmt.Printf("✅ Download completed: %s → device %s\n", fileName, tokenInfo.DeviceSN)
+	debugLogf("✅ Download completed: %s → device %s", fileName, tokenInfo.DeviceSN)
 
 	// Clean up temp files after successful download
 	// Only delete files from the _temp directory
 	if strings.Contains(tokenInfo.FilePath, string(filepath.Separator)+"_temp"+string(filepath.Separator)) {
 		go func(filePath string) {
 			if err := os.Remove(filePath); err != nil {
-				fmt.Printf("⚠️ Failed to clean temp file: %s - %v\n", filePath, err)
+				log.Printf("⚠️ Failed to clean temp file: %s - %v", filePath, err)
 			} else {
-				fmt.Printf("🧹 Cleaned temp file: %s\n", filepath.Base(filePath))
+				debugLogf("🧹 Cleaned temp file: %s", filepath.Base(filePath))
 			}
 		}(tokenInfo.FilePath)
 	}
@@ -439,13 +440,13 @@ func transferUploadHandler(c *gin.Context) {
 	}
 
 	fileName := filepath.Base(tokenInfo.FilePath)
-	fmt.Printf("📤 Upload started: device %s → %s (%d bytes)\n",
+	debugLogf("📤 Upload started: device %s → %s (%d bytes)",
 		tokenInfo.DeviceSN, fileName, contentLength)
 
 	// Copy with progress tracking
 	written, err := io.Copy(file, pr)
 	if err != nil {
-		fmt.Printf("❌ Upload failed: %s - %v\n", fileName, err)
+		log.Printf("❌ Upload failed: %s - %v", fileName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file"})
 		return
 	}
@@ -454,7 +455,7 @@ func transferUploadHandler(c *gin.Context) {
 	file.Seek(0, 0)
 	md5Hash, _ := calculateFileMD5Cached(tokenInfo.FilePath, nil)
 
-	fmt.Printf("✅ Upload completed: device %s → %s (%d bytes, MD5: %s)\n",
+	debugLogf("✅ Upload completed: device %s → %s (%d bytes, MD5: %s)",
 		tokenInfo.DeviceSN, fileName, written, md5Hash)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -548,7 +549,7 @@ func broadcastTransferProgress(progress TransferProgress) {
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		fmt.Printf("❌ Failed to marshal progress: %v\n", err)
+		log.Printf("❌ Failed to marshal progress: %v", err)
 		return
 	}
 
@@ -574,7 +575,7 @@ func broadcastDeviceMessage(udid string, message string) {
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		fmt.Printf("❌ Failed to marshal device message: %v\n", err)
+		log.Printf("❌ Failed to marshal device message: %v", err)
 		return
 	}
 
@@ -720,7 +721,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		// Broadcast status to frontend
 		broadcastDeviceMessage(req.DeviceSN, fmt.Sprintf("发送文件 %s", filepath.Base(req.Path)))
 
-		fmt.Printf("📤 Push file (small): %s → device %s:%s (%d bytes)\n", req.Path, req.DeviceSN, req.TargetPath, fileSize)
+		debugLogf("📤 Push file (small): %s → device %s:%s (%d bytes)", req.Path, req.DeviceSN, req.TargetPath, fileSize)
 
 		c.JSON(http.StatusOK, gin.H{
 			"success":    true,
@@ -778,7 +779,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("📤 Push file (large): %s → device %s:%s (%d bytes)\n", req.Path, req.DeviceSN, req.TargetPath, fileSize)
+	debugLogf("📤 Push file (large): %s → device %s:%s (%d bytes)", req.Path, req.DeviceSN, req.TargetPath, fileSize)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
@@ -866,7 +867,7 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("📥 Pull file initiated: device %s:%s → %s\n", req.DeviceSN, req.SourcePath, req.Path)
+	debugLogf("📥 Pull file initiated: device %s:%s → %s", req.DeviceSN, req.SourcePath, req.Path)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

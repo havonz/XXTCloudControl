@@ -603,7 +603,7 @@ func checkAndUpdateDeviceLife() {
 	mu.Lock()
 	for udid, life := range deviceLife {
 		if life <= 0 {
-			fmt.Printf("Device %s life exhausted, will disconnect\n", udid)
+			wsDebugf("Device %s life exhausted, will disconnect", udid)
 			if deviceConn, exists := deviceLinks[udid]; exists {
 				disconnectTargets = append(disconnectTargets, deviceTarget{
 					udid: udid,
@@ -618,7 +618,7 @@ func checkAndUpdateDeviceLife() {
 
 	for _, target := range disconnectTargets {
 		go func(dc *SafeConn, deviceUDID string) {
-			fmt.Printf("Disconnecting device %s due to life exhaustion\n", deviceUDID)
+			wsDebugf("Disconnecting device %s due to life exhaustion", deviceUDID)
 			dc.Close()
 			handleDisconnection(dc)
 		}(target.conn, target.udid)
@@ -645,7 +645,7 @@ func handleWebSocketConnection(c *gin.Context) {
 		return nil
 	})
 
-	fmt.Printf("New connection from: %s\n", safeConn.RemoteAddr())
+	wsDebugf("New connection from: %s", safeConn.RemoteAddr())
 
 	for {
 		messageType, messageBytes, err := safeConn.ReadMessage()
@@ -833,7 +833,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return err
 		}
 
-		log.Printf("[http] Received control/http for devices: %v, path: %s", httpReq.Devices, httpReq.Path)
+		httpDebugf("[http] Received control/http for devices: %v, path: %s", httpReq.Devices, httpReq.Path)
 
 		// 构建发送给设备的消息
 		httpBody := map[string]interface{}{
@@ -873,7 +873,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 				newBodyBytes, err := json.Marshal(originalBody)
 				if err == nil {
 					httpBody["body"] = base64.StdEncoding.EncodeToString(newBodyBytes)
-					log.Printf("[http] Injected TURN server config for WebRTC start request")
+					httpDebugf("[http] Injected TURN server config for WebRTC start request")
 				}
 			}
 		}
@@ -898,14 +898,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 			if deviceConn, exists := deviceConns[udid]; exists {
 				deviceUDID := udid
 				dc := deviceConn
-				log.Printf("[http] Sending http/request to device %s", udid)
+				httpDebugf("[http] Sending http/request to device %s", udid)
 				runAsyncWrite(func() {
 					if err := writeTextMessage(dc, httpBytes); err != nil {
 						log.Printf("[http] Failed to send to device %s: %v", deviceUDID, err)
 					}
 				})
 			} else {
-				log.Printf("[http] Device %s not found in deviceLinks", udid)
+				httpDebugf("[http] Device %s not found in deviceLinks", udid)
 			}
 		}
 
@@ -959,14 +959,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 			if deviceConn, exists := deviceConns[udid]; exists {
 				deviceUDID := udid
 				dc := deviceConn
-				log.Printf("[http-bin] Sending http/request-bin to device %s", udid)
+				httpDebugf("[http-bin] Sending http/request-bin to device %s", udid)
 				runAsyncWrite(func() {
 					if err := writeTextMessage(dc, httpBytes); err != nil {
 						log.Printf("[http-bin] Failed to send to device %s: %v", deviceUDID, err)
 					}
 				})
 			} else {
-				log.Printf("[http-bin] Device %s not found in deviceLinks", udid)
+				httpDebugf("[http-bin] Device %s not found in deviceLinks", udid)
 			}
 		}
 
@@ -1202,7 +1202,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 		if udid != "" && len(controllerList) > 0 {
 			// 记录转发的消息类型
 			if data.Type == "http/response" || data.Type == "http/request" {
-				log.Printf("[%s] Forwarding %s from device %s to %d controllers", data.Type, data.Type, udid, len(controllerList))
+				httpDebugf("[%s] Forwarding %s from device %s to %d controllers", data.Type, data.Type, udid, len(controllerList))
 			}
 			data.UDID = udid
 			encodedData, err := json.Marshal(data)
@@ -1297,10 +1297,10 @@ func handleDisconnection(conn *SafeConn) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	fmt.Printf("Connection closed: %s\n", conn.RemoteAddr())
+	wsDebugf("Connection closed: %s", conn.RemoteAddr())
 
 	if _, isController := controllers[conn]; isController {
-		fmt.Printf("Controller %s disconnected\n", conn.RemoteAddr())
+		wsDebugf("Controller %s disconnected", conn.RemoteAddr())
 		emptied := removeLogSubscriberFromAllLocked(conn)
 		if len(emptied) > 0 {
 			unsubscribePayload, err := json.Marshal(Message{Type: "system/log/unsubscribe"})
@@ -1324,7 +1324,7 @@ func handleDisconnection(conn *SafeConn) {
 	}
 
 	if udid, exists := deviceLinksMap[conn]; exists {
-		fmt.Printf("Device %s disconnected\n", udid)
+		wsDebugf("Device %s disconnected", udid)
 
 		delete(deviceLinksMap, conn)
 

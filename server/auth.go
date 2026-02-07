@@ -10,7 +10,6 @@ import (
 	"io"
 	"log"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -34,7 +33,7 @@ var usedNonces = struct {
 }
 
 func debugAuthf(format string, args ...interface{}) {
-	if os.Getenv("XXT_AUTH_DEBUG") != "" {
+	if authDebugEnabled() {
 		log.Printf(format, args...)
 	}
 }
