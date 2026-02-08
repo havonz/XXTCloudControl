@@ -1,0 +1,21 @@
+# Slim Dockerfile for CI release (uses pre-built artifacts)
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates \
+  && addgroup -S app \
+  && adduser -S -G app -u 10001 app
+
+WORKDIR /app
+RUN mkdir -p /app/frontend /app/data
+
+ARG TARGETARCH
+COPY xxtcloudserver-linux-${TARGETARCH} /app/xxtcloudserver
+COPY frontend/ /app/frontend/
+
+RUN chmod +x /app/xxtcloudserver \
+  && chown -R app:app /app
+
+USER app
+
+EXPOSE 46980 43478/tcp 43478/udp
+ENTRYPOINT ["./xxtcloudserver"]

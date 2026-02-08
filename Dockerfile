@@ -1,6 +1,14 @@
 # syntax=docker/dockerfile:1.6
 
 FROM node:20-alpine AS frontend-build
+WORKDIR /app
+# Install rsvg-convert for icon generation
+RUN apk add --no-cache rsvg-convert
+# Copy assets and generate-icons script first
+COPY assets/ assets/
+COPY generate-icons.sh ./
+RUN chmod +x generate-icons.sh && ./generate-icons.sh
+# Now build frontend
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci

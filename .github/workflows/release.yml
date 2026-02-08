@@ -76,6 +76,14 @@ jobs:
             echo "COMMIT=$COMMIT"
           } >> "$GITHUB_ENV"
 
+      - name: Generate icons from SVG
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y librsvg2-bin
+          chmod +x generate-icons.sh
+          ./generate-icons.sh
+
       - name: Build frontend
         run: |
           set -euo pipefail
@@ -135,21 +143,25 @@ jobs:
           set -euo pipefail
           ROOT="$GITHUB_WORKSPACE"
           RELEASE_DIR="$ROOT/release"
-          mkdir -p "$RELEASE_DIR"
+          FRONTEND_DIST="$ROOT/frontend/dist"
 
-          DOCKER_IMAGE_NAME="xxtcloudcontrol"
-          for platform in linux/amd64 linux/arm64; do
-            IFS='/' read -r TARGETOS TARGETARCH <<< "$platform"
-            OUTPUT_TAR="$RELEASE_DIR/XXTCloudControl-docker-$BUILD_TIME-$TARGETOS-$TARGETARCH.tar"
+          for arch in amd64 arm64; do
+            OUTPUT_TAR="$RELEASE_DIR/XXTCloudControl-docker-$BUILD_TIME-linux-$arch.tar"
+            DOCKER_BUILD_DIR="$RELEASE_DIR/.docker-$arch"
+
+            mkdir -p "$DOCKER_BUILD_DIR"
+            cp "$RELEASE_DIR/xxtcloudserver-linux-$arch" "$DOCKER_BUILD_DIR/"
+            cp -R "$FRONTEND_DIST" "$DOCKER_BUILD_DIR/frontend"
+            cp Dockerfile.release "$DOCKER_BUILD_DIR/Dockerfile"
 
             docker buildx build \
-              --platform "$platform" \
-              --build-arg BUILD_TIME="$BUILD_TIME" \
-              --build-arg VERSION="$VERSION" \
-              --build-arg COMMIT="$COMMIT" \
-              -t "$DOCKER_IMAGE_NAME:$VERSION-$TARGETARCH" \
+              --platform "linux/$arch" \
+              --build-arg TARGETARCH="$arch" \
+              -t "xxtcloudcontrol:$VERSION-$arch" \
               --output "type=docker,dest=$OUTPUT_TAR" \
-              "$ROOT"
+              "$DOCKER_BUILD_DIR"
+
+            rm -rf "$DOCKER_BUILD_DIR"
           done
 
           ls -la "$RELEASE_DIR"/*.tar
