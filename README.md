@@ -1,7 +1,9 @@
 # XXTCloudControl
 
 用于 XXTouch 1.3.8-20260122000000+ 的云控服务端（WebSocket + 静态前端）与管理面板。  
-设备端协议实现源码见 `device-client/open-cloud-control-client.lua`（设备上通常位于 `/var/mobile/Media/1ferver/bin/open-cloud-control-client.lua`）。  
+设备端协议实现源码位于设备端 `/var/mobile/Media/1ferver/bin/open-cloud-control-client.lua`。  
+
+![Screenshot](docs/screenshot-001.png)
 
 ## 项目结构
 
