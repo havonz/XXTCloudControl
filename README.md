@@ -5,6 +5,11 @@
 
 ![Screenshot](docs/screenshot-001.png)
 
+## 发布地址
+
+- 各平台发布版本列表：[https://github.com/havonz/XXTCloudControl/releases](https://github.com/havonz/XXTCloudControl/releases)
+
+
 ## 项目结构
 
 - `server/` - 后端 WebSocket/HTTP 服务（入口 `server/main.go`）
