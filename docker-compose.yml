@@ -1,6 +1,6 @@
 services:
   xxtcloudcontrol:
-    image: havonz/xxtcloudcontrol
+    image: ghcr.io/havonz/xxtcloudcontrol
     container_name: xxtcloudcontrol
     restart: unless-stopped
     ports:
