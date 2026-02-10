@@ -936,7 +936,8 @@ export class WebSocketService {
     // 处理传输完成
     if (message.type === 'transfer/fetch/complete' || message.type === 'transfer/send/complete') {
       this.handleTransferComplete(message);
-      return;
+      // Do NOT return here - App.tsx onMessage handler needs this message
+      // to trigger browser download for large file transfers
     }
 
     // 处理设备列表响应
