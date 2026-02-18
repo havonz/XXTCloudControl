@@ -290,15 +290,23 @@
 /* Scrollbar */
 .fileList::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 .fileList::-webkit-scrollbar-track {
   background: transparent;
+  border-radius: 999px;
 }
 
 .fileList::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 3px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+.fileList::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Responsive adjustments */

@@ -217,13 +217,30 @@
   gap: 1rem;
   flex-wrap: nowrap;
   overflow-x: auto;
-  scrollbar-width: none; /* Hide scrollbar Firefox */
-  -ms-overflow-style: none; /* Hide scrollbar IE/Edge */
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
   backdrop-filter: blur(8px);
 }
 
 .selectToolbar::-webkit-scrollbar {
-  display: none; /* Hide scrollbar Chrome/Safari */
+  width: 6px;
+  height: 6px;
+}
+
+.selectToolbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.selectToolbar::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+.selectToolbar::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 .selectInfo {
@@ -448,6 +465,8 @@
   overflow-x: hidden;
   border-radius: 0 0 8px 8px;
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .tableRow {
@@ -603,26 +622,51 @@
 }
 
 /* Custom Scrollbar */
-.fileList::-webkit-scrollbar,
-.tableBody::-webkit-scrollbar {
-  width: 8px;
+.fileList::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-.fileList::-webkit-scrollbar-track,
-.tableBody::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-  border-radius: 4px;
+.fileList::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
 }
 
-.fileList::-webkit-scrollbar-thumb,
-.tableBody::-webkit-scrollbar-thumb {
+.fileList::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 4px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
-.fileList::-webkit-scrollbar-thumb:hover,
-.tableBody::-webkit-scrollbar-thumb:hover {
+.fileList::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
+}
+
+.mainFileList .tableBody::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.mainFileList .tableBody::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 6px;
+  border-radius: 999px;
+}
+
+.mainFileList .tableBody::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+.mainFileList .tableBody::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.mainFileList .tableBody::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* 拖拽上传样式 */

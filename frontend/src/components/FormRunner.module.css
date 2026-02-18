@@ -218,27 +218,28 @@
 /* Scrollbar styles for scroll area */
 .scrollArea {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklab, var(--text) 50%, transparent) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .scrollArea::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 6px;
+  height: 6px;
 }
 
 .scrollArea::-webkit-scrollbar-track {
   background: transparent;
-  border-left: 1px solid color-mix(in oklab, var(--text) 6%, transparent);
+  border-radius: 999px;
 }
 
 .scrollArea::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, color-mix(in oklab, var(--text) 18%, transparent), color-mix(in oklab, var(--text) 28%, transparent));
-  border-radius: 10px;
-  border: 1px solid color-mix(in oklab, var(--text) 8%, transparent);
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
 .scrollArea::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, color-mix(in oklab, var(--text) 24%, transparent), color-mix(in oklab, var(--text) 36%, transparent));
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Footer button styles */

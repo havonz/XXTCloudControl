@@ -298,22 +298,24 @@ code {
 /* Global themed scrollbar styles */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-  border-radius: 4px;
+  background: transparent;
+  border-radius: 999px;
 }
 
 *::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 4px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
@@ -321,7 +323,7 @@ code {
 }
 
 *::-webkit-scrollbar-corner {
-  background: var(--scrollbar-track);
+  background: transparent;
 }
 
 
@@ -398,22 +400,24 @@ code {
   
   /* Themed scrollbar */
   scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .cbx-panel::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 .cbx-panel::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-  border-radius: 4px;
+  background: transparent;
+  border-radius: 999px;
 }
 
 .cbx-panel::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 4px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
 .cbx-panel::-webkit-scrollbar-thumb:hover {
