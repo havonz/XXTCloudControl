@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,13 +12,18 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-const scriptLargeFileThreshold int64 = 128 * 1024
+const (
+	scriptLargeFileThreshold = 128 * 1024
+	scriptPackageCacheMax    = 64
+	scriptPackageCacheTrimTo = 48
+)
 
 type scriptFileData struct {
 	Path           string
@@ -32,6 +39,18 @@ type md5Result struct {
 	err  error
 }
 
+type scriptPackageCacheEntry struct {
+	signature string
+	files     []scriptFileData
+}
+
+var scriptPackageCache = struct {
+	sync.RWMutex
+	entries map[string]scriptPackageCacheEntry
+}{
+	entries: make(map[string]scriptPackageCacheEntry),
+}
+
 func normalizeScriptPath(path string) string {
 	return strings.ReplaceAll(path, "\\", "/")
 }
@@ -39,6 +58,109 @@ func normalizeScriptPath(path string) string {
 func isMainJSONPath(path string) bool {
 	normalized := normalizeScriptPath(path)
 	return normalized == "lua/scripts/main.json" || strings.HasSuffix(normalized, "/main.json")
+}
+
+func cloneScriptFileDataSlice(src []scriptFileData) []scriptFileData {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]scriptFileData, len(src))
+	copy(dst, src)
+	return dst
+}
+
+func scriptPackageCacheKey(scriptRootPath string, scriptName string, isDir bool, isPiled bool) string {
+	return fmt.Sprintf("%s|%s|%t|%t", scriptRootPath, scriptName, isDir, isPiled)
+}
+
+// buildScriptSourceSignature computes a content signature using relative path + size + mtime.
+// It avoids reading full file contents, and is used for cache invalidation.
+func buildScriptSourceSignature(scriptRootPath string, isDir bool) (string, error) {
+	signatureHash := sha256.New()
+	writePart := func(value string) {
+		_, _ = signatureHash.Write([]byte(value))
+		_, _ = signatureHash.Write([]byte{0})
+	}
+
+	if !isDir {
+		info, err := os.Stat(scriptRootPath)
+		if err != nil {
+			return "", err
+		}
+		writePart("file")
+		writePart(strconv.FormatInt(info.Size(), 10))
+		writePart(strconv.FormatInt(info.ModTime().UnixNano(), 10))
+		return hex.EncodeToString(signatureHash.Sum(nil)), nil
+	}
+
+	walkErr := filepath.Walk(scriptRootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		relPath, relErr := filepath.Rel(scriptRootPath, path)
+		if relErr != nil {
+			return relErr
+		}
+		writePart(normalizeScriptPath(relPath))
+		writePart(strconv.FormatInt(info.Size(), 10))
+		writePart(strconv.FormatInt(info.ModTime().UnixNano(), 10))
+		return nil
+	})
+	if walkErr != nil {
+		return "", walkErr
+	}
+
+	return hex.EncodeToString(signatureHash.Sum(nil)), nil
+}
+
+func trimScriptPackageCacheLocked() {
+	if len(scriptPackageCache.entries) < scriptPackageCacheMax {
+		return
+	}
+	toRemove := len(scriptPackageCache.entries) - scriptPackageCacheTrimTo
+	if toRemove <= 0 {
+		toRemove = 1
+	}
+	for key := range scriptPackageCache.entries {
+		delete(scriptPackageCache.entries, key)
+		toRemove--
+		if toRemove == 0 {
+			break
+		}
+	}
+}
+
+func collectScriptFilesCached(scriptRootPath string, scriptName string, isDir bool, isPiled bool) ([]scriptFileData, error) {
+	signature, err := buildScriptSourceSignature(scriptRootPath, isDir)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheKey := scriptPackageCacheKey(scriptRootPath, scriptName, isDir, isPiled)
+	scriptPackageCache.RLock()
+	entry, ok := scriptPackageCache.entries[cacheKey]
+	scriptPackageCache.RUnlock()
+	if ok && entry.signature == signature {
+		return cloneScriptFileDataSlice(entry.files), nil
+	}
+
+	filesToSend, err := collectScriptFiles(scriptRootPath, scriptName, isDir, isPiled)
+	if err != nil {
+		return nil, err
+	}
+
+	scriptPackageCache.Lock()
+	trimScriptPackageCacheLocked()
+	scriptPackageCache.entries[cacheKey] = scriptPackageCacheEntry{
+		signature: signature,
+		files:     cloneScriptFileDataSlice(filesToSend),
+	}
+	scriptPackageCache.Unlock()
+
+	return filesToSend, nil
 }
 
 func getSelectableScriptPath(basePath string, name string, isDir bool) (string, bool) {
@@ -388,7 +510,7 @@ func scriptsSendHandler(c *gin.Context) {
 		}
 	}
 
-	filesToSend, err := collectScriptFiles(scriptPath, req.Name, isDir, isPiled)
+	filesToSend, err := collectScriptFilesCached(scriptPath, req.Name, isDir, isPiled)
 	if err != nil {
 		errorMsg := "failed to read script directory"
 		if !isDir {
@@ -628,7 +750,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		}
 	}
 
-	filesToSend, err := collectScriptFiles(scriptPath, req.Name, isDir, isPiled)
+	filesToSend, err := collectScriptFilesCached(scriptPath, req.Name, isDir, isPiled)
 	if err != nil {
 		errorMsg := "failed to read script directory"
 		if !isDir {
