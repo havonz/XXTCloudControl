@@ -923,7 +923,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
 
           
           <div 
-            class={`${styles.fileList} ${isDragOver() ? styles.dragOver : ''}`}
+            class={`${styles.fileList} ${styles.mainFileList} ${isDragOver() ? styles.dragOver : ''}`}
             onDragEnter={handleDragEnter}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -959,59 +959,59 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                 <div class={`${styles.tableCell} ${styles.sizeColumn}`}>尺寸</div>
               </div>
 
-              <For each={sortedFiles()}>
-                {(file) => (
-                  <div 
-                    class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}
-                    onMouseDown={(e) => {
-                      if (isSelectMode() && e.button === 0) {
-                        e.preventDefault(); // Prevent text selection on shift-click
-                      }
-                    }}
-                    onClick={(e) => handleFileClick(file, e)}
-                    onContextMenu={(e) => handleFileContextMenu(e, file)}
-                    onTouchStart={() => handleFileTouchStartForContext(file)}
-                    onTouchEnd={handleFileTouchEndForContext}
-                    onTouchMove={handleFileTouchEndForContext}
-                  >
-                    <Show when={isSelectMode()}>
-                      <div class={styles.tableCell} style={{ width: '40px' }}>
-                        <input 
-                          type="checkbox" 
-                          class="themed-checkbox"
-                          checked={selectedItems().has(file.name)} 
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            handleFileClick(file, e as any);
-                          }}
-                        />
-                      </div>
-                    </Show>
-                     <div class={`${styles.tableCell} ${styles.typeColumn}`}>
-                      <span class={styles.fileIconWrapper}>
-                        <span class={`${styles.fileIcon} ${isSelectedScript(file) ? styles.selectedFileIcon : ''}`}>
-                          {renderFileIcon(file.name, { isDirectory: file.type === 'directory' })}
-                        </span>
-                        <Show when={isSelectedScript(file)}>
-                          <span class={styles.selectionBadge}>
-                            <IconCircleCheck size={10} />
-                          </span>
+              <div class={styles.tableBody}>
+                <Show when={props.files.length > 0} fallback={<div class={styles.emptyMessage}>此目录为空</div>}>
+                  <For each={sortedFiles()}>
+                    {(file) => (
+                      <div 
+                        class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}
+                        onMouseDown={(e) => {
+                          if (isSelectMode() && e.button === 0) {
+                            e.preventDefault(); // Prevent text selection on shift-click
+                          }
+                        }}
+                        onClick={(e) => handleFileClick(file, e)}
+                        onContextMenu={(e) => handleFileContextMenu(e, file)}
+                        onTouchStart={() => handleFileTouchStartForContext(file)}
+                        onTouchEnd={handleFileTouchEndForContext}
+                        onTouchMove={handleFileTouchEndForContext}
+                      >
+                        <Show when={isSelectMode()}>
+                          <div class={styles.tableCell} style={{ width: '40px' }}>
+                            <input 
+                              type="checkbox" 
+                              class="themed-checkbox"
+                              checked={selectedItems().has(file.name)} 
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                handleFileClick(file, e as any);
+                              }}
+                            />
+                          </div>
                         </Show>
-                      </span>
-                    </div>
-                    <div class={`${styles.tableCell} ${styles.nameColumn}`}>
-                      <span class={styles.fileName}>{file.name}</span>
-                    </div>
-                    <div class={`${styles.tableCell} ${styles.sizeColumn}`}>
-                      {file.type === 'file' ? formatSize(file.size) : '-'}
-                    </div>
-                  </div>
-                )}
-              </For>
-            </Show>
-            
-            <Show when={!props.isLoading && props.files.length === 0}>
-              <div class={styles.emptyMessage}>此目录为空</div>
+                         <div class={`${styles.tableCell} ${styles.typeColumn}`}>
+                          <span class={styles.fileIconWrapper}>
+                            <span class={`${styles.fileIcon} ${isSelectedScript(file) ? styles.selectedFileIcon : ''}`}>
+                              {renderFileIcon(file.name, { isDirectory: file.type === 'directory' })}
+                            </span>
+                            <Show when={isSelectedScript(file)}>
+                              <span class={styles.selectionBadge}>
+                                <IconCircleCheck size={10} />
+                              </span>
+                            </Show>
+                          </span>
+                        </div>
+                        <div class={`${styles.tableCell} ${styles.nameColumn}`}>
+                          <span class={styles.fileName}>{file.name}</span>
+                        </div>
+                        <div class={`${styles.tableCell} ${styles.sizeColumn}`}>
+                          {file.type === 'file' ? formatSize(file.size) : '-'}
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
             </Show>
           </div>
         </div>

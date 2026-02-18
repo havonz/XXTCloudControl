@@ -881,7 +881,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
           </div>
           
           {/* 文件列表表格 */}
-          <div class={`${styles.fileList} ${isDragOver() ? styles.dragOver : ''}`} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+          <div class={`${styles.fileList} ${styles.mainFileList} ${isDragOver() ? styles.dragOver : ''}`} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
             <Show when={isDragOver()}><div class={styles.dropOverlay}><div class={styles.dropHint}><IconUpload size={20} /> 释放上传</div></div></Show>
             <Show when={isUploading()}><div class={styles.uploadingOverlay}><div class={styles.uploadingHint}>上传中...</div></div></Show>
             <Show when={isLoading()}><div class={styles.loading}>加载中...</div></Show>
@@ -897,53 +897,58 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 <div class={`${styles.tableCell} ${styles.nameColumn}`}>名称</div>
                 <div class={`${styles.tableCell} ${styles.sizeColumn}`}>尺寸</div>
               </div>
-              
-              <For each={sortedFiles()}>
-                {(file) => (
-                  <div 
-                    class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}
-                    onMouseDown={(e) => {
-                      if (isSelectMode() && e.button === 0) {
-                        e.preventDefault(); // Prevent text selection on shift-click
-                      }
-                    }}
-                    onClick={(e) => handleFileClick(file, e)}
-                    onContextMenu={(e) => handleFileContextMenu(e, file)}
-                    onTouchStart={() => handleFileTouchStart(file)}
-                    onTouchEnd={handleFileTouchEnd}
-                    onTouchMove={handleFileTouchEnd}
-                  >
-                    <Show when={isSelectMode()}>
-                      <div class={styles.tableCell} style={{ width: '40px' }}>
-                        <input 
-                          type="checkbox" 
-                          class="themed-checkbox" 
-                          checked={selectedItems().has(file.name)} 
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => toggleSelection(file.name, e as any)} 
-                        />
+
+              <div class={styles.tableBody}>
+                <Show
+                  when={files().length > 0}
+                  fallback={
+                    <div class={styles.emptyMessage}>
+                      <div>此目录为空</div>
+                      <div class={styles.emptyHint}>拖拽文件到此处上传</div>
+                    </div>
+                  }
+                >
+                  <For each={sortedFiles()}>
+                    {(file) => (
+                      <div
+                        class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}
+                        onMouseDown={(e) => {
+                          if (isSelectMode() && e.button === 0) {
+                            e.preventDefault(); // Prevent text selection on shift-click
+                          }
+                        }}
+                        onClick={(e) => handleFileClick(file, e)}
+                        onContextMenu={(e) => handleFileContextMenu(e, file)}
+                        onTouchStart={() => handleFileTouchStart(file)}
+                        onTouchEnd={handleFileTouchEnd}
+                        onTouchMove={handleFileTouchEnd}
+                      >
+                        <Show when={isSelectMode()}>
+                          <div class={styles.tableCell} style={{ width: '40px' }}>
+                            <input
+                              type="checkbox"
+                              class="themed-checkbox"
+                              checked={selectedItems().has(file.name)}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => toggleSelection(file.name, e as any)}
+                            />
+                          </div>
+                        </Show>
+                        <div class={`${styles.tableCell} ${styles.typeColumn}`}>
+                          <span class={styles.fileIcon}>
+                            {renderFileIcon(file.name, { isDirectory: file.type === 'dir' })}
+                          </span>
+                        </div>
+                        <div class={`${styles.tableCell} ${styles.nameColumn}`}>
+                          <span class={styles.fileName}>{file.name}</span>
+                        </div>
+                        <div class={`${styles.tableCell} ${styles.sizeColumn}`}>
+                          {file.type === 'file' ? formatSize(file.size) : '-'}
+                        </div>
                       </div>
-                    </Show>
-                    <div class={`${styles.tableCell} ${styles.typeColumn}`}>
-                      <span class={styles.fileIcon}>
-                        {renderFileIcon(file.name, { isDirectory: file.type === 'dir' })}
-                      </span>
-                    </div>
-                    <div class={`${styles.tableCell} ${styles.nameColumn}`}>
-                      <span class={styles.fileName}>{file.name}</span>
-                    </div>
-                    <div class={`${styles.tableCell} ${styles.sizeColumn}`}>
-                      {file.type === 'file' ? formatSize(file.size) : '-'}
-                    </div>
-                  </div>
-                )}
-              </For>
-            </Show>
-            
-            <Show when={!isLoading() && !error() && files().length === 0}>
-              <div class={styles.emptyMessage}>
-                <div>此目录为空</div>
-                <div class={styles.emptyHint}>拖拽文件到此处上传</div>
+                    )}
+                  </For>
+                </Show>
               </div>
             </Show>
           </div>
