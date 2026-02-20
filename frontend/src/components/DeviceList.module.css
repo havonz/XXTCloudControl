@@ -206,12 +206,15 @@
   gap: 6px;
 }
 
-/* Action Toolbar - Single Row */
+/* Action Toolbar */
 .actionToolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 6px 10px;
+  padding: 8px 10px;
   box-shadow: var(--shadow-sm);
   flex-shrink: 0;
 }
@@ -254,10 +257,24 @@
   cursor: not-allowed;
 }
 
-.scriptSelectGroup {
+.deviceActionGroup {
+  display: flex;
+  gap: 8px;
+  width: 320px;
+  flex-shrink: 0;
+}
+
+.deviceActionGroup > .toolbarActionButton {
+  flex: 1;
+  justify-content: center;
+}
+
+.scriptActionGroup {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  width: 320px;
+  flex-shrink: 0;
 }
 
 .scriptSelectionGroup {
@@ -267,7 +284,14 @@
 }
 
 .scriptSelectWrapper {
-  width: 10em; /* 固定10字宽度 */
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .deviceActionGroup, .scriptActionGroup {
+    width: 100%;
+  }
 }
 
 /* Script control group: 配置、启动、停止 buttons */
@@ -1910,18 +1934,28 @@
     justify-content: center;
   }
   
-  .scriptSelectGroup {
-    flex: 1 1 100%;
-    margin-bottom: 4px;
+  .scriptActionGroup {
+    width: 100% !important;
+    grid-column: 1;
+    order: 2;
+  }
+
+  .deviceActionGroup {
+    width: 100% !important;
+    display: flex;
+    gap: 4px;
+    grid-column: 1 / -1;
+    order: 1;
   }
   
   /* Script control group: icon-only compact buttons on mobile */
   .scriptControlGroup {
     display: flex;
-    gap: 2px;
-    flex: 1 1 calc(50% - 2px) !important;
-    width: auto !important;
+    gap: 4px;
+    width: 100% !important;
     min-width: 0 !important;
+    grid-column: 2;
+    order: 3;
   }
   
   .scriptControlButton {
@@ -1936,12 +1970,17 @@
     display: none !important;
   }
   
-  .actionToolbarRow {
+  /* On mobile, flatten both toolbar rows so all children participate
+     in a single grid on .actionToolbar, then use order to control sequence */
+  .actionToolbar {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 4px;
-    width: 100%;
-    margin-bottom: 8px;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .actionToolbarRow {
+    display: contents;
   }
 
   /* 管理工具栏：表头设置、请求刷新、全选、反选 四个按钮等宽一行 */
@@ -1953,7 +1992,7 @@
   }
 
   .toolbarActionButton,
-  .scriptSelectGroup,
+  .scriptActionGroup,
   .scriptSelectionGroup,
   .moreActionsContainer {
     width: 100% !important;
@@ -1963,11 +2002,19 @@
   }
 
   .scriptSelectionGroup {
+    grid-column: 1;
+    order: 4;
     display: flex !important;
     gap: 4px !important;
   }
 
-  .scriptSelectionGroup .toolbarActionButton {
+  .moreActionsContainer {
+    grid-column: 2;
+    order: 5;
+  }
+
+  .scriptSelectionGroup .toolbarActionButton,
+  .deviceActionGroup .toolbarActionButton {
     flex: 1 !important;
   }
   

@@ -1119,25 +1119,57 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   return (
     <div class={styles.deviceListContainer}>
-      {/* Action Toolbar - Single Row */}
+      {/* Action Toolbar */}
       <div class={styles.actionToolbar}>
+        {/* Row 1 */}
         <div class={styles.actionToolbarRow}>
-          <button 
-            onClick={handleDeviceBinding}
-            class={styles.toolbarActionButton}
-          >
-            <IconLink size={14} />
-            <span>设备绑定到云控</span>
-          </button>
-          <button 
-            onClick={() => setShowServerFileBrowser(true)}
-            class={styles.toolbarActionButton}
-          >
-            <IconFolderOpen size={14} />
-            <span>服务器文件浏览</span>
-          </button>
+          <div class={styles.deviceActionGroup}>
+            <button 
+              onClick={handleDeviceBinding}
+              class={styles.toolbarActionButton}
+            >
+              <IconLink size={14} />
+              <span>设备绑定到云控</span>
+            </button>
+            <button 
+              onClick={() => setShowServerFileBrowser(true)}
+              class={styles.toolbarActionButton}
+            >
+              <IconFolderOpen size={14} />
+              <span>服务器文件浏览</span>
+            </button>
+          </div>
           
-          <div class={styles.scriptSelectGroup}>
+          <div class={styles.scriptSelectionGroup}>
+            <button 
+              onClick={() => {
+                if (props.selectedDevices().length === 0) {
+                  showToastMessage('请先选择设备');
+                  return;
+                }
+                setShowScriptUploadModal(true);
+              }}
+              class={styles.toolbarActionButton}
+              disabled={props.selectedDevices().length === 0}
+            >
+              <IconUpload size={14} />
+              <span>上传脚本</span>
+            </button>
+
+            <button 
+              onClick={handleScriptSelection}
+              class={styles.toolbarActionButton}
+              disabled={props.selectedDevices().length === 0}
+            >
+              <IconClipboardCheck size={14} />
+              <span>选中脚本</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2 */}
+        <div class={styles.actionToolbarRow}>
+          <div class={styles.scriptActionGroup}>
             <div class={styles.scriptSelectWrapper}>
               <Select.Root
                 class="cbx-select-root"
@@ -1192,9 +1224,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               >
                 <IconRotate size={14} class={isLoadingScripts() ? styles.spin : ''} />
               </button>
-            </div>
-
-            <div class={styles.scriptControlGroup}>
               <Show when={isConfigurable()}>
                 <button 
                   onClick={() => scriptConfigManager.openGlobalConfig(serverScriptName())}
@@ -1205,7 +1234,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   <span class={styles.hideOnMobile}>配置</span>
                 </button>
               </Show>
-              
+            </div>
+
+            <div class={styles.scriptControlGroup}>
               <button 
                 class={`${styles.toolbarActionButton} ${styles.scriptControlButton}`}
                 disabled={props.selectedDevices().length === 0 || isSendingScript()}
@@ -1224,32 +1255,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               >
                 <IconStop size={14} />
                 <span class={styles.hideOnMobile}>停止脚本</span>
-              </button>
-            </div>
-          
-            <div class={styles.scriptSelectionGroup}>
-              <button 
-                onClick={() => {
-                  if (props.selectedDevices().length === 0) {
-                    showToastMessage('请先选择设备');
-                    return;
-                  }
-                  setShowScriptUploadModal(true);
-                }}
-                class={styles.toolbarActionButton}
-                disabled={props.selectedDevices().length === 0}
-              >
-                <IconUpload size={14} />
-                <span>上传脚本</span>
-              </button>
-
-              <button 
-                onClick={handleScriptSelection}
-                class={styles.toolbarActionButton}
-                disabled={props.selectedDevices().length === 0}
-              >
-                <IconClipboardCheck size={14} />
-                <span>选中脚本</span>
               </button>
             </div>
           
