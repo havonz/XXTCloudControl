@@ -337,7 +337,7 @@ const App: Component = () => {
         }
       });
       
-      // 开始连接
+      // 建立连接
       wsService.connect();
       
     } catch (error) {

@@ -1487,13 +1487,13 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     class={`${styles.segmentedButton} ${!syncControl() ? styles.active : ''}`}
                     onClick={() => setSyncControl(false)}
                   >
-                    <IconLinkSlash size={12} /> 单端
+                    <IconUser size={12} /> 单端
                   </button>
                   <button 
                     class={`${styles.segmentedButton} ${syncControl() ? styles.active : ''}`}
                     onClick={() => setSyncControl(true)}
                   >
-                    <IconLink size={12} /> 同步
+                    <IconUsers size={12} /> 同步
                   </button>
                 </div>
               </div>
@@ -1532,7 +1532,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     onClick={startStream}
                     disabled={!selectedControlDevice()}
                   >
-                    ▶ 开始连接
+                    <IconLink /> 建立连接
                   </button>
                 </Show>
                 <Show when={connectionState() !== 'disconnected'}>
@@ -1540,7 +1540,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     class={`${styles.actionButton} ${styles.stopButton}`}
                     onClick={stopStream}
                   >
-                    ⬛ 断开连接
+                    <IconLinkSlash /> 断开连接
                   </button>
                 </Show>
               </div>
@@ -1556,7 +1556,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 >
                   <div class={styles.placeholderIcon}>📺</div>
                   <span>
-                    {connectionState() === 'connecting' ? '正在连接...' : '点击"开始连接"启动视频流'}
+                    {connectionState() === 'connecting' ? '正在连接...' : '点击"建立连接"启动视频流'}
                   </span>
                 </div>
                 
