@@ -768,7 +768,8 @@
 .deviceTable {
   border-radius: 8px;
   border: 1px solid var(--border);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -785,32 +786,38 @@
   top: 0;
   z-index: 10;
   flex-shrink: 0;
+  min-width: max-content;
 }
 
 .tableBody {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  min-width: max-content;
 }
 
-.tableBody::-webkit-scrollbar {
+.tableBody::-webkit-scrollbar,
+.deviceTable::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-.tableBody::-webkit-scrollbar-track {
+.tableBody::-webkit-scrollbar-track,
+.deviceTable::-webkit-scrollbar-track {
   background: transparent;
   border-radius: 999px;
 }
 
-.tableBody::-webkit-scrollbar-thumb {
+.tableBody::-webkit-scrollbar-thumb,
+.deviceTable::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 999px;
   border: 1px solid transparent;
   background-clip: padding-box;
 }
 
-.tableBody::-webkit-scrollbar-thumb:hover {
+.tableBody::-webkit-scrollbar-thumb:hover,
+.deviceTable::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 
@@ -840,6 +847,7 @@
   cursor: pointer;
   transition: background 0.2s ease;
   min-height: 28px;
+  min-width: max-content;
 }
 
 .resizeHandle {

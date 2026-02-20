@@ -769,10 +769,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     const widths = columnWidths();
     const columns = visibleColumns();
     const rest = columns.map((id, index) => {
+      const width = widths[id] || DEFAULT_WIDTHS[id];
       if (index === columns.length - 1) {
-        return '1fr';
+        return `minmax(${width}px, 1fr)`;
       }
-      return `${widths[id] || DEFAULT_WIDTHS[id]}px`;
+      return `${width}px`;
     }).join(' ');
     return `${widths.selection || DEFAULT_WIDTHS.selection}px ${rest}`;
   });
