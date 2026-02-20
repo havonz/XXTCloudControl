@@ -1,6 +1,7 @@
 import { Component, Show, createEffect, createSignal, onCleanup } from 'solid-js';
 import { Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
+import { IconXmark } from '../icons';
 import styles from './LogStreamModal.module.css';
 
 interface LogStreamModalProps {
@@ -83,13 +84,13 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
       <div class={styles.overlay} onClick={handleClose}>
         <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
           <div class={styles.header}>
-            <div class={styles.titleGroup}>
-              <div class={styles.title}>实时日志</div>
-              <div class={styles.meta}>
-                {props.device?.system?.name || '未知设备'} · {props.device?.udid}
-              </div>
+            <h2>实时日志 - {props.device?.system?.name || '未知设备'}</h2>
+            <div class={styles.headerRight}>
+              <div class={styles.status}>{status()}</div>
+              <button class={styles.closeButton} onClick={handleClose}>
+                <IconXmark size={18} />
+              </button>
             </div>
-            <div class={styles.status}>{status()}</div>
           </div>
 
           <div class={styles.body}>
@@ -98,10 +99,6 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
                 {paused() ? '继续' : '暂停'}
               </button>
               <button class={styles.button} onClick={handleClear}>清空</button>
-              <div class={styles.flexSpacer} />
-              <button class={`${styles.button} ${styles.buttonPrimary}`} onClick={handleClose}>
-                关闭
-              </button>
             </div>
             <textarea
               class={styles.logArea}
