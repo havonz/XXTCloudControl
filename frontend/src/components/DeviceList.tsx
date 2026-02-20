@@ -138,12 +138,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const handleResizeMove = (e: MouseEvent) => {
     if (!resizingColumn) return;
     const delta = e.pageX - startX;
-    const newWidth = Math.max(50, startWidth + delta);
     
-    setColumnWidths(prev => ({
-      ...prev,
-      [resizingColumn!]: newWidth
-    }));
+    // If we've dragged more than a few pixels, update widths and mark as dragged
+    if (Math.abs(delta) > 3) {
+      document.body.classList.add('resizing');
+      const newWidth = Math.max(50, startWidth + delta);
+      setColumnWidths(prev => ({
+        ...prev,
+        [resizingColumn!]: newWidth
+      }));
+    }
   };
 
   const handleResizeStop = () => {
@@ -680,6 +684,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   // Handle table header click for sorting
   const handleSort = (field: string) => {
+    // Prevent sort if a drag just finished
+    if (document.body.classList.contains('resizing')) {
+      return;
+    }
+
     if (sortField() === field) {
       // Toggle direction if same field
       setSortDirection(sortDirection() === 'asc' ? 'desc' : 'asc');
@@ -768,14 +777,13 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const gridTemplateColumns = createMemo(() => {
     const widths = columnWidths();
     const columns = visibleColumns();
-    const rest = columns.map((id, index) => {
+    const rest = columns.map((id) => {
       const width = widths[id] || DEFAULT_WIDTHS[id];
-      if (index === columns.length - 1) {
-        return `minmax(${width}px, 1fr)`;
-      }
       return `${width}px`;
     }).join(' ');
-    return `${widths.selection || DEFAULT_WIDTHS.selection}px ${rest}`;
+    // Append a 1fr spacer column to the end to consume any remaining horizontal container width
+    // while keeping all defined columns fixed to their actual designated widths
+    return `${widths.selection || DEFAULT_WIDTHS.selection}px ${rest} 1fr`;
   });
 
   const handleDeviceToggle = (device: Device, e?: MouseEvent) => {
@@ -1651,7 +1659,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                       <span class={styles.sortIndicator}>
                         {sortField() === 'log' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
                       </span>
-                      {/* Log is usually the last column, no handle needed unless we want to resize it against some future column */}
+                      <div 
+                        class={styles.resizeHandle} 
+                        onMouseDown={(e) => handleResizeStart(e, 'log')}
+                        onClick={(e) => e.stopPropagation()}
+                      />
                     </div>
                   </Show>
                 </div>
