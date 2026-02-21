@@ -41,7 +41,8 @@ manifest 结构由 `UpdateManifest` 定义（`server/updater.go`）：
 1. 初始化 `data/updater` 目录与状态文件。
 2. 提供 `status/check/download/download-cancel/apply` 能力。
 3. 执行 manifest 拉取、资产选择、下载、校验、解压。
-4. 根据运行环境选择“helper worker 模式”或“Docker 进程内 exec 模式”应用更新。
+4. 启动时记录原始命令行参数与环境变量快照，并在更新后重启时复用。
+5. 根据运行环境选择“helper worker 模式”或“Docker 进程内 exec 模式”应用更新。
 
 ### 3.2 Update Worker（子进程，仅非 Docker apply）
 
@@ -173,10 +174,11 @@ JSON 字段：
 ### 8.4 应用更新（apply）- 非 Docker
 
 1. 仅允许 `stage=downloaded`。
-2. 生成 worker job（源/目标/备份/重启参数）。
-3. 复制当前程序为 helper 到 `updater/worker/update-helper-*`。
-4. 启动 helper：`<helper> -update-worker <jobPath>`。
-5. 主进程约 1.2 秒后 `os.Exit(0)`，由 helper 完成替换与拉起新版。
+2. 主进程使用“启动时快照”的命令行参数与环境变量作为重启上下文。
+3. 生成 worker job（源/目标/备份/重启参数）。
+4. 复制当前程序为 helper 到 `updater/worker/update-helper-*`。
+5. 启动 helper：`<helper> -update-worker <jobPath>`，并显式传入上述环境变量快照。
+6. 主进程约 1.2 秒后 `os.Exit(0)`，由 helper 完成替换与拉起新版（新版继承相同参数与环境）。
 
 ### 8.5 应用更新（apply）- Docker
 
@@ -187,15 +189,16 @@ JSON 字段：
 
 流程：
 1. `apply` 将状态切到 `applying` 后，异步进入 `applyInDocker`。
-2. 先校验下载二进制：
+2. `exec` 前使用“启动时快照”的命令行参数与环境变量重启。
+3. 先校验下载二进制：
 - 文件存在且不是目录
 - Unix 下必要时补可执行权限
 - 执行 `<binary> -v`（8 秒超时）探测版本
 - 必须与 `downloadedVersion` 一致，且严格高于当前 `Version`
-3. 执行与 worker 共用的替换逻辑（见 8.6）。
-4. Unix 下调用 `syscall.Exec` 直接替换当前进程为新二进制。
-5. 若替换失败且属于权限/只读文件系统错误，返回明确错误提示：应更新镜像并重建容器。
-6. 若 `exec` 失败，执行回滚并置 `failed`。
+4. 执行与 worker 共用的替换逻辑（见 8.6）。
+5. Unix 下调用 `syscall.Exec` 直接替换当前进程为新二进制。
+6. 若替换失败且属于权限/只读文件系统错误，返回明确错误提示：应更新镜像并重建容器。
+7. 若 `exec` 失败，执行回滚并置 `failed`。
 
 ### 8.6 文件替换与回滚细节（worker 与 Docker 共用）
 

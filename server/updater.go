@@ -100,6 +100,7 @@ type UpdaterService struct {
 	frontendDir    string
 	workingDir     string
 	restartArgs    []string
+	restartEnv     []string
 }
 
 var updaterService *UpdaterService
@@ -167,6 +168,7 @@ func newUpdaterService() (*UpdaterService, error) {
 		frontendDir: frontendDir,
 		workingDir:  workingDir,
 		restartArgs: append([]string(nil), os.Args[1:]...),
+		restartEnv:  append([]string(nil), os.Environ()...),
 		state: UpdaterState{
 			Stage: updateStageIdle,
 		},
@@ -578,7 +580,7 @@ func (u *UpdaterService) Apply() (UpdateStatusResponse, error) {
 
 	cmd := exec.Command(helperPath, "-update-worker", jobPath)
 	cmd.Dir = u.workingDir
-	cmd.Env = os.Environ()
+	cmd.Env = append([]string(nil), u.restartEnv...)
 	if err := cmd.Start(); err != nil {
 		return u.markApplyError(err)
 	}
@@ -615,7 +617,7 @@ func (u *UpdaterService) applyInDocker(job updateWorkerJob) {
 		_, _ = u.markApplyError(err)
 		return
 	}
-	if err := execUpdatedBinary(job.TargetBinary, job.RestartArgs, job.WorkingDir); err != nil {
+	if err := execUpdatedBinary(job.TargetBinary, job.RestartArgs, u.restartEnv, job.WorkingDir); err != nil {
 		rollbackFromBackup(job)
 		_, _ = u.markApplyError(err)
 		return
@@ -682,7 +684,7 @@ func probeBinaryVersion(binaryPath string) (string, error) {
 	return line, nil
 }
 
-func execUpdatedBinary(binaryPath string, args []string, workingDir string) error {
+func execUpdatedBinary(binaryPath string, args []string, env []string, workingDir string) error {
 	if strings.TrimSpace(binaryPath) == "" {
 		return fmt.Errorf("binary path is empty")
 	}
@@ -691,8 +693,11 @@ func execUpdatedBinary(binaryPath string, args []string, workingDir string) erro
 			return fmt.Errorf("failed to switch working directory: %w", err)
 		}
 	}
+	if len(env) == 0 {
+		env = os.Environ()
+	}
 	argv := append([]string{binaryPath}, args...)
-	if err := execReplaceProcess(binaryPath, argv, os.Environ()); err != nil {
+	if err := execReplaceProcess(binaryPath, argv, env); err != nil {
 		return fmt.Errorf("failed to exec updated binary: %w", err)
 	}
 	return nil
