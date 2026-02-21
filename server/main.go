@@ -230,6 +230,7 @@ func main() {
 	r.GET("/api/update/status", updateStatusHandler)
 	r.POST("/api/update/check", updateCheckHandler)
 	r.POST("/api/update/download", updateDownloadHandler)
+	r.POST("/api/update/download/cancel", updateDownloadCancelHandler)
 	r.POST("/api/update/apply", updateApplyHandler)
 
 	// File transfer routes (token-based, no auth required)

@@ -33,6 +33,8 @@ interface UpdateState {
   latestPublishedAt?: string;
   hasUpdate?: boolean;
   ignored?: boolean;
+  downloadTotalBytes?: number;
+  downloadedBytes?: number;
   downloadedVersion?: string;
   appliedVersion?: string;
 }
@@ -68,6 +70,7 @@ const App: Component = () => {
   const [updateStatus, setUpdateStatus] = createSignal<UpdateStatusPayload | null>(null);
   const [updatePanelOpen, setUpdatePanelOpen] = createSignal(false);
   const [updateBusyAction, setUpdateBusyAction] = createSignal<UpdateBusyAction>('');
+  const [cancelingDownload, setCancelingDownload] = createSignal(false);
   
   // File browser state
   const [fileBrowserOpen, setFileBrowserOpen] = createSignal(false);
@@ -97,6 +100,8 @@ const App: Component = () => {
   const fileTransferService = FileTransferService.getInstance();
   let updatePanelRef: HTMLDivElement | undefined;
   let updateReconnectTimer: ReturnType<typeof setInterval> | null = null;
+  let updateStatusPollTimer: ReturnType<typeof setInterval> | null = null;
+  let updateStatusPollingInFlight = false;
 
   // Prevent browser default context menu and Cmd+A select all (except in input fields)
   const handleGlobalContextMenu = (e: MouseEvent) => {
@@ -150,6 +155,60 @@ const App: Component = () => {
     }
   };
 
+  const formatBytes = (value?: number): string => {
+    const size = typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  };
+
+  const isDownloadingUpdate = createMemo(() => updateStatus()?.state?.stage === 'downloading');
+  const updateStage = createMemo(() => updateStatus()?.state?.stage || 'idle');
+  const hasDownloadTotal = createMemo(() => (updateStatus()?.state?.downloadTotalBytes || 0) > 0);
+  const updateMainAction = createMemo<'download' | 'cancel' | 'apply'>(() => {
+    if (updateStage() === 'downloading') return 'cancel';
+    if (updateStage() === 'downloaded') return 'apply';
+    return 'download';
+  });
+  const updateMainButtonLabel = createMemo(() => {
+    const action = updateMainAction();
+    if (action === 'cancel') {
+      return cancelingDownload() ? '停止中...' : '停止下载';
+    }
+    if (action === 'apply') {
+      return updateBusyAction() === 'apply' ? '应用中...' : '应用更新';
+    }
+    return updateBusyAction() === 'download' ? '准备下载...' : '下载更新';
+  });
+  const updateMainButtonDisabled = createMemo(() => {
+    if (!isAuthenticated()) return true;
+    const action = updateMainAction();
+    if (action === 'cancel') {
+      return cancelingDownload();
+    }
+    if (action === 'apply') {
+      return !!updateBusyAction() || updateStage() !== 'downloaded';
+    }
+    return !!updateBusyAction() || !updateStatus()?.state?.hasUpdate;
+  });
+  const isUpdateMainDanger = createMemo(() => updateMainAction() === 'cancel');
+  const downloadProgressPercent = createMemo(() => {
+    const total = updateStatus()?.state?.downloadTotalBytes || 0;
+    const downloaded = updateStatus()?.state?.downloadedBytes || 0;
+    if (total <= 0) return 0;
+    const raw = Math.floor((downloaded / total) * 100);
+    return Math.min(100, Math.max(0, raw));
+  });
+  const downloadProgressText = createMemo(() => {
+    const total = updateStatus()?.state?.downloadTotalBytes || 0;
+    const downloaded = updateStatus()?.state?.downloadedBytes || 0;
+    if (total > 0) {
+      return `${formatBytes(downloaded)} / ${formatBytes(total)} (${downloadProgressPercent()}%)`;
+    }
+    return `已下载 ${formatBytes(downloaded)}`;
+  });
+
   const extractUpdateStatus = (data: unknown): UpdateStatusPayload | null => {
     if (!data || typeof data !== 'object') return null;
     const map = data as Record<string, unknown>;
@@ -166,6 +225,26 @@ const App: Component = () => {
     if (updateReconnectTimer) {
       clearInterval(updateReconnectTimer);
       updateReconnectTimer = null;
+    }
+  };
+
+  const stopUpdateStatusPolling = () => {
+    if (updateStatusPollTimer) {
+      clearInterval(updateStatusPollTimer);
+      updateStatusPollTimer = null;
+    }
+    updateStatusPollingInFlight = false;
+  };
+
+  const pollUpdateStatusOnce = async () => {
+    if (updateStatusPollingInFlight) {
+      return;
+    }
+    updateStatusPollingInFlight = true;
+    try {
+      await loadUpdateStatus(true);
+    } finally {
+      updateStatusPollingInFlight = false;
     }
   };
 
@@ -252,7 +331,12 @@ const App: Component = () => {
         return;
       }
       if (!response.ok) {
-        toast.showError(data?.error || '更新操作失败');
+        const message = typeof data?.error === 'string' ? data.error : '更新操作失败';
+        if (action === 'download' && /cancel/i.test(message)) {
+          await loadUpdateStatus(true);
+        } else {
+          toast.showError(message);
+        }
         return;
       }
 
@@ -265,7 +349,7 @@ const App: Component = () => {
           toast.showInfo('当前已是最新版本');
         }
       } else if (action === 'download') {
-        toast.showSuccess('更新包下载完成');
+        toast.showInfo('已开始下载更新包');
       } else if (action === 'apply') {
         toast.showInfo('正在应用更新，服务将短暂重启');
         startUpdateReconnectPolling(previousVersion);
@@ -287,6 +371,49 @@ const App: Component = () => {
 
   const handleApplyUpdate = async () => {
     await performUpdateAction('apply', '/api/update/apply');
+  };
+
+  const handleCancelDownload = async () => {
+    if (!isAuthenticated()) {
+      toast.showWarning('请先完成鉴权登录后再执行更新操作');
+      return;
+    }
+    if (cancelingDownload()) return;
+    setCancelingDownload(true);
+    try {
+      const response = await authFetch('/api/update/download/cancel', { method: 'POST' });
+      const data = await response.json();
+      const status = extractUpdateStatus(data);
+      if (status) {
+        setUpdateStatus(status);
+      }
+      if (response.status === 401) {
+        toast.showError('鉴权失败，更新操作被拒绝');
+        return;
+      }
+      if (!response.ok) {
+        toast.showError(data?.error || '停止下载失败');
+        return;
+      }
+      toast.showInfo('已请求停止下载');
+    } catch {
+      toast.showError('停止下载失败');
+    } finally {
+      setCancelingDownload(false);
+    }
+  };
+
+  const handleUpdateMainAction = async () => {
+    const action = updateMainAction();
+    if (action === 'cancel') {
+      await handleCancelDownload();
+      return;
+    }
+    if (action === 'apply') {
+      await handleApplyUpdate();
+      return;
+    }
+    await handleDownloadUpdate();
   };
 
   const enqueuePendingFileGet = (entry: PendingFileGet) => {
@@ -315,6 +442,7 @@ const App: Component = () => {
     document.removeEventListener('keydown', handleGlobalKeyDown);
     document.removeEventListener('mousedown', handleGlobalMouseDown);
     stopUpdateReconnectPolling();
+    stopUpdateStatusPolling();
     if (wsService) {
       wsService.disconnect();
     }
@@ -947,6 +1075,7 @@ const App: Component = () => {
       setUpdateStatus(null);
       setUpdatePanelOpen(false);
       stopUpdateReconnectPolling();
+      stopUpdateStatusPolling();
       return;
     }
     groupStore.loadGroups();
@@ -965,6 +1094,21 @@ const App: Component = () => {
     }
     fetchServerVersion(host, port);
     loadUpdateStatus(true);
+  });
+
+  createEffect(() => {
+    const shouldPoll = isAuthenticated() && updatePanelOpen();
+    if (!shouldPoll) {
+      stopUpdateStatusPolling();
+      return;
+    }
+    if (updateStatusPollTimer) {
+      return;
+    }
+    void pollUpdateStatusOnce();
+    updateStatusPollTimer = setInterval(() => {
+      void pollUpdateStatusOnce();
+    }, 1000);
   });
 
   // Handle adding selected devices to a group
@@ -1037,6 +1181,17 @@ const App: Component = () => {
                       {updateStatus()?.state?.lastError && (
                         <div class={styles.updateError}>{updateStatus()?.state?.lastError}</div>
                       )}
+                      {isDownloadingUpdate() && (
+                        <div class={styles.updateProgress}>
+                          <div class={styles.updateProgressText}>{downloadProgressText()}</div>
+                          <div class={styles.updateProgressTrack}>
+                            <div
+                              class={`${styles.updateProgressFill} ${hasDownloadTotal() ? '' : styles.updateProgressFillIndeterminate}`}
+                              style={{ width: hasDownloadTotal() ? `${downloadProgressPercent()}%` : '35%' }}
+                            />
+                          </div>
+                        </div>
+                      )}
                       {updateStatus()?.config?.enabled === false && (
                         <div class={styles.updateError}>服务端已禁用自更新</div>
                       )}
@@ -1049,18 +1204,11 @@ const App: Component = () => {
                           {updateBusyAction() === 'check' ? '检测中...' : '检测更新'}
                         </button>
                         <button
-                          class={styles.updateActionButton}
-                          disabled={!!updateBusyAction() || !updateStatus()?.state?.hasUpdate || !isAuthenticated()}
-                          onClick={handleDownloadUpdate}
+                          class={`${styles.updateActionButton} ${isUpdateMainDanger() ? styles.updateActionDanger : ''}`}
+                          disabled={updateMainButtonDisabled()}
+                          onClick={handleUpdateMainAction}
                         >
-                          {updateBusyAction() === 'download' ? '下载中...' : '下载更新'}
-                        </button>
-                        <button
-                          class={styles.updateActionButton}
-                          disabled={!!updateBusyAction() || updateStatus()?.state?.stage !== 'downloaded' || !isAuthenticated()}
-                          onClick={handleApplyUpdate}
-                        >
-                          {updateBusyAction() === 'apply' ? '应用中...' : '应用更新'}
+                          {updateMainButtonLabel()}
                         </button>
                       </div>
                     </div>

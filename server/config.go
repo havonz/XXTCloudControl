@@ -322,10 +322,18 @@ func applyEnvOverrides() {
 	}
 
 	if value, ok := envString("XXTCC_UPDATE_TIMEOUT_SECONDS"); ok {
-		if v, err := strconv.Atoi(value); err == nil && v > 0 {
+		if v, err := strconv.Atoi(value); err == nil && v >= 0 {
 			serverConfig.Update.Source.RequestTimeoutSeconds = v
 		} else {
 			log.Printf("⚠️ Invalid XXTCC_UPDATE_TIMEOUT_SECONDS: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_UPDATE_DOWNLOAD_CONNECT_TIMEOUT_SECONDS"); ok {
+		if v, err := strconv.Atoi(value); err == nil && v >= 0 {
+			serverConfig.Update.Source.DownloadConnectTimeoutSeconds = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_UPDATE_DOWNLOAD_CONNECT_TIMEOUT_SECONDS: %s", value)
 		}
 	}
 }

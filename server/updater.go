@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -53,22 +54,24 @@ type UpdateManifest struct {
 
 // UpdaterState is persisted in data/updater/state.json.
 type UpdaterState struct {
-	Stage             string      `json:"stage"`
-	LastError         string      `json:"lastError,omitempty"`
-	LastCheckedAt     int64       `json:"lastCheckedAt,omitempty"`
-	ManifestURL       string      `json:"manifestUrl,omitempty"`
-	LatestVersion     string      `json:"latestVersion,omitempty"`
-	LatestPublishedAt string      `json:"latestPublishedAt,omitempty"`
-	HasUpdate         bool        `json:"hasUpdate"`
-	Ignored           bool        `json:"ignored"`
-	LatestAsset       UpdateAsset `json:"latestAsset,omitempty"`
-	DownloadedVersion string      `json:"downloadedVersion,omitempty"`
-	DownloadedAsset   string      `json:"downloadedAsset,omitempty"`
-	DownloadedFile    string      `json:"downloadedFile,omitempty"`
-	StagingDir        string      `json:"stagingDir,omitempty"`
-	SourceBinary      string      `json:"sourceBinary,omitempty"`
-	SourceFrontendDir string      `json:"sourceFrontendDir,omitempty"`
-	AppliedVersion    string      `json:"appliedVersion,omitempty"`
+	Stage              string      `json:"stage"`
+	LastError          string      `json:"lastError,omitempty"`
+	LastCheckedAt      int64       `json:"lastCheckedAt,omitempty"`
+	ManifestURL        string      `json:"manifestUrl,omitempty"`
+	LatestVersion      string      `json:"latestVersion,omitempty"`
+	LatestPublishedAt  string      `json:"latestPublishedAt,omitempty"`
+	HasUpdate          bool        `json:"hasUpdate"`
+	Ignored            bool        `json:"ignored"`
+	LatestAsset        UpdateAsset `json:"latestAsset,omitempty"`
+	DownloadTotalBytes int64       `json:"downloadTotalBytes,omitempty"`
+	DownloadedBytes    int64       `json:"downloadedBytes,omitempty"`
+	DownloadedVersion  string      `json:"downloadedVersion,omitempty"`
+	DownloadedAsset    string      `json:"downloadedAsset,omitempty"`
+	DownloadedFile     string      `json:"downloadedFile,omitempty"`
+	StagingDir         string      `json:"stagingDir,omitempty"`
+	SourceBinary       string      `json:"sourceBinary,omitempty"`
+	SourceFrontendDir  string      `json:"sourceFrontendDir,omitempty"`
+	AppliedVersion     string      `json:"appliedVersion,omitempty"`
 }
 
 // UpdateStatusResponse is returned by updater APIs.
@@ -83,18 +86,20 @@ type UpdateStatusResponse struct {
 }
 
 type UpdaterService struct {
-	mu          sync.RWMutex
-	state       UpdaterState
-	httpClient  *http.Client
-	updaterDir  string
-	cacheDir    string
-	stagingRoot string
-	workerDir   string
-	stateFile   string
-	execPath    string
-	frontendDir string
-	workingDir  string
-	restartArgs []string
+	mu             sync.RWMutex
+	state          UpdaterState
+	httpClient     *http.Client
+	downloadCancel context.CancelFunc
+	downloadJobID  uint64
+	updaterDir     string
+	cacheDir       string
+	stagingRoot    string
+	workerDir      string
+	stateFile      string
+	execPath       string
+	frontendDir    string
+	workingDir     string
+	restartArgs    []string
 }
 
 var updaterService *UpdaterService
@@ -129,15 +134,30 @@ func newUpdaterService() (*UpdaterService, error) {
 		frontendDir = filepath.Join(workingDir, frontendDir)
 	}
 
-	timeout := serverConfig.Update.Source.RequestTimeoutSeconds
-	if timeout <= 0 {
-		timeout = 15
+	connectTimeoutSeconds := serverConfig.Update.Source.DownloadConnectTimeoutSeconds
+	if connectTimeoutSeconds <= 0 {
+		connectTimeoutSeconds = 60
+	}
+	connectTimeout := time.Duration(connectTimeoutSeconds) * time.Second
+	transport := &http.Transport{
+		Proxy:             http.ProxyFromEnvironment,
+		ForceAttemptHTTP2: true,
+	}
+	if baseTransport, ok := http.DefaultTransport.(*http.Transport); ok && baseTransport != nil {
+		transport = baseTransport.Clone()
+	}
+	transport.DialContext = (&net.Dialer{
+		Timeout:   connectTimeout,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	transport.TLSHandshakeTimeout = connectTimeout
+
+	httpClient := &http.Client{
+		Transport: transport,
 	}
 
 	service := &UpdaterService{
-		httpClient: &http.Client{
-			Timeout: time.Duration(timeout) * time.Second,
-		},
+		httpClient:  httpClient,
 		updaterDir:  filepath.Join(dataDir, "updater"),
 		cacheDir:    filepath.Join(dataDir, "updater", "cache"),
 		stagingRoot: filepath.Join(dataDir, "updater", "staging"),
@@ -209,7 +229,13 @@ func (u *UpdaterService) reconcileStateOnStartup() {
 		u.state.LastError = ""
 		u.state.HasUpdate = false
 		u.state.Ignored = false
+		u.state.DownloadTotalBytes = 0
+		u.state.DownloadedBytes = 0
 		u.state.AppliedVersion = Version
+	}
+	if u.state.Stage != updateStageDownloading {
+		u.state.DownloadTotalBytes = 0
+		u.state.DownloadedBytes = 0
 	}
 	if u.state.StagingDir != "" {
 		if _, err := os.Stat(u.state.StagingDir); err != nil {
@@ -266,6 +292,8 @@ func (u *UpdaterService) Check(ctx context.Context) (UpdateStatusResponse, error
 	u.mu.Lock()
 	u.state.Stage = updateStageChecking
 	u.state.LastError = ""
+	u.state.DownloadTotalBytes = 0
+	u.state.DownloadedBytes = 0
 	u.state.ManifestURL = manifestURL
 	if err := u.saveStateLocked(); err != nil {
 		u.mu.Unlock()
@@ -322,7 +350,7 @@ func (u *UpdaterService) Check(ctx context.Context) (UpdateStatusResponse, error
 	return u.Status(), nil
 }
 
-func (u *UpdaterService) Download(ctx context.Context) (UpdateStatusResponse, error) {
+func (u *UpdaterService) Download() (UpdateStatusResponse, error) {
 	if !serverConfig.Update.Enabled {
 		return u.Status(), fmt.Errorf("update is disabled")
 	}
@@ -331,12 +359,19 @@ func (u *UpdaterService) Download(ctx context.Context) (UpdateStatusResponse, er
 	needCheck := u.state.LatestVersion == "" || u.state.LatestAsset.Name == ""
 	u.mu.RUnlock()
 	if needCheck {
-		if _, err := u.Check(ctx); err != nil {
+		checkCtx, cancel := context.WithTimeout(context.Background(), getUpdateCheckTimeout())
+		_, err := u.Check(checkCtx)
+		cancel()
+		if err != nil {
 			return u.Status(), err
 		}
 	}
 
 	u.mu.Lock()
+	if u.state.Stage == updateStageDownloading {
+		u.mu.Unlock()
+		return u.Status(), fmt.Errorf("download already in progress")
+	}
 	if !u.state.HasUpdate {
 		u.mu.Unlock()
 		return u.Status(), fmt.Errorf("no update available")
@@ -345,6 +380,8 @@ func (u *UpdaterService) Download(ctx context.Context) (UpdateStatusResponse, er
 	version := u.state.LatestVersion
 	u.state.Stage = updateStageDownloading
 	u.state.LastError = ""
+	u.state.DownloadTotalBytes = 0
+	u.state.DownloadedBytes = 0
 	if err := u.saveStateLocked(); err != nil {
 		u.mu.Unlock()
 		return u.Status(), err
@@ -362,20 +399,49 @@ func (u *UpdaterService) Download(ctx context.Context) (UpdateStatusResponse, er
 		return u.markDownloadError("missing asset download url")
 	}
 
+	downloadCtx, cancel := context.WithCancel(context.Background())
+	u.mu.Lock()
+	u.downloadJobID++
+	jobID := u.downloadJobID
+	u.downloadCancel = cancel
+	u.mu.Unlock()
+
+	go u.runDownloadJob(jobID, downloadCtx, cancel, asset, version, assetURL)
+	return u.Status(), nil
+}
+
+func (u *UpdaterService) runDownloadJob(jobID uint64, ctx context.Context, cancel context.CancelFunc, asset UpdateAsset, version string, assetURL string) {
+	defer func() {
+		cancel()
+		u.mu.Lock()
+		if u.downloadJobID == jobID {
+			u.downloadCancel = nil
+		}
+		u.mu.Unlock()
+	}()
+
 	targetFile := filepath.Join(u.cacheDir, asset.Name)
-	if err := u.downloadFile(ctx, assetURL, targetFile); err != nil {
-		return u.markDownloadError(err.Error())
+	if err := u.downloadFile(ctx, assetURL, targetFile, u.updateDownloadProgress); err != nil {
+		if errors.Is(err, context.Canceled) {
+			_, _ = u.markDownloadError("download canceled")
+			return
+		}
+		_, _ = u.markDownloadError(err.Error())
+		return
 	}
 	if err := verifyFileSHA256(targetFile, asset.SHA256); err != nil {
-		return u.markDownloadError(err.Error())
+		_, _ = u.markDownloadError(err.Error())
+		return
 	}
 
 	stagingDir := filepath.Join(u.stagingRoot, sanitizeVersion(version)+"-"+time.Now().UTC().Format("20060102150405"))
 	if err := os.MkdirAll(stagingDir, 0755); err != nil {
-		return u.markDownloadError(err.Error())
+		_, _ = u.markDownloadError(err.Error())
+		return
 	}
 	if err := unzipSecure(targetFile, stagingDir); err != nil {
-		return u.markDownloadError(err.Error())
+		_, _ = u.markDownloadError(err.Error())
+		return
 	}
 
 	contentRoot := filepath.Join(stagingDir, "XXTCloudControl")
@@ -385,22 +451,26 @@ func (u *UpdaterService) Download(ctx context.Context) (UpdateStatusResponse, er
 	expectedBinary := releaseBinaryNameForPlatform(runtime.GOOS, runtime.GOARCH)
 	sourceBinary := filepath.Join(contentRoot, expectedBinary)
 	if fi, err := os.Stat(sourceBinary); err != nil || fi.IsDir() {
-		return u.markDownloadError(fmt.Sprintf("binary not found in package: %s", expectedBinary))
+		_, _ = u.markDownloadError(fmt.Sprintf("binary not found in package: %s", expectedBinary))
+		return
 	}
 	sourceFrontend := filepath.Join(contentRoot, "frontend")
 	if fi, err := os.Stat(sourceFrontend); err != nil || !fi.IsDir() {
-		return u.markDownloadError("frontend directory not found in package")
+		_, _ = u.markDownloadError("frontend directory not found in package")
+		return
 	}
 
 	if runtime.GOOS == "darwin" {
 		if err := removeMacOSQuarantine(stagingDir); err != nil {
-			return u.markDownloadError(err.Error())
+			_, _ = u.markDownloadError(err.Error())
+			return
 		}
 	}
 
 	u.mu.Lock()
 	u.state.Stage = updateStageDownloaded
 	u.state.LastError = ""
+	u.state.DownloadTotalBytes = u.state.DownloadedBytes
 	u.state.DownloadedVersion = version
 	u.state.DownloadedAsset = asset.Name
 	u.state.DownloadedFile = targetFile
@@ -408,11 +478,38 @@ func (u *UpdaterService) Download(ctx context.Context) (UpdateStatusResponse, er
 	u.state.SourceBinary = sourceBinary
 	u.state.SourceFrontendDir = sourceFrontend
 	if err := u.saveStateLocked(); err != nil {
-		u.mu.Unlock()
-		return u.Status(), err
+		u.state.Stage = updateStageFailed
+		u.state.LastError = err.Error()
+		_ = u.saveStateLocked()
 	}
 	u.mu.Unlock()
+}
+
+func (u *UpdaterService) CancelDownload() (UpdateStatusResponse, error) {
+	u.mu.RLock()
+	cancel := u.downloadCancel
+	stage := u.state.Stage
+	u.mu.RUnlock()
+	if stage != updateStageDownloading || cancel == nil {
+		return u.Status(), fmt.Errorf("no active download")
+	}
+	cancel()
 	return u.Status(), nil
+}
+
+func (u *UpdaterService) updateDownloadProgress(downloadedBytes int64, totalBytes int64) {
+	if downloadedBytes < 0 {
+		downloadedBytes = 0
+	}
+	if totalBytes < 0 {
+		totalBytes = 0
+	}
+	u.mu.Lock()
+	if u.state.Stage == updateStageDownloading {
+		u.state.DownloadedBytes = downloadedBytes
+		u.state.DownloadTotalBytes = totalBytes
+	}
+	u.mu.Unlock()
 }
 
 func (u *UpdaterService) markDownloadError(message string) (UpdateStatusResponse, error) {
@@ -456,6 +553,11 @@ func (u *UpdaterService) Apply() (UpdateStatusResponse, error) {
 	}
 	u.mu.Unlock()
 
+	if isDockerRuntime() {
+		go u.applyInDocker(job)
+		return u.Status(), nil
+	}
+
 	helperName := "update-helper-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	if runtime.GOOS == "windows" {
 		helperName += ".exe"
@@ -498,6 +600,115 @@ func (u *UpdaterService) markApplyError(err error) (UpdateStatusResponse, error)
 	return u.Status(), err
 }
 
+func (u *UpdaterService) applyInDocker(job updateWorkerJob) {
+	// Let HTTP handler flush response before replacing/executing current binary.
+	time.Sleep(300 * time.Millisecond)
+
+	if err := validateDownloadedBinaryForExec(job.SourceBinary, job.TargetVersion); err != nil {
+		_, _ = u.markApplyError(err)
+		return
+	}
+	if err := applyUpdateReplacement(job); err != nil {
+		if isPermissionOrReadonlyError(err) {
+			err = fmt.Errorf("docker 文件系统不可写，请拉取新镜像并重建容器完成更新: %w", err)
+		}
+		_, _ = u.markApplyError(err)
+		return
+	}
+	if err := execUpdatedBinary(job.TargetBinary, job.RestartArgs, job.WorkingDir); err != nil {
+		rollbackFromBackup(job)
+		_, _ = u.markApplyError(err)
+		return
+	}
+}
+
+func validateDownloadedBinaryForExec(binaryPath string, expectedVersion string) error {
+	info, err := os.Stat(binaryPath)
+	if err != nil {
+		return fmt.Errorf("downloaded binary not found: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("downloaded binary is a directory: %s", binaryPath)
+	}
+
+	if runtime.GOOS != "windows" && info.Mode()&0111 == 0 {
+		if err := os.Chmod(binaryPath, 0755); err != nil {
+			return fmt.Errorf("downloaded binary is not executable: %w", err)
+		}
+	}
+
+	detectedVersion, err := probeBinaryVersion(binaryPath)
+	if err != nil {
+		return err
+	}
+
+	expectedVersion = strings.TrimSpace(expectedVersion)
+	if expectedVersion != "" && compareVersionStrings(detectedVersion, expectedVersion) != 0 {
+		return fmt.Errorf("downloaded binary version mismatch: got %s, expected %s", detectedVersion, expectedVersion)
+	}
+	if compareVersionStrings(detectedVersion, Version) <= 0 {
+		return fmt.Errorf("downloaded binary (%s) is not newer than current version (%s)", detectedVersion, Version)
+	}
+	return nil
+}
+
+func probeBinaryVersion(binaryPath string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binaryPath, "-v")
+	cmd.Env = os.Environ()
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("version probe timed out for %s", filepath.Base(binaryPath))
+	}
+	trimmed := strings.TrimSpace(string(output))
+	if err != nil {
+		if trimmed == "" {
+			trimmed = err.Error()
+		}
+		return "", fmt.Errorf("version probe failed: %s", trimmed)
+	}
+	if trimmed == "" {
+		return "", fmt.Errorf("version probe returned empty output")
+	}
+	line := strings.TrimSpace(strings.Split(trimmed, "\n")[0])
+	if line == "" {
+		return "", fmt.Errorf("version probe returned empty first line")
+	}
+	if !strings.HasPrefix(strings.ToLower(line), "v") {
+		line = "v" + line
+	}
+	return line, nil
+}
+
+func execUpdatedBinary(binaryPath string, args []string, workingDir string) error {
+	if strings.TrimSpace(binaryPath) == "" {
+		return fmt.Errorf("binary path is empty")
+	}
+	if workingDir != "" {
+		if err := os.Chdir(workingDir); err != nil {
+			return fmt.Errorf("failed to switch working directory: %w", err)
+		}
+	}
+	argv := append([]string{binaryPath}, args...)
+	if err := execReplaceProcess(binaryPath, argv, os.Environ()); err != nil {
+		return fmt.Errorf("failed to exec updated binary: %w", err)
+	}
+	return nil
+}
+
+func isPermissionOrReadonlyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "permission denied") || strings.Contains(msg, "read-only file system")
+}
+
 func (u *UpdaterService) fetchManifest(ctx context.Context, manifestURL string) (UpdateManifest, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
 	if err != nil {
@@ -527,9 +738,15 @@ func (u *UpdaterService) fetchManifest(ctx context.Context, manifestURL string) 
 	return manifest, nil
 }
 
-func (u *UpdaterService) downloadFile(ctx context.Context, url string, target string) error {
+func (u *UpdaterService) downloadFile(ctx context.Context, url string, target string, onProgress func(downloadedBytes int64, totalBytes int64)) error {
 	tempFile := target + ".part"
 	_ = os.Remove(tempFile)
+	cleanupTemp := true
+	defer func() {
+		if cleanupTemp {
+			_ = os.Remove(tempFile)
+		}
+	}()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -545,18 +762,44 @@ func (u *UpdaterService) downloadFile(ctx context.Context, url string, target st
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download failed: %s", resp.Status)
 	}
+	totalBytes := resp.ContentLength
+	if totalBytes < 0 {
+		totalBytes = 0
+	}
+	if onProgress != nil {
+		onProgress(0, totalBytes)
+	}
 
 	out, err := os.OpenFile(tempFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		out.Close()
-		return err
+	buf := make([]byte, 128*1024)
+	var downloadedBytes int64
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, err := out.Write(buf[:n]); err != nil {
+				out.Close()
+				return err
+			}
+			downloadedBytes += int64(n)
+			if onProgress != nil {
+				onProgress(downloadedBytes, totalBytes)
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			out.Close()
+			return readErr
+		}
 	}
 	if err := out.Close(); err != nil {
 		return err
 	}
+	cleanupTemp = false
 	return os.Rename(tempFile, target)
 }
 
@@ -650,6 +893,32 @@ func resolveManifestURL(source UpdateSourceConfig) string {
 		repo = "havonz/XXTCloudControl"
 	}
 	return "https://github.com/" + repo + "/releases/latest/download/update-manifest.json"
+}
+
+func getUpdateCheckTimeout() time.Duration {
+	timeoutSeconds := serverConfig.Update.Source.RequestTimeoutSeconds
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 60
+	}
+	return time.Duration(timeoutSeconds) * time.Second
+}
+
+func isDockerRuntime() bool {
+	runtimeFlag := strings.TrimSpace(os.Getenv("XXTCC_RUNTIME"))
+	if strings.EqualFold(runtimeFlag, "docker") {
+		return true
+	}
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	cgroupData, err := os.ReadFile("/proc/1/cgroup")
+	if err != nil {
+		return false
+	}
+	content := string(cgroupData)
+	return strings.Contains(content, "docker") ||
+		strings.Contains(content, "containerd") ||
+		strings.Contains(content, "kubepods")
 }
 
 func selectManifestAsset(assets []UpdateAsset, goos, goarch string) (UpdateAsset, error) {

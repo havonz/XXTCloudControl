@@ -44,7 +44,9 @@ ensure_buildx_builder() {
 }
 
 BUILD_TIME=$(date -u '+%Y%m%d%H%M')
-VERSION="v$(date -u '+%Y%m%d%H%M%S')"
+VERSION="v$(date -u '+%Y%m%d%H%M')"
+# BUILD_TIME="202602210000"
+# VERSION="v202602210000"
 COMMIT=$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 platforms=(

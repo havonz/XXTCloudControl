@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -78,6 +79,8 @@ func runUpdateWorker(jobPath string) error {
 		state.LastError = ""
 		state.HasUpdate = false
 		state.Ignored = false
+		state.DownloadTotalBytes = 0
+		state.DownloadedBytes = 0
 		state.AppliedVersion = job.TargetVersion
 		state.DownloadedVersion = ""
 		state.DownloadedAsset = ""
@@ -132,14 +135,14 @@ func applyUpdateReplacement(job updateWorkerJob) error {
 
 	_ = os.Remove(job.BackupBinary)
 	if exists(job.TargetBinary) {
-		if err := os.Rename(job.TargetBinary, job.BackupBinary); err != nil {
+		if err := moveFileWithFallback(job.TargetBinary, job.BackupBinary); err != nil {
 			_ = os.Remove(tempBinary)
 			return err
 		}
 	}
-	if err := os.Rename(tempBinary, job.TargetBinary); err != nil {
+	if err := moveFileWithFallback(tempBinary, job.TargetBinary); err != nil {
 		if exists(job.BackupBinary) {
-			_ = os.Rename(job.BackupBinary, job.TargetBinary)
+			_ = moveFileWithFallback(job.BackupBinary, job.TargetBinary)
 		}
 		_ = os.Remove(tempBinary)
 		return err
@@ -154,15 +157,22 @@ func applyUpdateReplacement(job updateWorkerJob) error {
 
 	_ = os.RemoveAll(job.BackupFrontendDir)
 	if exists(job.TargetFrontendDir) {
-		if err := os.Rename(job.TargetFrontendDir, job.BackupFrontendDir); err != nil {
+		if err := copyDir(job.TargetFrontendDir, job.BackupFrontendDir); err != nil {
 			_ = os.RemoveAll(tempFrontend)
 			rollbackBinary(job.TargetBinary, job.BackupBinary)
 			return err
 		}
+		if err := os.RemoveAll(job.TargetFrontendDir); err != nil {
+			_ = os.RemoveAll(tempFrontend)
+			_ = os.RemoveAll(job.BackupFrontendDir)
+			rollbackBinary(job.TargetBinary, job.BackupBinary)
+			return err
+		}
 	}
-	if err := os.Rename(tempFrontend, job.TargetFrontendDir); err != nil {
+	if err := moveDirWithFallback(tempFrontend, job.TargetFrontendDir); err != nil {
 		if exists(job.BackupFrontendDir) {
-			_ = os.Rename(job.BackupFrontendDir, job.TargetFrontendDir)
+			_ = os.RemoveAll(job.TargetFrontendDir)
+			_ = moveDirWithFallback(job.BackupFrontendDir, job.TargetFrontendDir)
 		}
 		_ = os.RemoveAll(tempFrontend)
 		rollbackBinary(job.TargetBinary, job.BackupBinary)
@@ -185,7 +195,7 @@ func startTargetProcess(job updateWorkerJob) error {
 func rollbackFromBackup(job updateWorkerJob) {
 	if exists(job.BackupFrontendDir) {
 		_ = os.RemoveAll(job.TargetFrontendDir)
-		_ = os.Rename(job.BackupFrontendDir, job.TargetFrontendDir)
+		_ = moveDirWithFallback(job.BackupFrontendDir, job.TargetFrontendDir)
 	}
 	rollbackBinary(job.TargetBinary, job.BackupBinary)
 }
@@ -193,7 +203,7 @@ func rollbackFromBackup(job updateWorkerJob) {
 func rollbackBinary(target string, backup string) {
 	if exists(backup) {
 		_ = os.Remove(target)
-		_ = os.Rename(backup, target)
+		_ = moveFileWithFallback(backup, target)
 	}
 }
 
@@ -232,6 +242,37 @@ func copyDir(src string, dst string) error {
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func moveFileWithFallback(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	} else if !isCrossDeviceLinkErr(err) {
+		return err
+	}
+	if err := copyFile(src, dst); err != nil {
+		return err
+	}
+	return os.Remove(src)
+}
+
+func moveDirWithFallback(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	} else if !isCrossDeviceLinkErr(err) {
+		return err
+	}
+	if err := copyDir(src, dst); err != nil {
+		return err
+	}
+	return os.RemoveAll(src)
+}
+
+func isCrossDeviceLinkErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "cross-device link")
 }
 
 func ensureFile(path string) error {

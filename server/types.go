@@ -74,9 +74,10 @@ type UpdateConfig struct {
 
 // UpdateSourceConfig represents update feed source settings.
 type UpdateSourceConfig struct {
-	Repository            string `json:"repository"`
-	ManifestURL           string `json:"manifestUrl"`
-	RequestTimeoutSeconds int    `json:"requestTimeoutSeconds"`
+	Repository                    string `json:"repository"`
+	ManifestURL                   string `json:"manifestUrl"`
+	RequestTimeoutSeconds         int    `json:"requestTimeoutSeconds"`
+	DownloadConnectTimeoutSeconds int    `json:"downloadConnectTimeoutSeconds"`
 }
 
 // DefaultConfig returns the default server configuration
@@ -103,8 +104,9 @@ var DefaultConfig = ServerConfig{
 		PromptOnNewVersion: true,
 		IgnoredVersions:    []string{},
 		Source: UpdateSourceConfig{
-			Repository:            "havonz/XXTCloudControl",
-			RequestTimeoutSeconds: 15,
+			Repository:                    "havonz/XXTCloudControl",
+			RequestTimeoutSeconds:         60,
+			DownloadConnectTimeoutSeconds: 60,
 		},
 	},
 }
