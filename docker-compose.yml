@@ -8,7 +8,7 @@ services:
       - '43478:43478/tcp'
       - '43478:43478/udp'
     volumes:
-      - ./xxtcc-data:/app/data # ./xxtcc-data 是主机上的数据目录，映射到容器内的 /app/data
+      - xxtcc-data:/app/data
     environment:
       XXTCC_CONFIG: '' # 默认使用工作目录下的 xxtcloudserver.json（此处留空）
       XXTCC_NO_CONFIG: 'true' # 设为 true 可跳过默认配置文件创建
@@ -31,3 +31,6 @@ services:
       XXTCC_TURN_RELAY_PORT_MIN: '49152' # TURN 中继端口范围起始
       XXTCC_TURN_RELAY_PORT_MAX: '65535' # TURN 中继端口范围结束
       XXTCC_CUSTOM_ICE_SERVERS: '[]' # 自定义 ICE 服务器 JSON
+volumes:
+  xxtcc-data:
+    name: xxtcc-data
