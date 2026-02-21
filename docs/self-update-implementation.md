@@ -1,93 +1,88 @@
 # XXTCloudControl 自更新实现说明
 
-本文档描述当前仓库中“自更新”功能的完整实现逻辑、状态流转和关键安全机制。
+本文档描述当前仓库中“自更新”功能的实际实现逻辑、状态流转与 Docker 分支行为（与当前代码对齐）。
 
 ## 1. 设计目标与边界
 
 1. 目标：
-- 用户主动检查更新。
-- 用户确认后下载更新包并应用更新。
-- 更新后自动重启服务进程。
-- 更新失败可回滚到备份版本。
+- 用户手动检查更新、下载更新、应用更新。
+- 下载可显示进度，并支持手动停止。
+- 应用更新后自动切换到新版本进程，失败可回滚。
 
 2. 边界：
-- 只更新运行文件（二进制 + `frontend/` 静态资源）。
-- 不更新 Docker 镜像层本身（仅更新容器可写层文件）。
+- 仅更新运行文件（二进制 + `frontend/` 静态资源）。
+- 不更新 Docker 镜像本身；Docker 模式仅改写容器可写层。
 
 ## 2. 发布侧依赖（GitHub Release）
 
-当前发布流程在 release 中提供机器可读元数据：
-
-1. `update-manifest.json`
-- 包含当前 release 版本信息。
-- 包含各平台资产名称、下载链接、sha256。
-
-2. `checksums.txt`
-- 所有发布资产的 sha256。
-
-3. `latest.txt`
-- 最新版本的快捷元信息（含 latest manifest/checksums 入口）。
-
-当前实现默认读取：
+当前实现默认从以下入口拉取 manifest：
 - `https://github.com/<repo>/releases/latest/download/update-manifest.json`
 
-也可通过配置覆盖 manifest URL。
+manifest 结构由 `UpdateManifest` 定义（`server/updater.go`）：
+1. `version`
+2. `channel`
+3. `buildTime`
+4. `commit`
+5. `publishedAt`
+6. `checksumsUrl`
+7. `assets[]`（每个资产包含 `os/arch/name/url/latestUrl/sha256`）
 
-### 2.1 固定入口与版本化资产的关系
+说明：
+1. 客户端不需要预知“下一版本文件名”，只依赖 latest manifest。
+2. 每个平台资产由 manifest 中 `assets` 精确描述。
 
-1. 资产文件名可以是版本化命名（例如带版本号），不需要固定文件名。
-2. 客户端只需要固定访问 latest 入口的 `update-manifest.json`。
-3. manifest 内会给出“当前最新版本”对应资产名、下载 URL、sha256。
-4. 发布新版本后，GitHub 的 `releases/latest/download/...` 会自动指向新 release，因此客户端无需预知“下一个版本号”。
-
-结论：
-1. 版本化资产链接用于精确追溯某个版本。
-2. latest 固定链接用于稳定发现“当前最新版本”。
-
-## 3. 运行时核心组件
+## 3. 核心组件
 
 ### 3.1 UpdaterService（主进程）
 
 文件：`server/updater.go`
 
 职责：
-1. 初始化更新目录与状态文件。
-2. 对外提供状态查询、检查更新、下载更新、应用更新。
-3. 下载校验、解压、平台资产选择、版本比较。
-4. 生成 worker 作业并拉起内部 helper。
+1. 初始化 `data/updater` 目录与状态文件。
+2. 提供 `status/check/download/download-cancel/apply` 能力。
+3. 执行 manifest 拉取、资产选择、下载、校验、解压。
+4. 根据运行环境选择“helper worker 模式”或“Docker 进程内 exec 模式”应用更新。
 
-### 3.2 Update Worker（子进程）
+### 3.2 Update Worker（子进程，仅非 Docker apply）
 
 文件：`server/update_worker.go`
 
 职责：
-1. 在主进程退出窗口中执行文件替换。
-2. 处理二进制/前端目录备份与回滚。
-3. 启动新版本进程。
-4. 更新最终状态并清理 staging/job 文件。
+1. 等待父进程退出后替换二进制与前端目录。
+2. 启动新进程。
+3. 替换失败或启动失败时回滚。
+4. 回写最终状态并清理 job/staging。
 
-### 3.3 Update API
+### 3.3 Docker 进程替换层
 
-文件：`server/handlers_update.go`，路由注册在 `server/main.go`
+文件：
+1. `server/updater.go`（`applyInDocker`）
+2. `server/process_exec_unix.go`
+3. `server/process_exec_windows.go`
+
+职责：
+1. 校验下载得到的目标二进制确实可执行且版本正确。
+2. 在当前进程中完成文件替换。
+3. Unix 下使用 `syscall.Exec` 原地替换进程镜像，不依赖 helper。
+
+## 4. Update API
+
+路由注册：`server/main.go`
+处理器：`server/handlers_update.go`
 
 接口：
 1. `GET /api/update/status`
 2. `POST /api/update/check`
 3. `POST /api/update/download`
-4. `POST /api/update/apply`
+4. `POST /api/update/download/cancel`
+5. `POST /api/update/apply`
 
-### 3.4 前端入口
+鉴权：
+1. `/api/update/*` 走统一 `apiAuthMiddleware`，未登录返回 `401`。
 
-文件：`frontend/src/App.tsx`、`frontend/src/App.module.css`
+## 5. 配置项与环境变量
 
-入口形态：
-1. 点击标题栏版本号弹出“更新管理”菜单。
-2. 菜单按钮对应 check/download/apply。
-3. 应用更新后前端轮询 `/api/control/info` 感知版本切换。
-
-## 4. 配置项与环境变量
-
-配置结构定义：`server/types.go` 中 `ServerConfig.Update`。
+配置结构：`server/types.go` 的 `ServerConfig.Update`
 
 JSON 字段：
 1. `update.enabled`
@@ -98,6 +93,7 @@ JSON 字段：
 6. `update.source.repository`
 7. `update.source.manifestUrl`
 8. `update.source.requestTimeoutSeconds`
+9. `update.source.downloadConnectTimeoutSeconds`
 
 环境变量覆盖（`server/config.go`）：
 1. `XXTCC_UPDATE_ENABLED`
@@ -107,32 +103,22 @@ JSON 字段：
 5. `XXTCC_UPDATE_IGNORED_VERSIONS`
 6. `XXTCC_UPDATE_REPOSITORY`
 7. `XXTCC_UPDATE_MANIFEST_URL`
-8. `XXTCC_UPDATE_TIMEOUT_SECONDS`
+8. `XXTCC_UPDATE_TIMEOUT_SECONDS`（check 超时）
+9. `XXTCC_UPDATE_DOWNLOAD_CONNECT_TIMEOUT_SECONDS`（下载连接超时）
 
-## 5. 鉴权与安全机制
+## 6. 超时模型（当前实现）
 
-### 5.1 接口鉴权
+1. `check`：由 `context.WithTimeout(..., getUpdateCheckTimeout())` 控制，默认 60 秒（连接 + 获取内容都受该 context 限制）。
+2. `download`：
+- HTTP 客户端不设置整体 `Client.Timeout`。
+- 仅在 Dial 和 TLS Handshake 使用连接超时（默认 60 秒）。
+- 下载正文读取不设总超时，可长时间持续，直到完成或手动取消。
 
-`/api/update/*` 走统一 API 鉴权中间件，未加入免鉴权白名单。
-
-结论：
-1. 未登录或签名错误请求会被服务端返回 `401 unauthorized`。
-2. 前端也做了二次限制：未鉴权时禁用更新操作按钮，并提示重新登录。
-
-### 5.2 数据与文件安全
-
-1. 下载后必须做 SHA256 校验（若 manifest 提供 `sha256`）。
-2. ZIP 解压使用路径校验，阻止 Zip Slip（路径穿越）。
-3. worker 拒绝更新包中的符号链接（symlink）。
-4. macOS 在下载完成后对 staging 执行：
-- `xattr -dr com.apple.quarantine <staging-path>`
-- 失败则终止更新。
-
-## 6. 状态机与持久化
+## 7. 状态与持久化
 
 状态文件：`<dataDir>/updater/state.json`
 
-主要状态：
+阶段：
 1. `idle`
 2. `checking`
 3. `update_available`
@@ -142,119 +128,148 @@ JSON 字段：
 7. `failed`
 
 关键字段：
-1. `latestVersion`
-2. `latestAsset`
-3. `downloadedVersion`
-4. `downloadedFile`
-5. `stagingDir`
-6. `sourceBinary`
-7. `sourceFrontendDir`
-8. `appliedVersion`
-9. `lastError`
+1. `latestVersion` / `latestAsset`
+2. `downloadTotalBytes` / `downloadedBytes`
+3. `downloadedVersion` / `downloadedAsset` / `downloadedFile`
+4. `stagingDir` / `sourceBinary` / `sourceFrontendDir`
+5. `appliedVersion`
+6. `lastError`
 
-启动恢复逻辑：
-1. 若上次停在 `applying` 且 `downloadedVersion == 当前Version`，会收敛为 `idle`。
-2. 若 `stagingDir` 已不存在，会清理对应 source 路径字段。
+启动恢复：
+1. 若上次 `stage=applying` 且 `downloadedVersion == 当前Version`，收敛为 `idle` 并清错误。
+2. 若 `stagingDir` 已不存在，清理 `sourceBinary/sourceFrontendDir`。
+3. 仅在 `stage=downloading` 时保留进度值；其余状态会清零进度字段。
 
-## 7. 详细流程
+## 8. 详细流程
 
-### 7.1 检查更新（check）
+### 8.1 检查更新（check）
 
-1. 解析 manifest URL（优先 `update.source.manifestUrl`，否则仓库 latest 固定入口）。
+1. 解析 manifest URL（`manifestUrl` 优先，否则 `repository` 的 latest 入口）。
 2. 拉取并解析 `update-manifest.json`。
 3. 按当前 `GOOS/GOARCH` 选择资产。
 4. 比较 `manifest.version` 与当前 `Version`。
-5. 若版本更高且未被忽略，置 `hasUpdate=true` 与 `stage=update_available`。
+5. 若新版本且未忽略，设置 `hasUpdate=true`、`stage=update_available`；否则回到 `idle`。
 
-### 7.2 下载更新（download）
+### 8.2 下载更新（download）
 
-1. 若尚无最新版本信息，先隐式执行 check。
-2. 从资产 `url`（回退 `latestUrl`）下载到 `cache`。
-3. 做 sha256 校验。
-4. 解压到 `staging`（含 Zip Slip 防护）。
-5. 校验包内容存在目标平台二进制与 `frontend/`。
-6. macOS 清理 quarantine。
-7. 更新状态为 `downloaded`，写入 source 路径。
+1. 若本地还没有 `latestVersion/latestAsset`，先隐式执行一次 check。
+2. `stage` 切到 `downloading`，创建后台下载任务（goroutine）。
+3. 下载 zip 到 `updater/cache`，持续更新 `downloadedBytes/downloadTotalBytes`。
+4. 校验 SHA256（manifest 提供时）。
+5. 解压到 `updater/staging/<version-timestamp>`。
+6. 校验包中必须有当前平台二进制和 `frontend/`。
+7. macOS 清理 quarantine。
+8. 成功后置 `stage=downloaded` 并写入 source 路径字段。
 
-### 7.3 应用更新（apply）
+说明：
+1. 下载任务与 HTTP 请求解耦，刷新页面/重新登录不会自动中断下载。
+2. 停止下载只能通过 `POST /api/update/download/cancel`。
 
-1. 仅允许在 `stage=downloaded` 时执行。
-2. 生成 worker job 文件（含源/目标路径、备份路径、重启参数）。
-3. 复制当前可执行文件为 helper（`worker/update-helper-*`）。
+### 8.3 停止下载（download cancel）
+
+1. 仅当 `stage=downloading` 且存在活动 cancel 函数时可执行。
+2. 调用后下载 context 被取消，状态进入 `failed`，`lastError=download canceled`。
+
+### 8.4 应用更新（apply）- 非 Docker
+
+1. 仅允许 `stage=downloaded`。
+2. 生成 worker job（源/目标/备份/重启参数）。
+3. 复制当前程序为 helper 到 `updater/worker/update-helper-*`。
 4. 启动 helper：`<helper> -update-worker <jobPath>`。
-5. 主进程延迟约 1.2 秒后退出，释放文件句柄与端口。
+5. 主进程约 1.2 秒后 `os.Exit(0)`，由 helper 完成替换与拉起新版。
 
-### 7.4 Worker 替换与重启
+### 8.5 应用更新（apply）- Docker
 
-1. 最多重试 200 次文件替换（每次间隔 300ms）。
-2. 等待父进程退出后再拉起新进程（等待上限 30 秒）：
-- Linux/macOS：使用 `Signal(0)` 检测并严格等待退出。
-- Windows：使用 `OpenProcess + WaitForSingleObject(0)` 检测并严格等待退出。
-3. 替换流程：
-- `targetBinary -> backupBinary`
-- `sourceBinary -> targetBinary`
-- `targetFrontendDir -> backupFrontendDir`
-- `sourceFrontendDir -> targetFrontendDir`
-4. 启动失败则回滚备份。
-5. 成功后状态置 `idle`、`appliedVersion=targetVersion`，清理 staging/job。
+运行时判断（`isDockerRuntime`）命中任一条件即视为 Docker：
+1. 环境变量 `XXTCC_RUNTIME=docker`
+2. 存在 `/.dockerenv`
+3. `/proc/1/cgroup` 包含 `docker/containerd/kubepods`
 
-## 8. 前端交互逻辑
+流程：
+1. `apply` 将状态切到 `applying` 后，异步进入 `applyInDocker`。
+2. 先校验下载二进制：
+- 文件存在且不是目录
+- Unix 下必要时补可执行权限
+- 执行 `<binary> -v`（8 秒超时）探测版本
+- 必须与 `downloadedVersion` 一致，且严格高于当前 `Version`
+3. 执行与 worker 共用的替换逻辑（见 8.6）。
+4. Unix 下调用 `syscall.Exec` 直接替换当前进程为新二进制。
+5. 若替换失败且属于权限/只读文件系统错误，返回明确错误提示：应更新镜像并重建容器。
+6. 若 `exec` 失败，执行回滚并置 `failed`。
 
-### 8.1 菜单入口
+### 8.6 文件替换与回滚细节（worker 与 Docker 共用）
 
-1. 点击标题栏版本号，打开更新菜单。
-2. 菜单展示当前版本、最新版本、状态、错误信息。
+核心替换函数：`applyUpdateReplacement`（`server/update_worker.go`）
 
-### 8.2 用户操作
+顺序：
+1. 复制 `sourceBinary` 到 `targetBinary.new`
+2. `targetBinary -> backupBinary`
+3. `targetBinary.new -> targetBinary`
+4. 复制 `sourceFrontendDir` 到 `targetFrontendDir.new`
+5. 复制 `targetFrontendDir -> backupFrontendDir`，再删除旧目录
+6. `targetFrontendDir.new -> targetFrontendDir`
 
-1. 检测更新：调用 `POST /api/update/check`。
-2. 下载更新：调用 `POST /api/update/download`。
-3. 应用更新：调用 `POST /api/update/apply`。
+跨设备处理：
+1. `moveFileWithFallback` / `moveDirWithFallback` 先尝试 `os.Rename`。
+2. 若报 `cross-device link`，自动回退为 `copy + remove`，避免 Docker overlay 场景下 rename 失败。
 
-### 8.3 更新后感知
+回滚：
+1. 新进程启动/exec 失败时，恢复 `backupBinary` 和 `backupFrontendDir`。
 
-1. apply 后前端每秒轮询 `/api/control/info`。
-2. 当检测到版本号变化即提示“更新完成”并刷新本地版本缓存。
+## 9. 前端交互与轮询
 
-## 9. 磁盘目录结构
+文件：`frontend/src/App.tsx`、`frontend/src/App.module.css`
 
-以 `data_dir` 为根：
+1. 入口：点击标题栏版本号打开“更新管理”弹窗。
+2. 按钮：
+- `检测更新`（独立按钮）
+- 主按钮三态合一：
+  - 未下载：`下载更新`（点击后短暂显示 `准备下载...`）
+  - 下载中：`停止下载`
+  - 已下载：`应用更新`
+3. 下载进度：显示 bytes/百分比；未知总大小时显示已下载 bytes 与不定进度条。
+4. 状态轮询：
+- 仅当“已登录 + 弹窗可见”时，每 1 秒轮询 `/api/update/status`
+- 弹窗关闭立即停止轮询
+- 内置 in-flight 保护，避免重叠请求
+5. apply 后重连感知：
+- 前端每 1 秒请求 `/api/control/info`（最多约 120 秒）
+- 发现版本变化后提示“更新完成”并刷新缓存版本
 
-1. `updater/state.json`
-2. `updater/cache/`（下载的 zip）
-3. `updater/staging/`（解压内容）
-4. `updater/worker/`（helper 与 job 文件）
+## 10. 安全机制
 
-运行目录中的目标文件会生成备份：
-1. 二进制备份：`<binary>.bak`
-2. 前端目录备份：`<frontendDir>.bak`
+1. 更新接口受统一鉴权保护。
+2. 下载包做 SHA256 校验（若 manifest 提供）。
+3. ZIP 解压做路径校验，防 Zip Slip。
+4. 拒绝更新包中的 symlink。
+5. macOS 清理 quarantine 失败即中止。
 
-## 10. 版本比较规则
+## 11. Docker 行为说明（当前实现）
 
-当前实现支持：
-1. 时间戳版本（例如 `v202602210930`）按数值比较。
-2. semver-like（例如 `v1.2.0`）比较 major/minor/patch。
-3. 预发布标识（`-beta`）低于同版本正式版。
-4. `dev/unknown` 视为低版本。
+1. Docker 自更新只修改“当前容器”的可写层，不会修改镜像。
+2. 同一容器内重启通常可保留更新结果；重建容器会回到镜像文件。
+3. 若容器文件系统无写权限，apply 会失败并提示改为拉新镜像更新。
+4. `unless-stopped` 场景下，Docker 路由使用 `exec` 原地替换，进程不以“退出再拉起”的方式更新。
 
-## 11. 当前实现限制与后续建议
+## 12. 已知限制
 
-1. `checkIntervalHours` 当前仅配置落地，尚未实现后台定时任务调度。
-2. 下载暂不支持断点续传。
-3. worker helper 二进制当前未自动清理，可增加定期清理策略。
-4. channel 字段已存在，当前检查逻辑未做多通道过滤策略扩展。
-5. `promptOnNewVersion` 当前仅配置落地，尚未接入服务端/前端提示策略。
-6. Docker 容器内更新只作用于容器可写层；容器重建后会回到镜像内容。
+1. `checkIntervalHours` 当前仅配置落地，未做后台定时检查调度。
+2. 下载不支持断点续传。
+3. worker helper 文件目前未做专项清理策略。
+4. `channel` 字段当前未做多通道过滤逻辑。
+5. `promptOnNewVersion` 目前仅配置落地，未形成额外提示策略。
+6. 进程重启后不会自动恢复“未完成下载任务”。
 
-## 12. 相关代码文件索引
+## 13. 相关代码索引
 
 1. `server/updater.go`
 2. `server/update_worker.go`
-3. `server/handlers_update.go`
-4. `server/main.go`
-5. `server/types.go`
-6. `server/config.go`
-7. `server/handlers_api.go`
-8. `frontend/src/App.tsx`
-9. `frontend/src/App.module.css`
-10. `.github/workflows/release.yml`
+3. `server/process_exec_unix.go`
+4. `server/process_exec_windows.go`
+5. `server/handlers_update.go`
+6. `server/main.go`
+7. `server/types.go`
+8. `server/config.go`
+9. `frontend/src/App.tsx`
+10. `frontend/src/App.module.css`
+11. `.github/workflows/release.yml`
