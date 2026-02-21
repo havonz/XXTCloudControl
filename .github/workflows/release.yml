@@ -135,7 +135,7 @@ jobs:
             cp "$RELEASE_DIR/$BIN" "$PACKAGE_ROOT/"
             cp -R "$FRONTEND_DIST"/. "$PACKAGE_ROOT/frontend/"
 
-            ZIP_NAME="XXTCloudControl-$BUILD_TIME-$GOOS-$GOARCH.zip"
+            ZIP_NAME="XXTCloudControl-$VERSION-$GOOS-$GOARCH.zip"
             ZIP_PATH="$RELEASE_DIR/$ZIP_NAME"
             (cd "$PACKAGE_DIR" && zip -r "$ZIP_PATH" "XXTCloudControl" >/dev/null)
           done
@@ -150,7 +150,7 @@ jobs:
           FRONTEND_DIST="$ROOT/frontend/dist"
 
           for arch in amd64 arm64; do
-            OUTPUT_TAR="$RELEASE_DIR/XXTCloudControl-docker-$BUILD_TIME-linux-$arch.tar"
+            OUTPUT_TAR="$RELEASE_DIR/XXTCloudControl-docker-$VERSION-linux-$arch.tar"
             DOCKER_BUILD_DIR="$RELEASE_DIR/.docker-$arch"
 
             mkdir -p "$DOCKER_BUILD_DIR"
@@ -169,6 +169,134 @@ jobs:
           done
 
           ls -la "$RELEASE_DIR"/*.tar
+
+      - name: Generate update metadata (manifest/checksums/latest)
+        run: |
+          set -euo pipefail
+          ROOT="$GITHUB_WORKSPACE"
+          RELEASE_DIR="$ROOT/release"
+          CHECKSUMS_PATH="$RELEASE_DIR/checksums.txt"
+          MANIFEST_PATH="$RELEASE_DIR/update-manifest.json"
+          LATEST_PATH="$RELEASE_DIR/latest.txt"
+          REPO="$GITHUB_REPOSITORY"
+          TAG="$VERSION"
+          DOWNLOAD_BASE_URL="https://github.com/$REPO/releases/download/$TAG"
+          LATEST_BASE_URL="https://github.com/$REPO/releases/latest/download"
+          PUBLISHED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          LINUX_AMD64_ZIP="XXTCloudControl-$TAG-linux-amd64.zip"
+          LINUX_ARM64_ZIP="XXTCloudControl-$TAG-linux-arm64.zip"
+          WINDOWS_AMD64_ZIP="XXTCloudControl-$TAG-windows-amd64.zip"
+          WINDOWS_ARM64_ZIP="XXTCloudControl-$TAG-windows-arm64.zip"
+          DARWIN_AMD64_ZIP="XXTCloudControl-$TAG-darwin-amd64.zip"
+          DARWIN_ARM64_ZIP="XXTCloudControl-$TAG-darwin-arm64.zip"
+          DOCKER_AMD64_TAR="XXTCloudControl-docker-$TAG-linux-amd64.tar"
+          DOCKER_ARM64_TAR="XXTCloudControl-docker-$TAG-linux-arm64.tar"
+
+          cd "$RELEASE_DIR"
+          sha256sum \
+            "$LINUX_AMD64_ZIP" \
+            "$LINUX_ARM64_ZIP" \
+            "$WINDOWS_AMD64_ZIP" \
+            "$WINDOWS_ARM64_ZIP" \
+            "$DARWIN_AMD64_ZIP" \
+            "$DARWIN_ARM64_ZIP" \
+            "$DOCKER_AMD64_TAR" \
+            "$DOCKER_ARM64_TAR" \
+            > "$CHECKSUMS_PATH"
+
+          checksum_for() {
+            local file="$1"
+            awk -v f="$file" '$2==f {print $1}' "$CHECKSUMS_PATH"
+          }
+
+          cat > "$MANIFEST_PATH" <<EOF
+          {
+            "version": "$TAG",
+            "channel": "stable",
+            "buildTime": "$BUILD_TIME",
+            "commit": "$COMMIT",
+            "publishedAt": "$PUBLISHED_AT",
+            "checksumsUrl": "$DOWNLOAD_BASE_URL/checksums.txt",
+            "latestChecksumsUrl": "$LATEST_BASE_URL/checksums.txt",
+            "assets": [
+              {
+                "os": "linux",
+                "arch": "amd64",
+                "name": "$LINUX_AMD64_ZIP",
+                "url": "$DOWNLOAD_BASE_URL/$LINUX_AMD64_ZIP",
+                "latestUrl": "$LATEST_BASE_URL/$LINUX_AMD64_ZIP",
+                "sha256": "$(checksum_for "$LINUX_AMD64_ZIP")"
+              },
+              {
+                "os": "linux",
+                "arch": "arm64",
+                "name": "$LINUX_ARM64_ZIP",
+                "url": "$DOWNLOAD_BASE_URL/$LINUX_ARM64_ZIP",
+                "latestUrl": "$LATEST_BASE_URL/$LINUX_ARM64_ZIP",
+                "sha256": "$(checksum_for "$LINUX_ARM64_ZIP")"
+              },
+              {
+                "os": "windows",
+                "arch": "amd64",
+                "name": "$WINDOWS_AMD64_ZIP",
+                "url": "$DOWNLOAD_BASE_URL/$WINDOWS_AMD64_ZIP",
+                "latestUrl": "$LATEST_BASE_URL/$WINDOWS_AMD64_ZIP",
+                "sha256": "$(checksum_for "$WINDOWS_AMD64_ZIP")"
+              },
+              {
+                "os": "windows",
+                "arch": "arm64",
+                "name": "$WINDOWS_ARM64_ZIP",
+                "url": "$DOWNLOAD_BASE_URL/$WINDOWS_ARM64_ZIP",
+                "latestUrl": "$LATEST_BASE_URL/$WINDOWS_ARM64_ZIP",
+                "sha256": "$(checksum_for "$WINDOWS_ARM64_ZIP")"
+              },
+              {
+                "os": "darwin",
+                "arch": "amd64",
+                "name": "$DARWIN_AMD64_ZIP",
+                "url": "$DOWNLOAD_BASE_URL/$DARWIN_AMD64_ZIP",
+                "latestUrl": "$LATEST_BASE_URL/$DARWIN_AMD64_ZIP",
+                "sha256": "$(checksum_for "$DARWIN_AMD64_ZIP")"
+              },
+              {
+                "os": "darwin",
+                "arch": "arm64",
+                "name": "$DARWIN_ARM64_ZIP",
+                "url": "$DOWNLOAD_BASE_URL/$DARWIN_ARM64_ZIP",
+                "latestUrl": "$LATEST_BASE_URL/$DARWIN_ARM64_ZIP",
+                "sha256": "$(checksum_for "$DARWIN_ARM64_ZIP")"
+              }
+            ],
+            "dockerAssets": [
+              {
+                "os": "linux",
+                "arch": "amd64",
+                "name": "$DOCKER_AMD64_TAR",
+                "url": "$DOWNLOAD_BASE_URL/$DOCKER_AMD64_TAR",
+                "latestUrl": "$LATEST_BASE_URL/$DOCKER_AMD64_TAR",
+                "sha256": "$(checksum_for "$DOCKER_AMD64_TAR")"
+              },
+              {
+                "os": "linux",
+                "arch": "arm64",
+                "name": "$DOCKER_ARM64_TAR",
+                "url": "$DOWNLOAD_BASE_URL/$DOCKER_ARM64_TAR",
+                "latestUrl": "$LATEST_BASE_URL/$DOCKER_ARM64_TAR",
+                "sha256": "$(checksum_for "$DOCKER_ARM64_TAR")"
+              }
+            ]
+          }
+          EOF
+
+          cat > "$LATEST_PATH" <<EOF
+          version=$TAG
+          published_at=$PUBLISHED_AT
+          manifest_url=$LATEST_BASE_URL/update-manifest.json
+          checksums_url=$LATEST_BASE_URL/checksums.txt
+          EOF
+
+          ls -la "$RELEASE_DIR"/update-manifest.json "$RELEASE_DIR"/checksums.txt "$RELEASE_DIR"/latest.txt
 
       - name: Push docker images to Docker Hub + GHCR (amd64/arm64)
         if: ${{ inputs.dry_run != 'true' }}
@@ -194,7 +322,7 @@ jobs:
 
           # Reuse built tar artifacts to avoid rebuilding the same images again.
           for arch in amd64 arm64; do
-            TAR_PATH="$RELEASE_DIR/XXTCloudControl-docker-$BUILD_TIME-linux-$arch.tar"
+            TAR_PATH="$RELEASE_DIR/XXTCloudControl-docker-$VERSION-linux-$arch.tar"
             if [ ! -f "$TAR_PATH" ]; then
               echo "Error: docker artifact not found: $TAR_PATH" >&2
               exit 1
@@ -243,6 +371,9 @@ jobs:
           files: |
             release/XXTCloudControl-*.zip
             release/XXTCloudControl-docker-*.tar
+            release/update-manifest.json
+            release/checksums.txt
+            release/latest.txt
           fail_on_unmatched_files: true
 
       - name: Create GitHub Release (custom notes)
@@ -256,4 +387,7 @@ jobs:
           files: |
             release/XXTCloudControl-*.zip
             release/XXTCloudControl-docker-*.tar
+            release/update-manifest.json
+            release/checksums.txt
+            release/latest.txt
           fail_on_unmatched_files: true

@@ -19,7 +19,7 @@
   flex-shrink: 0;
   box-shadow: var(--shadow-sm);
   position: relative;
-  z-index: 10;
+  z-index: 20;
 }
 
 .headerLeft {
@@ -92,6 +92,35 @@
   white-space: nowrap;
 }
 
+.versionUpdateEntry {
+  position: relative;
+}
+
+.versionBadgeButton {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.versionBadgeButton:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--hover-bg);
+}
+
+.versionBadgeButton:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.versionBadgeButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.versionBadgeHighlight {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
 .headerRight {
   display: flex;
   align-items: center;
@@ -133,6 +162,91 @@
   transition: all 0.1s ease;
 }
 
+.updatePanel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 320px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  padding: 12px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.updatePanelTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: left;
+}
+
+.updateMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.updateMetaItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.updateValue {
+  color: var(--text);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+.updateError {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 8px;
+  text-align: left;
+  font-size: 12px;
+}
+
+.updateActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.updateActionButton {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.updateActionButton:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.updateActionButton:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.updateActionButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .appMain {
   flex: 1;
   min-height: 0;
@@ -161,10 +275,20 @@
   }
   
   .versionBadge {
-    display: none;
+    padding: 2px 8px;
+    font-size: 10px;
   }
   
   .serverInfo {
     display: none;
+  }
+
+  .updatePanel {
+    width: 260px;
+    left: -36px;
+  }
+
+  .updateActions {
+    grid-template-columns: 1fr;
   }
 }

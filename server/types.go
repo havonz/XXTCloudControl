@@ -57,6 +57,26 @@ type ServerConfig struct {
 
 	// Custom ICE servers (external STUN/TURN services)
 	CustomICEServers []ICEServer `json:"customIceServers"` // External ICE servers to merge with local TURN
+
+	// Self-update configuration
+	Update UpdateConfig `json:"update"`
+}
+
+// UpdateConfig represents self-update behavior and source settings.
+type UpdateConfig struct {
+	Enabled            bool               `json:"enabled"`
+	Channel            string             `json:"channel"`
+	CheckIntervalHours int                `json:"checkIntervalHours"`
+	PromptOnNewVersion bool               `json:"promptOnNewVersion"`
+	IgnoredVersions    []string           `json:"ignoredVersions"`
+	Source             UpdateSourceConfig `json:"source"`
+}
+
+// UpdateSourceConfig represents update feed source settings.
+type UpdateSourceConfig struct {
+	Repository            string `json:"repository"`
+	ManifestURL           string `json:"manifestUrl"`
+	RequestTimeoutSeconds int    `json:"requestTimeoutSeconds"`
 }
 
 // DefaultConfig returns the default server configuration
@@ -75,6 +95,18 @@ var DefaultConfig = ServerConfig{
 	TURNPublicIP:     "",
 	TURNRelayPortMin: 49152,
 	TURNRelayPortMax: 65535,
+
+	Update: UpdateConfig{
+		Enabled:            true,
+		Channel:            "stable",
+		CheckIntervalHours: 24,
+		PromptOnNewVersion: true,
+		IgnoredVersions:    []string{},
+		Source: UpdateSourceConfig{
+			Repository:            "havonz/XXTCloudControl",
+			RequestTimeoutSeconds: 15,
+		},
+	},
 }
 
 // Global configuration

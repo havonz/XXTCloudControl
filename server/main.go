@@ -34,6 +34,7 @@ func main() {
 	setPassword := flag.String("set-password", "", "Set the control password")
 	setTurnIP := flag.String("set-turn-ip", "", "Set the TURN server public IP")
 	setTurnPort := flag.Int("set-turn-port", 0, "Set the TURN server UDP port")
+	updateWorker := flag.String("update-worker", "", "Run internal update worker with job file")
 	help := flag.Bool("h", false, "Show help")
 	version := flag.Bool("v", false, "Show version")
 
@@ -47,6 +48,13 @@ func main() {
 
 	if *version {
 		showVersion()
+		return
+	}
+
+	if *updateWorker != "" {
+		if err := runUpdateWorker(*updateWorker); err != nil {
+			log.Fatalf("Update worker failed: %v", err)
+		}
 		return
 	}
 
@@ -122,6 +130,10 @@ func main() {
 	// Initialize data directories
 	if err := initDataDirectories(); err != nil {
 		log.Fatalf("Failed to initialize data directories: %v", err)
+	}
+
+	if err := initUpdaterService(); err != nil {
+		log.Fatalf("Failed to initialize updater service: %v", err)
 	}
 
 	// Load saved data
@@ -213,6 +225,12 @@ func main() {
 	// App settings routes
 	r.GET("/api/app-settings", getAppSettingsHandler)
 	r.POST("/api/app-settings", setAppSettingsHandler)
+
+	// Update routes
+	r.GET("/api/update/status", updateStatusHandler)
+	r.POST("/api/update/check", updateCheckHandler)
+	r.POST("/api/update/download", updateDownloadHandler)
+	r.POST("/api/update/apply", updateApplyHandler)
 
 	// File transfer routes (token-based, no auth required)
 	r.GET("/api/transfer/download/:token", transferDownloadHandler)

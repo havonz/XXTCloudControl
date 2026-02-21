@@ -272,6 +272,62 @@ func applyEnvOverrides() {
 			serverConfig.CustomICEServers = servers
 		}
 	}
+
+	if value, ok := envString("XXTCC_UPDATE_ENABLED"); ok {
+		if v, err := strconv.ParseBool(value); err == nil {
+			serverConfig.Update.Enabled = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_UPDATE_ENABLED: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_UPDATE_CHANNEL"); ok {
+		serverConfig.Update.Channel = strings.TrimSpace(value)
+	}
+
+	if value, ok := envString("XXTCC_UPDATE_CHECK_INTERVAL_HOURS"); ok {
+		if v, err := strconv.Atoi(value); err == nil && v > 0 {
+			serverConfig.Update.CheckIntervalHours = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_UPDATE_CHECK_INTERVAL_HOURS: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_UPDATE_PROMPT_ON_NEW_VERSION"); ok {
+		if v, err := strconv.ParseBool(value); err == nil {
+			serverConfig.Update.PromptOnNewVersion = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_UPDATE_PROMPT_ON_NEW_VERSION: %s", value)
+		}
+	}
+
+	if value, ok := envString("XXTCC_UPDATE_IGNORED_VERSIONS"); ok {
+		parts := strings.Split(value, ",")
+		ignored := make([]string, 0, len(parts))
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed != "" {
+				ignored = append(ignored, trimmed)
+			}
+		}
+		serverConfig.Update.IgnoredVersions = ignored
+	}
+
+	if value, ok := envString("XXTCC_UPDATE_REPOSITORY"); ok {
+		serverConfig.Update.Source.Repository = strings.TrimSpace(value)
+	}
+
+	if value, ok := envString("XXTCC_UPDATE_MANIFEST_URL"); ok {
+		serverConfig.Update.Source.ManifestURL = strings.TrimSpace(value)
+	}
+
+	if value, ok := envString("XXTCC_UPDATE_TIMEOUT_SECONDS"); ok {
+		if v, err := strconv.Atoi(value); err == nil && v > 0 {
+			serverConfig.Update.Source.RequestTimeoutSeconds = v
+		} else {
+			log.Printf("⚠️ Invalid XXTCC_UPDATE_TIMEOUT_SECONDS: %s", value)
+		}
+	}
 }
 
 // initDataDirectories initializes the data storage directories

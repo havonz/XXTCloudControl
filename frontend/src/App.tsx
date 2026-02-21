@@ -15,7 +15,7 @@ import { useTheme } from './components/ThemeContext';
 import { IconMoon, IconSun, IconDesktop } from './icons';
 import styles from './App.module.css';
 import { ScannedFile } from './utils/fileUpload';
-import { setApiBaseUrl } from './services/httpAuth';
+import { setApiBaseUrl, authFetch } from './services/httpAuth';
 import { debugLog } from './utils/debugLogger';
 
 const VERSION_CACHE_KEY = 'xxt_server_version';
@@ -23,6 +23,29 @@ const VERSION_CACHE_KEY = 'xxt_server_version';
 type PendingFileGet =
   | { kind: 'download'; deviceUdid: string; fileName: string; path: string }
   | { kind: 'read'; deviceUdid: string; path: string };
+
+type UpdateBusyAction = '' | 'check' | 'download' | 'apply';
+
+interface UpdateState {
+  stage: string;
+  lastError?: string;
+  latestVersion?: string;
+  latestPublishedAt?: string;
+  hasUpdate?: boolean;
+  ignored?: boolean;
+  downloadedVersion?: string;
+  appliedVersion?: string;
+}
+
+interface UpdateConfig {
+  enabled?: boolean;
+}
+
+interface UpdateStatusPayload {
+  currentVersion: string;
+  config?: UpdateConfig;
+  state: UpdateState;
+}
 
 const App: Component = () => {
   const toast = useToast();
@@ -42,6 +65,9 @@ const App: Component = () => {
   const [serverHost, setServerHost] = createSignal('');
   const [serverPort, setServerPort] = createSignal('');
   const [serverVersion, setServerVersion] = createSignal('');
+  const [updateStatus, setUpdateStatus] = createSignal<UpdateStatusPayload | null>(null);
+  const [updatePanelOpen, setUpdatePanelOpen] = createSignal(false);
+  const [updateBusyAction, setUpdateBusyAction] = createSignal<UpdateBusyAction>('');
   
   // File browser state
   const [fileBrowserOpen, setFileBrowserOpen] = createSignal(false);
@@ -69,6 +95,8 @@ const App: Component = () => {
   const pendingFileGets = new Map<string, PendingFileGet[]>();
   const authService = AuthService.getInstance();
   const fileTransferService = FileTransferService.getInstance();
+  let updatePanelRef: HTMLDivElement | undefined;
+  let updateReconnectTimer: ReturnType<typeof setInterval> | null = null;
 
   // Prevent browser default context menu and Cmd+A select all (except in input fields)
   const handleGlobalContextMenu = (e: MouseEvent) => {
@@ -94,6 +122,173 @@ const App: Component = () => {
     }
   };
 
+  const handleGlobalMouseDown = (e: MouseEvent) => {
+    if (!updatePanelOpen()) return;
+    const target = e.target as Node | null;
+    if (updatePanelRef && target && !updatePanelRef.contains(target)) {
+      setUpdatePanelOpen(false);
+    }
+  };
+
+  const formatUpdateStage = (stage?: string): string => {
+    switch (stage) {
+      case 'checking':
+        return '正在检查';
+      case 'update_available':
+        return '有可用更新';
+      case 'downloading':
+        return '正在下载';
+      case 'downloaded':
+        return '已下载';
+      case 'applying':
+        return '正在应用更新';
+      case 'failed':
+        return '失败';
+      case 'idle':
+      default:
+        return '空闲';
+    }
+  };
+
+  const extractUpdateStatus = (data: unknown): UpdateStatusPayload | null => {
+    if (!data || typeof data !== 'object') return null;
+    const map = data as Record<string, unknown>;
+    if (map.status && typeof map.status === 'object') {
+      return map.status as UpdateStatusPayload;
+    }
+    if (map.currentVersion && map.state && typeof map.state === 'object') {
+      return map as unknown as UpdateStatusPayload;
+    }
+    return null;
+  };
+
+  const stopUpdateReconnectPolling = () => {
+    if (updateReconnectTimer) {
+      clearInterval(updateReconnectTimer);
+      updateReconnectTimer = null;
+    }
+  };
+
+  const loadUpdateStatus = async (silent: boolean = false) => {
+    if (!isAuthenticated()) return;
+    try {
+      const response = await authFetch('/api/update/status');
+      const data = await response.json();
+      const status = extractUpdateStatus(data);
+      if (status) {
+        setUpdateStatus(status);
+      }
+      if (response.status === 401 && !silent) {
+        toast.showWarning('鉴权失败，请重新登录后再检查更新');
+        return;
+      }
+      if (!response.ok && !silent) {
+        toast.showError(data?.error || '获取更新状态失败');
+      }
+    } catch {
+      if (!silent) {
+        toast.showError('获取更新状态失败');
+      }
+    }
+  };
+
+  const startUpdateReconnectPolling = (previousVersion: string) => {
+    stopUpdateReconnectPolling();
+    let attempts = 0;
+    updateReconnectTimer = setInterval(async () => {
+      attempts += 1;
+      try {
+        const host = serverHost().trim();
+        const port = serverPort().trim();
+        if (!host || !port) {
+          return;
+        }
+        const baseUrl = authService.getHttpBaseUrl(host, port);
+        const response = await fetch(`${baseUrl}/api/control/info`);
+        if (!response.ok) {
+          return;
+        }
+        const info = await response.json();
+        if (info.version) {
+          setServerVersion(info.version);
+          localStorage.setItem(VERSION_CACHE_KEY, info.version);
+        }
+        if (info.version && info.version !== previousVersion) {
+          stopUpdateReconnectPolling();
+          toast.showSuccess(`更新完成，当前版本 ${info.version}`);
+          await loadUpdateStatus(true);
+        }
+      } catch {
+        // ignore temporary network errors during restart
+      }
+      if (attempts >= 120) {
+        stopUpdateReconnectPolling();
+        toast.showWarning('更新后重连超时，请手动刷新页面');
+      }
+    }, 1000);
+  };
+
+  const performUpdateAction = async (
+    action: Exclude<UpdateBusyAction, ''>,
+    path: '/api/update/check' | '/api/update/download' | '/api/update/apply'
+  ) => {
+    if (!isAuthenticated()) {
+      toast.showWarning('请先完成鉴权登录后再执行更新操作');
+      return;
+    }
+    if (updateBusyAction()) return;
+    const previousVersion = updateStatus()?.currentVersion || serverVersion();
+    setUpdateBusyAction(action);
+    try {
+      const response = await authFetch(path, { method: 'POST' });
+      const data = await response.json();
+      const status = extractUpdateStatus(data);
+      if (status) {
+        setUpdateStatus(status);
+      }
+
+      if (response.status === 401) {
+        toast.showError('鉴权失败，更新操作被拒绝');
+        return;
+      }
+      if (!response.ok) {
+        toast.showError(data?.error || '更新操作失败');
+        return;
+      }
+
+      if (action === 'check') {
+        const hasUpdate = status?.state?.hasUpdate;
+        const latestVersion = status?.state?.latestVersion || '-';
+        if (hasUpdate) {
+          toast.showSuccess(`发现新版本 ${latestVersion}`);
+        } else {
+          toast.showInfo('当前已是最新版本');
+        }
+      } else if (action === 'download') {
+        toast.showSuccess('更新包下载完成');
+      } else if (action === 'apply') {
+        toast.showInfo('正在应用更新，服务将短暂重启');
+        startUpdateReconnectPolling(previousVersion);
+      }
+    } catch {
+      toast.showError('更新操作失败');
+    } finally {
+      setUpdateBusyAction('');
+    }
+  };
+
+  const handleCheckUpdate = async () => {
+    await performUpdateAction('check', '/api/update/check');
+  };
+
+  const handleDownloadUpdate = async () => {
+    await performUpdateAction('download', '/api/update/download');
+  };
+
+  const handleApplyUpdate = async () => {
+    await performUpdateAction('apply', '/api/update/apply');
+  };
+
   const enqueuePendingFileGet = (entry: PendingFileGet) => {
     const list = pendingFileGets.get(entry.deviceUdid) || [];
     list.push(entry);
@@ -113,10 +308,13 @@ const App: Component = () => {
   // Setup global event listeners
   document.addEventListener('contextmenu', handleGlobalContextMenu);
   document.addEventListener('keydown', handleGlobalKeyDown);
+  document.addEventListener('mousedown', handleGlobalMouseDown);
 
   onCleanup(() => {
     document.removeEventListener('contextmenu', handleGlobalContextMenu);
     document.removeEventListener('keydown', handleGlobalKeyDown);
+    document.removeEventListener('mousedown', handleGlobalMouseDown);
+    stopUpdateReconnectPolling();
     if (wsService) {
       wsService.disconnect();
     }
@@ -746,6 +944,9 @@ const App: Component = () => {
   // Load groups and group settings once authenticated.
   createEffect(() => {
     if (!isAuthenticated()) {
+      setUpdateStatus(null);
+      setUpdatePanelOpen(false);
+      stopUpdateReconnectPolling();
       return;
     }
     groupStore.loadGroups();
@@ -763,6 +964,7 @@ const App: Component = () => {
       return;
     }
     fetchServerVersion(host, port);
+    loadUpdateStatus(true);
   });
 
   // Handle adding selected devices to a group
@@ -806,7 +1008,64 @@ const App: Component = () => {
               <img src="/favicon-48.png" alt="Logo" class={styles.logo} />
               <h1 class={styles.appTitle}>XXT 云控</h1>
               {serverVersion() && (
-                <span class={styles.versionBadge}>{serverVersion()}</span>
+                <div class={styles.versionUpdateEntry} ref={updatePanelRef}>
+                  <button
+                    class={`${styles.versionBadge} ${styles.versionBadgeButton} ${updateStatus()?.state?.hasUpdate ? styles.versionBadgeHighlight : ''}`}
+                    onClick={() => setUpdatePanelOpen(!updatePanelOpen())}
+                    title="更新管理"
+                    disabled={!isAuthenticated()}
+                  >
+                    {serverVersion()}
+                  </button>
+                  {updatePanelOpen() && (
+                    <div class={styles.updatePanel}>
+                      <div class={styles.updatePanelTitle}>更新管理</div>
+                      <div class={styles.updateMeta}>
+                        <div class={styles.updateMetaItem}>
+                          <span>当前版本</span>
+                          <code class={styles.updateValue}>{updateStatus()?.currentVersion || serverVersion() || '-'}</code>
+                        </div>
+                        <div class={styles.updateMetaItem}>
+                          <span>最新版本</span>
+                          <code class={styles.updateValue}>{updateStatus()?.state?.latestVersion || '-'}</code>
+                        </div>
+                        <div class={styles.updateMetaItem}>
+                          <span>当前状态</span>
+                          <span class={styles.updateValue}>{formatUpdateStage(updateStatus()?.state?.stage)}</span>
+                        </div>
+                      </div>
+                      {updateStatus()?.state?.lastError && (
+                        <div class={styles.updateError}>{updateStatus()?.state?.lastError}</div>
+                      )}
+                      {updateStatus()?.config?.enabled === false && (
+                        <div class={styles.updateError}>服务端已禁用自更新</div>
+                      )}
+                      <div class={styles.updateActions}>
+                        <button
+                          class={styles.updateActionButton}
+                          disabled={!!updateBusyAction() || !isAuthenticated()}
+                          onClick={handleCheckUpdate}
+                        >
+                          {updateBusyAction() === 'check' ? '检测中...' : '检测更新'}
+                        </button>
+                        <button
+                          class={styles.updateActionButton}
+                          disabled={!!updateBusyAction() || !updateStatus()?.state?.hasUpdate || !isAuthenticated()}
+                          onClick={handleDownloadUpdate}
+                        >
+                          {updateBusyAction() === 'download' ? '下载中...' : '下载更新'}
+                        </button>
+                        <button
+                          class={styles.updateActionButton}
+                          disabled={!!updateBusyAction() || updateStatus()?.state?.stage !== 'downloaded' || !isAuthenticated()}
+                          onClick={handleApplyUpdate}
+                        >
+                          {updateBusyAction() === 'apply' ? '应用中...' : '应用更新'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
             <div class={styles.headerRight}>
