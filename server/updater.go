@@ -560,8 +560,10 @@ func (u *UpdaterService) Apply() (UpdateStatusResponse, error) {
 		return u.Status(), nil
 	}
 
-	helperName := "update-helper-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	helperName := "xxtcc-worker-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	if runtime.GOOS == "windows" {
+		// Avoid names such as update/install/setup on Windows, which may trigger
+		// installer-detection heuristics and require elevation unexpectedly.
 		helperName += ".exe"
 	}
 	helperPath := filepath.Join(u.workerDir, helperName)

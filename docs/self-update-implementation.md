@@ -176,7 +176,7 @@ JSON 字段：
 1. 仅允许 `stage=downloaded`。
 2. 主进程使用“启动时快照”的命令行参数与环境变量作为重启上下文。
 3. 生成 worker job（源/目标/备份/重启参数）。
-4. 复制当前程序为 helper 到 `updater/worker/update-helper-*`。
+4. 复制当前程序为 helper 到 `updater/worker/xxtcc-worker-*`（Windows 下避免使用 `update/install/setup` 关键词以降低 UAC 误判风险）。
 5. 启动 helper：`<helper> -update-worker <jobPath>`，并显式传入上述环境变量快照。
 6. 主进程约 1.2 秒后 `os.Exit(0)`，由 helper 完成替换与拉起新版（新版继承相同参数与环境）。
 
