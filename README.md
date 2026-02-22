@@ -8,6 +8,7 @@
 ## 发布地址
 
 - 各平台发布版本列表：[https://github.com/havonz/XXTCloudControl/releases](https://github.com/havonz/XXTCloudControl/releases)
+- 推荐优先下载 Release 中的 `XXTCloudControl-<YYYYMMDDHHMM>.zip`，解压后直接运行对应系统二进制即可。
 
 
 ## 项目结构
@@ -32,28 +33,72 @@
 
 ## 快速开始
 
-### 开发模式
+### 直接下载二进制运行（推荐）
 
-1. 启动后端：
+1. 打开发布页并下载最新 `XXTCloudControl-<YYYYMMDDHHMM>.zip`：  
+   [https://github.com/havonz/XXTCloudControl/releases](https://github.com/havonz/XXTCloudControl/releases)
+2. 解压后进入目录，按系统运行对应二进制：
    ```bash
-   cd server
-   go run .
-   ```
-   首次启动会在当前目录生成 `xxtcloudserver.json` 并输出随机密码（只显示一次）。
+   # macOS (Apple Silicon 示例)
+   chmod +x ./xxtcloudserver-darwin-arm64
+   ./xxtcloudserver-darwin-arm64
 
-2. 启动前端开发服务器：
+   # Linux (amd64 示例)
+   chmod +x ./xxtcloudserver-linux-amd64
+   ./xxtcloudserver-linux-amd64
+
+   # Windows (PowerShell)
+   .\xxtcloudserver-windows-amd64.exe
+   ```
+3. 首次启动会在当前目录生成 `xxtcloudserver.json` 并输出随机密码（只显示一次）。
+4. 浏览器访问 `http://<服务器地址>:46980` 登录管理面板。
+5. 如果忘记密码，可在同一目录重置后重启服务：
    ```bash
-   cd frontend
-   npm install
-   npm run dev
+   # macOS (Apple Silicon 示例)
+   ./xxtcloudserver-darwin-arm64 -set-password 12345678
+
+   # Linux (amd64 示例)
+   ./xxtcloudserver-linux-amd64 -set-password 12345678
+
+   # Windows (PowerShell)
+   .\xxtcloudserver-windows-amd64.exe -set-password 12345678
    ```
-   访问 `http://localhost:3000`，在登录页输入服务器地址与端口（默认 `46980`）以及密码。
-   
-   > 提示：开发服务器默认绑定 `127.0.0.1:3000`，并将 `/api` 代理到 `http://127.0.0.1:46980`。若后端不在本机，请调整 `frontend/vite.config.ts` 或使用反向代理。
 
-> 注意：`go run .` 在 `server` 目录启动时，默认 `frontend_dir` 为 `./frontend`，不会自动指向 `../frontend/dist`。若希望后端托管前端，请在配置里设置 `frontend_dir`，或使用打包后的目录结构。
+### Docker 部署
 
-### 生产/打包
+#### 快速启动（推荐）
+
+```bash
+docker pull havonz/xxtcloudcontrol
+docker run --rm \
+  -v "$PWD/xxtcc-data:/app/data" \
+  havonz/xxtcloudcontrol \
+  -config /app/data/xxtcloudserver.json -set-password 12345678
+docker run -d --name xxtcloudcontrol \
+  -p 46980:46980 \
+  -p 43478:43478/tcp -p 43478:43478/udp \
+  -v "$PWD/xxtcc-data:/app/data" \
+  -e XXTCC_CONFIG=/app/data/xxtcloudserver.json \
+  -e XXTCC_TURN_PUBLIC_IP="" \
+  -e XXTCC_TURN_PUBLIC_ADDR="" \
+  havonz/xxtcloudcontrol
+```
+
+> 提示：如果你不挂载数据目录，默认会在容器内 `/app/data` 生成数据与配置。
+> 服务启动时会按顺序读取：配置文件 → 环境变量覆盖。环境变量不会自动写回配置文件。
+> 环境变量名称可参考 [docker-compose.yml](docker-compose.yml) 示例
+
+#### 使用 docker-compose.yml 一键部署
+
+[docker-compose.yml](docker-compose.yml)
+
+```bash
+mkdir -p XXTCloudControl && cd XXTCloudControl
+curl -L -o docker-compose.yml https://raw.githubusercontent.com/havonz/XXTCloudControl/main/docker-compose.yml
+docker compose up -d
+```
+
+### 生产/打包（源码构建）
 
 > 依赖：`go`、`npm`、`zip`
 
@@ -93,41 +138,26 @@ XXTCloudControl-docker-<YYYYMMDDHHMM>-linux-amd64.tar
 XXTCloudControl-docker-<YYYYMMDDHHMM>-linux-arm64.tar
 ```
 
-### Docker 部署
+### 开发模式
 
-#### 快速启动
+1. 启动后端：
+   ```bash
+   cd server
+   go run .
+   ```
+   首次启动会在当前目录生成 `xxtcloudserver.json` 并输出随机密码（只显示一次）。
 
-```bash
-docker pull havonz/xxtcloudcontrol
-docker run --rm \
-  -v "$PWD/xxtcc-data:/app/data" \
-  havonz/xxtcloudcontrol \
-  -config /app/data/xxtcloudserver.json -set-password 12345678
-docker run -d --name xxtcloudcontrol \
-  -p 46980:46980 \
-  -p 43478:43478/tcp -p 43478:43478/udp \
-  -v "$PWD/xxtcc-data:/app/data" \
-  -e XXTCC_CONFIG=/app/data/xxtcloudserver.json \
-  -e XXTCC_TURN_PUBLIC_IP="" \
-  -e XXTCC_TURN_PUBLIC_ADDR="" \
-  havonz/xxtcloudcontrol
-```
+2. 启动前端开发服务器：
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+   访问 `http://localhost:3000`，在登录页输入服务器地址与端口（默认 `46980`）以及密码。
+   
+   > 提示：开发服务器默认绑定 `127.0.0.1:3000`，并将 `/api` 代理到 `http://127.0.0.1:46980`。若后端不在本机，请调整 `frontend/vite.config.ts` 或使用反向代理。
 
-> 提示：如果你不挂载数据目录，默认会在容器内 `/app/data` 生成数据与配置。
-> 服务启动时会按顺序读取：配置文件 → 环境变量覆盖。环境变量不会自动写回配置文件。
-> 环境变量名称可参考 [docker-compose.yml](docker-compose.yml) 示例
-
-
-#### 使用 docker-compose.yml 一键部署
-
-[docker-compose.yml](docker-compose.yml)
-
-```bash
-mkdir -p XXTCloudControl && cd XXTCloudControl
-curl -L -o docker-compose.yml https://raw.githubusercontent.com/havonz/XXTCloudControl/main/docker-compose.yml
-docker compose up -d
-```
-
+> 注意：`go run .` 在 `server` 目录启动时，默认 `frontend_dir` 为 `./frontend`，不会自动指向 `../frontend/dist`。若希望后端托管前端，请在配置里设置 `frontend_dir`，或使用打包后的目录结构。
 
 ### 修改密码
 
