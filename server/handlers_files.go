@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -22,6 +23,55 @@ func isValidCategory(category string) bool {
 		}
 	}
 	return false
+}
+
+func isPathWithinAbsBase(absBaseDir, absTargetPath string) bool {
+	base := filepath.Clean(absBaseDir)
+	target := filepath.Clean(absTargetPath)
+
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	if rel == ".." {
+		return false
+	}
+	if filepath.IsAbs(rel) {
+		return false
+	}
+	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// sanitizeRelativeItemPath validates a relative path used by batch operations.
+// It rejects absolute paths and parent traversal segments.
+func sanitizeRelativeItemPath(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("item path is required")
+	}
+
+	// Treat both slash styles as separators for user input.
+	normalized := strings.ReplaceAll(trimmed, "\\", "/")
+	if strings.HasPrefix(normalized, "/") {
+		return "", fmt.Errorf("item path must be relative")
+	}
+	// Reject Windows drive-absolute paths (e.g. C:/...).
+	if len(normalized) >= 2 && normalized[1] == ':' {
+		return "", fmt.Errorf("item path must be relative")
+	}
+
+	cleaned := path.Clean(normalized)
+	if cleaned == "." || cleaned == "/" {
+		return "", fmt.Errorf("item path is invalid")
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("item path traversal detected")
+	}
+
+	return filepath.FromSlash(cleaned), nil
 }
 
 // validatePath validates a path within a category and returns the absolute path
@@ -47,7 +97,7 @@ func validatePath(category, subPath string) (string, error) {
 		return "", err
 	}
 
-	if !strings.HasPrefix(absTargetPath, absBaseDir) {
+	if !isPathWithinAbsBase(absBaseDir, absTargetPath) {
 		return "", fmt.Errorf("path traversal detected")
 	}
 
@@ -63,10 +113,7 @@ func validateFileName(name string) error {
 		return fmt.Errorf("invalid name")
 	}
 	// Reject path separators to avoid traversal like ../
-	if strings.Contains(name, "/") {
-		return fmt.Errorf("name cannot contain path separators")
-	}
-	if runtime.GOOS == "windows" && strings.Contains(name, "\\") {
+	if strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		return fmt.Errorf("name cannot contain path separators")
 	}
 	return nil
@@ -164,17 +211,31 @@ func serverFilesUploadHandler(c *gin.Context) {
 	}
 	defer file.Close()
 
-	targetFilePath := filepath.Join(targetDir, header.Filename)
+	fileName := filepath.Base(strings.ReplaceAll(header.Filename, "\\", "/"))
+	if err := validateFileName(fileName); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	targetFilePath := filepath.Join(targetDir, fileName)
 
 	baseDir := filepath.Join(serverConfig.DataDir, category)
-	absBaseDir, _ := filepath.Abs(baseDir)
-	absTargetFile, _ := filepath.Abs(targetFilePath)
-	if !strings.HasPrefix(absTargetFile, absBaseDir) {
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve base path"})
+		return
+	}
+	absTargetFile, err := filepath.Abs(targetFilePath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve file path"})
+		return
+	}
+	if !isPathWithinAbsBase(absBaseDir, absTargetFile) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file path"})
 		return
 	}
 
-	dst, err := os.Create(targetFilePath)
+	dst, err := os.Create(absTargetFile)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create file"})
 		return
@@ -190,8 +251,8 @@ func serverFilesUploadHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
-		"filename": header.Filename,
-		"path":     filepath.Join(subPath, header.Filename),
+		"filename": fileName,
+		"path":     filepath.Join(subPath, fileName),
 		"category": category,
 	})
 }
@@ -319,6 +380,10 @@ func serverFilesCreateHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 		return
 	}
+	if err := validateFileName(req.Name); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if req.Type != "file" && req.Type != "dir" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "type must be 'file' or 'dir'"})
@@ -339,9 +404,17 @@ func serverFilesCreateHandler(c *gin.Context) {
 	targetPath := filepath.Join(targetDir, req.Name)
 
 	baseDir := filepath.Join(serverConfig.DataDir, req.Category)
-	absBaseDir, _ := filepath.Abs(baseDir)
-	absTargetPath, _ := filepath.Abs(targetPath)
-	if !strings.HasPrefix(absTargetPath, absBaseDir) {
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve base path"})
+		return
+	}
+	absTargetPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve target path"})
+		return
+	}
+	if !isPathWithinAbsBase(absBaseDir, absTargetPath) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
@@ -696,19 +769,32 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 	var errors []string
 
 	for _, item := range req.Items {
-		srcPath := filepath.Join(srcDir, item)
-		dstPath := filepath.Join(dstDir, item)
+		cleanItem, cleanErr := sanitizeRelativeItemPath(item)
+		if cleanErr != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", item, cleanErr))
+			continue
+		}
+		srcPath := filepath.Join(srcDir, cleanItem)
+		dstPath := filepath.Join(dstDir, cleanItem)
 
 		// Validate source path doesn't escape
-		absSrcPath, _ := filepath.Abs(srcPath)
-		if !strings.HasPrefix(absSrcPath, absSrcBaseDir) {
+		absSrcPath, err := filepath.Abs(srcPath)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: failed to resolve source path", item))
+			continue
+		}
+		if !isPathWithinAbsBase(absSrcBaseDir, absSrcPath) {
 			errors = append(errors, fmt.Sprintf("%s: source path traversal detected", item))
 			continue
 		}
 
 		// Validate destination path doesn't escape
-		absDstPath, _ := filepath.Abs(dstPath)
-		if !strings.HasPrefix(absDstPath, absDstBaseDir) {
+		absDstPath, err := filepath.Abs(dstPath)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: failed to resolve destination path", item))
+			continue
+		}
+		if !isPathWithinAbsBase(absDstBaseDir, absDstPath) {
 			errors = append(errors, fmt.Sprintf("%s: destination path traversal detected", item))
 			continue
 		}
@@ -821,19 +907,32 @@ func serverFilesBatchMoveHandler(c *gin.Context) {
 	var errors []string
 
 	for _, item := range req.Items {
-		srcPath := filepath.Join(srcDir, item)
-		dstPath := filepath.Join(dstDir, item)
+		cleanItem, cleanErr := sanitizeRelativeItemPath(item)
+		if cleanErr != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", item, cleanErr))
+			continue
+		}
+		srcPath := filepath.Join(srcDir, cleanItem)
+		dstPath := filepath.Join(dstDir, cleanItem)
 
 		// Validate source path doesn't escape
-		absSrcPath, _ := filepath.Abs(srcPath)
-		if !strings.HasPrefix(absSrcPath, absSrcBaseDir) {
+		absSrcPath, err := filepath.Abs(srcPath)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: failed to resolve source path", item))
+			continue
+		}
+		if !isPathWithinAbsBase(absSrcBaseDir, absSrcPath) {
 			errors = append(errors, fmt.Sprintf("%s: source path traversal detected", item))
 			continue
 		}
 
 		// Validate destination path doesn't escape
-		absDstPath, _ := filepath.Abs(dstPath)
-		if !strings.HasPrefix(absDstPath, absDstBaseDir) {
+		absDstPath, err := filepath.Abs(dstPath)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: failed to resolve destination path", item))
+			continue
+		}
+		if !isPathWithinAbsBase(absDstBaseDir, absDstPath) {
 			errors = append(errors, fmt.Sprintf("%s: destination path traversal detected", item))
 			continue
 		}
