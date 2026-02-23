@@ -385,6 +385,22 @@ func cloneGroupInfos(src []GroupInfo) []GroupInfo {
 	return out
 }
 
+func cloneGroupScriptConfigsSnapshot(src map[string]map[string]map[string]interface{}) map[string]map[string]map[string]interface{} {
+	out := make(map[string]map[string]map[string]interface{}, len(src))
+	for groupID, scripts := range src {
+		scriptsCopy := make(map[string]map[string]interface{}, len(scripts))
+		for scriptPath, cfg := range scripts {
+			cfgCopy := make(map[string]interface{}, len(cfg))
+			for k, v := range cfg {
+				cfgCopy[k] = v
+			}
+			scriptsCopy[scriptPath] = cfgCopy
+		}
+		out[groupID] = scriptsCopy
+	}
+	return out
+}
+
 // getGroupScriptConfigsFilePath returns the path to the group script configs file
 func getGroupScriptConfigsFilePath() string {
 	return filepath.Join(serverConfig.DataDir, "group_script_configs.json")
@@ -480,9 +496,18 @@ func loadAppSettings() error {
 // saveAppSettings saves application settings to disk
 func saveAppSettings() error {
 	appSettingsMu.RLock()
-	data, err := json.MarshalIndent(appSettings, "", "  ")
+	snapshot := appSettings
 	appSettingsMu.RUnlock()
 
+	return saveAppSettingsSnapshot(snapshot)
+}
+
+func saveAppSettingsLocked() error {
+	return saveAppSettingsSnapshot(appSettings)
+}
+
+func saveAppSettingsSnapshot(snapshot AppSettings) error {
+	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		return err
 	}

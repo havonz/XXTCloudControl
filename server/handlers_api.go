@@ -514,6 +514,7 @@ func setAppSettingsHandler(c *gin.Context) {
 	}
 
 	appSettingsMu.Lock()
+	backupSettings := appSettings
 	if req.SelectedScript != nil {
 		appSettings.SelectedScript = *req.SelectedScript
 	}
@@ -523,12 +524,13 @@ func setAppSettingsHandler(c *gin.Context) {
 	if req.GroupSortLocked != nil {
 		appSettings.GroupSortLocked = *req.GroupSortLocked
 	}
-	appSettingsMu.Unlock()
-
-	if err := saveAppSettings(); err != nil {
+	if err := saveAppSettingsLocked(); err != nil {
+		appSettings = backupSettings
+		appSettingsMu.Unlock()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	appSettingsMu.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
