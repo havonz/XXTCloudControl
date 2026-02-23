@@ -1,10 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func resetMD5Cache() {
@@ -60,5 +66,130 @@ func TestCalculateFileMD5Cached_UpdatesOnChange(t *testing.T) {
 	}
 	if hash2 == hash1 {
 		t.Fatalf("expected hash to change after file update")
+	}
+}
+
+func resetTransferTokensForTest() {
+	transferTokensMu.Lock()
+	transferTokens = make(map[string]*TransferToken)
+	transferTokensMu.Unlock()
+}
+
+func setupTransferTokenCreateTest(t *testing.T) (dataDir string, filePath string) {
+	t.Helper()
+
+	gin.SetMode(gin.TestMode)
+	resetTransferTokensForTest()
+	t.Cleanup(resetTransferTokensForTest)
+
+	dataDir = t.TempDir()
+	prevDataDir := serverConfig.DataDir
+	serverConfig.DataDir = dataDir
+	t.Cleanup(func() { serverConfig.DataDir = prevDataDir })
+
+	scriptsDir := filepath.Join(dataDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatalf("mkdir scripts dir failed: %v", err)
+	}
+
+	filePath = filepath.Join(scriptsDir, "token.txt")
+	if err := os.WriteFile(filePath, []byte("token"), 0o644); err != nil {
+		t.Fatalf("write token file failed: %v", err)
+	}
+
+	return dataDir, filePath
+}
+
+func createTransferTokenWithPayload(t *testing.T, payload map[string]any) string {
+	t.Helper()
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload failed: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/transfer/create-token", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	createTransferTokenHandler(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("create token status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode create token response failed: %v", err)
+	}
+	if resp.Token == "" {
+		t.Fatalf("expected token in response")
+	}
+	return resp.Token
+}
+
+func tokenOneTimeValue(t *testing.T, token string) bool {
+	t.Helper()
+
+	transferTokensMu.RLock()
+	defer transferTokensMu.RUnlock()
+
+	info, ok := transferTokens[token]
+	if !ok {
+		t.Fatalf("token not found in storage: %s", token)
+	}
+	return info.OneTime
+}
+
+func TestCreateTransferToken_DefaultOneTimeTrue(t *testing.T) {
+	setupTransferTokenCreateTest(t)
+
+	token := createTransferTokenWithPayload(t, map[string]any{
+		"type":       "download",
+		"deviceSN":   "device-1",
+		"category":   "scripts",
+		"path":       "token.txt",
+		"targetPath": "/tmp/token.txt",
+		// intentionally omit oneTime
+	})
+
+	if !tokenOneTimeValue(t, token) {
+		t.Fatalf("expected omitted oneTime to default to true")
+	}
+}
+
+func TestCreateTransferToken_ExplicitOneTimeFalse(t *testing.T) {
+	setupTransferTokenCreateTest(t)
+
+	token := createTransferTokenWithPayload(t, map[string]any{
+		"type":       "download",
+		"deviceSN":   "device-1",
+		"category":   "scripts",
+		"path":       "token.txt",
+		"targetPath": "/tmp/token.txt",
+		"oneTime":    false,
+	})
+
+	if tokenOneTimeValue(t, token) {
+		t.Fatalf("expected explicit oneTime=false to be kept")
+	}
+}
+
+func TestCreateTransferToken_ExplicitOneTimeTrue(t *testing.T) {
+	setupTransferTokenCreateTest(t)
+
+	token := createTransferTokenWithPayload(t, map[string]any{
+		"type":       "download",
+		"deviceSN":   "device-1",
+		"category":   "scripts",
+		"path":       "token.txt",
+		"targetPath": "/tmp/token.txt",
+		"oneTime":    true,
+	})
+
+	if !tokenOneTimeValue(t, token) {
+		t.Fatalf("expected explicit oneTime=true to be kept")
 	}
 }

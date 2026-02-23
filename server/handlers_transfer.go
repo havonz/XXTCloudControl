@@ -220,7 +220,7 @@ func createTransferTokenHandler(c *gin.Context) {
 		Path       string `json:"path"`       // File path within category
 		TargetPath string `json:"targetPath"` // Device-side target path (for download)
 		ExpireSecs int    `json:"expireSecs"` // Token TTL in seconds (default: 300)
-		OneTime    bool   `json:"oneTime"`    // Invalidate after use (default: true)
+		OneTime    *bool  `json:"oneTime"`    // Invalidate after use (default: true)
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -294,6 +294,11 @@ func createTransferTokenHandler(c *gin.Context) {
 	}
 	expiresAt := time.Now().Add(time.Duration(expireSecs) * time.Second)
 
+	oneTime := true
+	if req.OneTime != nil {
+		oneTime = *req.OneTime
+	}
+
 	// Store token
 	transferTokensMu.Lock()
 	transferTokens[token] = &TransferToken{
@@ -302,7 +307,7 @@ func createTransferTokenHandler(c *gin.Context) {
 		TargetPath: req.TargetPath,
 		DeviceSN:   req.DeviceSN,
 		ExpiresAt:  expiresAt,
-		OneTime:    req.OneTime,
+		OneTime:    oneTime,
 		TotalBytes: fileSize,
 		MD5:        fileMD5,
 		Category:   req.Category,
