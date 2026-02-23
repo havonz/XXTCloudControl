@@ -1,0 +1,24 @@
+{
+  "name": "xxtcloudcontrol-release-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "fetch:release": "node ./scripts/fetch-latest-release.mjs",
+    "dev": "npm run fetch:release && astro dev",
+    "build": "npm run fetch:release && astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/tailwind": "^6.0.2",
+    "astro": "^5.2.5"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17"
+  }
+}

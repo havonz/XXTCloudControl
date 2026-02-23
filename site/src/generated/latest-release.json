@@ -1,0 +1,54 @@
+{
+  "version": "v202602211730",
+  "publishedAt": "2026-02-21T17:33:27Z",
+  "releaseUrl": "https://github.com/havonz/XXTCloudControl/releases/tag/v202602211730",
+  "historyUrl": "https://github.com/havonz/XXTCloudControl/releases",
+  "checksumsUrl": "https://github.com/havonz/XXTCloudControl/releases/download/v202602211730/checksums.txt",
+  "assets": [
+    {
+      "platform": "macOS (Apple Silicon)",
+      "name": "XXTCloudControl-v202602211730-darwin-arm64.zip",
+      "downloadUrl": "https://github.com/havonz/XXTCloudControl/releases/latest/download/XXTCloudControl-v202602211730-darwin-arm64.zip",
+      "sizeBytes": 7459248,
+      "sha256": "d0821b10879817082f928be714251692b4ac764247d922d3429144467cbc34c6"
+    },
+    {
+      "platform": "macOS (Intel)",
+      "name": "XXTCloudControl-v202602211730-darwin-amd64.zip",
+      "downloadUrl": "https://github.com/havonz/XXTCloudControl/releases/latest/download/XXTCloudControl-v202602211730-darwin-amd64.zip",
+      "sizeBytes": 7751516,
+      "sha256": "685652d629d314a64ebff8bfb9679f279a36fa264b215a31a6f803e86a5e9181"
+    },
+    {
+      "platform": "Windows x64",
+      "name": "XXTCloudControl-v202602211730-windows-amd64.zip",
+      "downloadUrl": "https://github.com/havonz/XXTCloudControl/releases/latest/download/XXTCloudControl-v202602211730-windows-amd64.zip",
+      "sizeBytes": 8097412,
+      "sha256": "1dd62e7adc0a1ed3592f46dd7d40a95286b4fd59b774c3e4ba16242ecdc92ceb"
+    },
+    {
+      "platform": "Windows ARM64",
+      "name": "XXTCloudControl-v202602211730-windows-arm64.zip",
+      "downloadUrl": "https://github.com/havonz/XXTCloudControl/releases/latest/download/XXTCloudControl-v202602211730-windows-arm64.zip",
+      "sizeBytes": 7545349,
+      "sha256": "c2a3b5883b6dc1972148ed696e9665dad60af3fc5efc82abc433d13f72fb04c1"
+    },
+    {
+      "platform": "Linux AMD64",
+      "name": "XXTCloudControl-v202602211730-linux-amd64.zip",
+      "downloadUrl": "https://github.com/havonz/XXTCloudControl/releases/latest/download/XXTCloudControl-v202602211730-linux-amd64.zip",
+      "sizeBytes": 7891834,
+      "sha256": "8f5f2271c18d81bce4cbacd71f4494a839bea6bffcfaff6045510da06aa75a50"
+    },
+    {
+      "platform": "Linux ARM64",
+      "name": "XXTCloudControl-v202602211730-linux-arm64.zip",
+      "downloadUrl": "https://github.com/havonz/XXTCloudControl/releases/latest/download/XXTCloudControl-v202602211730-linux-arm64.zip",
+      "sizeBytes": 7393821,
+      "sha256": "368c578610d28567977583d6209b0ca5af142472627e799a8d9ff21e321dea30"
+    }
+  ],
+  "channel": "stable",
+  "buildTime": "202602211730",
+  "commit": "611f343"
+}

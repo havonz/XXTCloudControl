@@ -3,10 +3,11 @@
 用于 XXTouch 1.3.8-20260122000000+ 的云控服务端（WebSocket + 静态前端）与管理面板。  
 设备端协议实现源码位于设备端 `/var/mobile/Media/1ferver/bin/open-cloud-control-client.lua`。  
 
-![Screenshot](docs/screenshot-001.png)
+![Screenshot](site/public/screenshot-001.png)
 
 ## 发布地址
 
+- 官方发布下载页（GitHub Pages）：[https://havonz.github.io/XXTCloudControl/](https://havonz.github.io/XXTCloudControl/)
 - 各平台发布版本列表：[https://github.com/havonz/XXTCloudControl/releases](https://github.com/havonz/XXTCloudControl/releases)
 - 推荐优先下载 Release 中的 `XXTCloudControl-<YYYYMMDDHHMM>.zip`，解压后直接运行对应系统二进制即可。
 

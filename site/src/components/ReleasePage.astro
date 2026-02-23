@@ -1,0 +1,298 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import latest from '../generated/latest-release.json';
+
+const { lang = 'zh' } = Astro.props;
+const isZh = lang === 'zh';
+
+const text = isZh
+  ? {
+      pageTitle: 'XXTCloudControl 下载',
+      pageDescription: 'XXTCloudControl 官方发布下载页，自动跟随最新发布更新。',
+      heroTitle: 'XXTCloudControl',
+      heroSubtitle:
+        'XXTCloudControl 是 XXTouch 云控服务端，支持 Windows、macOS 和 Linux 部署。',
+      versionLabel: '当前最新版本',
+      releaseLabel: '发布详情',
+      historyBtn: '历史版本',
+      docsBtn: '查看完整文档',
+      languageZh: '中文',
+      languageEn: 'English',
+      downloadTitle: '最新版下载',
+      downloadSubtitle: '按系统选择安装包',
+      screenshotAlt: 'XXTCloudControl 界面截图',
+      fileLabel: '文件名',
+      shaLabel: 'SHA256',
+      copyBtn: '复制',
+      copiedBtn: '已复制',
+      downloadBtn: '立即下载',
+      noAssets: '暂未获取到可下载资产，请稍后重试。',
+      quickStartTitle: '软件说明（精简）',
+      quickStartSubtitle: '详细操作与高级配置请查看完整文档。',
+      guideItems: [
+        {
+          title: 'Windows',
+          body: '解压后运行 xxtcloudserver-windows-amd64.exe 或 arm64 版本，浏览器访问 http://<服务器地址>:46980。'
+        },
+        {
+          title: 'macOS',
+          body: '解压后执行 xxtcloudserver-darwin-arm64 或 amd64 二进制，并按需用 -set-password 初始化密码。'
+        },
+        {
+          title: 'Linux',
+          body: '解压后执行 xxtcloudserver-linux-amd64 或 arm64，建议配合 systemd/supervisor 常驻运行。'
+        },
+        {
+          title: 'Docker',
+          body: '支持 Docker Hub 与 GHCR，可直接 docker run 或使用仓库内 docker-compose.yml 部署。'
+        }
+      ]
+    }
+  : {
+      pageTitle: 'XXTCloudControl Downloads',
+      pageDescription: 'Official XXTCloudControl release page, auto-updated from the latest GitHub release.',
+      heroTitle: 'XXTCloudControl',
+      heroSubtitle:
+        'XXTCloudControl is the XXTouch cloud control server with deployment support for Windows, macOS, and Linux.',
+      versionLabel: 'Latest Version',
+      releaseLabel: 'Release Details',
+      historyBtn: 'History Versions',
+      docsBtn: 'Full Documentation',
+      languageZh: '中文',
+      languageEn: 'English',
+      downloadTitle: 'Latest Downloads',
+      downloadSubtitle: 'Choose your package by platform.',
+      screenshotAlt: 'XXTCloudControl interface screenshot',
+      fileLabel: 'File Name',
+      shaLabel: 'SHA256',
+      copyBtn: 'Copy',
+      copiedBtn: 'Copied',
+      downloadBtn: 'Download',
+      noAssets: 'No release assets were found. Please try again later.',
+      quickStartTitle: 'Software Notes (Short)',
+      quickStartSubtitle: 'See full documentation for complete usage and advanced configuration.',
+      guideItems: [
+        {
+          title: 'Windows',
+          body: 'Extract and run xxtcloudserver-windows-amd64.exe or arm64 build, then open http://<server-host>:46980.'
+        },
+        {
+          title: 'macOS',
+          body: 'Extract and run xxtcloudserver-darwin-arm64 or amd64 binary, then initialize password with -set-password when needed.'
+        },
+        {
+          title: 'Linux',
+          body: 'Extract and run xxtcloudserver-linux-amd64 or arm64, and use systemd/supervisor for persistent runtime.'
+        },
+        {
+          title: 'Docker',
+          body: 'Docker Hub and GHCR images are available, and you can deploy with docker run or repository docker-compose.yml.'
+        }
+      ]
+    };
+
+const base = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/');
+const withBase = (segment = '') => `${base}${segment.replace(/^\//, '')}`;
+
+const releaseVersion = latest.version || '-';
+const assets = Array.isArray(latest.assets) ? latest.assets : [];
+
+const formatBytes = (value) => {
+  if (!Number.isFinite(value) || value < 0) {
+    return '-';
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = value;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
+};
+
+---
+
+<BaseLayout title={text.pageTitle} description={text.pageDescription} lang={isZh ? 'zh-CN' : 'en-US'}>
+  <div class="page-atmosphere" aria-hidden="true"></div>
+  <main class="relative mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6 lg:px-8 lg:pt-10">
+    <header class="mb-6 flex justify-end">
+      <div class="flex flex-wrap items-center gap-2">
+        <a
+          href={isZh ? withBase('') : withBase('')}
+          class={`lang-pill ${isZh ? 'lang-pill-active' : ''}`}
+          aria-current={isZh ? 'page' : undefined}
+        >
+          {text.languageZh}
+        </a>
+        <a
+          href={isZh ? withBase('en/') : withBase('en/')}
+          class={`lang-pill ${isZh ? '' : 'lang-pill-active'}`}
+          aria-current={isZh ? undefined : 'page'}
+        >
+          {text.languageEn}
+        </a>
+      </div>
+    </header>
+
+    <section class="hero-panel mb-8 rounded-3xl p-6 sm:p-8 lg:p-10">
+      <div class="relative grid gap-8 lg:grid-cols-[minmax(0,1fr)_15rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_16rem]">
+        <div>
+          <h1 class="hero-title text-3xl font-black leading-tight sm:text-4xl lg:text-5xl">
+            {text.heroTitle}
+          </h1>
+          <p class="hero-subtitle mt-4 max-w-2xl text-sm leading-7 sm:text-base lg:max-w-3xl">
+            {text.heroSubtitle}
+          </p>
+
+          <div class="mt-6 flex flex-wrap gap-3">
+            <a
+              href={latest.historyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="action-btn action-btn-primary"
+            >
+              {text.historyBtn}
+            </a>
+          </div>
+        </div>
+
+        <div class="info-grid w-full lg:max-w-[15rem] lg:justify-self-end xl:max-w-[16rem]">
+          <article class="info-card">
+            <p class="info-label">{text.versionLabel}</p>
+            <p class="info-value font-mono text-lg">{releaseVersion}</p>
+          </article>
+          <article class="info-card">
+            <p class="info-label">{text.releaseLabel}</p>
+            <a href={latest.releaseUrl} target="_blank" rel="noopener noreferrer" class="info-link">GitHub Release</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="mb-10">
+      <figure class="screenshot-panel rounded-3xl p-2 sm:p-3">
+        <img
+          src={withBase('screenshot-001.png')}
+          alt={text.screenshotAlt}
+          loading="lazy"
+          decoding="async"
+          class="screenshot-image block w-full rounded-2xl"
+        />
+      </figure>
+    </section>
+
+    <section class="mb-10">
+      <div class="mb-4 flex items-end justify-between gap-4">
+        <div>
+          <h2 class="section-title text-2xl font-bold">{text.downloadTitle}</h2>
+          <p class="section-subtitle mt-1 text-sm">{text.downloadSubtitle}</p>
+        </div>
+      </div>
+
+      {assets.length === 0 ? (
+        <div class="empty-state rounded-2xl p-4 text-sm">{text.noAssets}</div>
+      ) : (
+        <div class="grid gap-4 md:grid-cols-2">
+          {assets.map((asset) => (
+            <article class="download-card rounded-2xl p-5">
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <h3 class="card-title text-lg font-bold">{asset.platform}</h3>
+                <span class="size-pill rounded-full px-3 py-1 text-xs font-semibold">
+                  {formatBytes(asset.sizeBytes)}
+                </span>
+              </div>
+
+              <div class="card-meta space-y-3 text-sm">
+                <div>
+                  <p class="meta-label mb-1 text-xs font-semibold uppercase tracking-wide">{text.fileLabel}</p>
+                  <p class="file-name break-all font-mono text-xs">{asset.name}</p>
+                </div>
+
+                <div>
+                  <p class="meta-label mb-1 text-xs font-semibold uppercase tracking-wide">{text.shaLabel}</p>
+                  <div class="flex gap-2">
+                    <code class="sha-code min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-lg px-2 py-1 font-mono text-[10px] tracking-tight">
+                      {asset.sha256 || '-'}
+                    </code>
+                    <button
+                      type="button"
+                      class="copy-btn shrink-0 px-2 sm:px-3"
+                      data-copy={asset.sha256 || ''}
+                      data-default={text.copyBtn}
+                      data-success={text.copiedBtn}
+                      disabled={!asset.sha256}
+                    >
+                      {text.copyBtn}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <a
+                href={asset.downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="action-btn action-btn-primary mt-4 w-full justify-center"
+              >
+                {text.downloadBtn}
+              </a>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+
+    <section class="guide-panel rounded-3xl p-6">
+      <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 class="section-title text-2xl font-bold">{text.quickStartTitle}</h2>
+          <p class="section-subtitle mt-1 text-sm">{text.quickStartSubtitle}</p>
+        </div>
+        <a
+          href="https://github.com/havonz/XXTCloudControl#readme"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="action-btn action-btn-secondary"
+        >
+          {text.docsBtn}
+        </a>
+      </div>
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        {text.guideItems.map((item) => (
+          <article class="guide-item rounded-xl px-4 py-3">
+            <h3 class="guide-item-title font-semibold">{item.title}</h3>
+            <p class="guide-item-body mt-1 text-sm leading-6">{item.body}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const copyButtons = Array.from(document.querySelectorAll('[data-copy]'));
+    for (const button of copyButtons) {
+      button.addEventListener('click', async () => {
+        const text = button.getAttribute('data-copy') || '';
+        if (!text) {
+          return;
+        }
+
+        const defaultText = button.getAttribute('data-default') || 'Copy';
+        const successText = button.getAttribute('data-success') || 'Copied';
+
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = successText;
+          setTimeout(() => {
+            button.textContent = defaultText;
+          }, 1200);
+        } catch {
+          window.prompt('Copy manually:', text);
+        }
+      });
+    }
+  </script>
+</BaseLayout>
