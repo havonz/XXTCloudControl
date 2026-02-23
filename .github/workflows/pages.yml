@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Optional release tag (for example: v202602211730). Leave empty to use latest.
+        description: "Optional release tag (for example: v202602211730). Leave empty to use latest."
         required: false
         type: string
 
