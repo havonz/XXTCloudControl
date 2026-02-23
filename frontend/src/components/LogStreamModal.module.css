@@ -62,6 +62,16 @@
   flex: 1;
 }
 
+.autoScrollLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  user-select: none;
+  cursor: pointer;
+}
+
 .button {
   border: 1px solid var(--btn-glass-border);
   background: var(--btn-glass-bg);

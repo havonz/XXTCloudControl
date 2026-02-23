@@ -17,7 +17,9 @@ const TRIM_AMOUNT = 4 * 1024 * 1024;
 const LogStreamModal: Component<LogStreamModalProps> = (props) => {
   const [logText, setLogText] = createSignal('');
   const [paused, setPaused] = createSignal(false);
+  const [autoScroll, setAutoScroll] = createSignal(true);
   const [status, setStatus] = createSignal('未连接');
+  let logAreaRef: HTMLTextAreaElement | undefined;
 
   const appendLog = (message: string) => {
     if (!message) return;
@@ -45,6 +47,7 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
     const udid = props.device.udid;
     setLogText('');
     setPaused(false);
+    setAutoScroll(true);
     setStatus('订阅中');
 
     props.webSocketService.subscribeDeviceLogs([udid]);
@@ -66,13 +69,25 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
     });
   });
 
+  createEffect(() => {
+    if (!props.isOpen || !autoScroll() || !logAreaRef) {
+      return;
+    }
+
+    logText();
+    logAreaRef.scrollTop = logAreaRef.scrollHeight;
+  });
+
   const handleClose = () => {
     props.onClose();
   };
 
   const handleTogglePause = () => {
-    setPaused((prev) => !prev);
-    setStatus(!paused() ? '已暂停' : '已连接');
+    setPaused((prev) => {
+      const next = !prev;
+      setStatus(next ? '已暂停' : '已连接');
+      return next;
+    });
   };
 
   const handleClear = () => {
@@ -99,8 +114,21 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
                 {paused() ? '继续' : '暂停'}
               </button>
               <button class={styles.button} onClick={handleClear}>清空</button>
+              <div class={styles.flexSpacer} />
+              <label class={styles.autoScrollLabel}>
+                <input
+                  type="checkbox"
+                  class="themed-checkbox"
+                  checked={autoScroll()}
+                  onChange={(e) => setAutoScroll(e.currentTarget.checked)}
+                />
+                <span>自动滚动</span>
+              </label>
             </div>
             <textarea
+              ref={(el) => {
+                logAreaRef = el;
+              }}
               class={styles.logArea}
               value={logText()}
               readOnly
