@@ -74,8 +74,43 @@ var pendingScriptStarts = struct {
 	entries: make(map[string]*pendingScriptStart),
 }
 
-func startScriptOnDevice(deviceID string, runPayload []byte, runPayloadPrepared bool, runName string, delay time.Duration) {
+var scriptStartInFlight = struct {
+	sync.Mutex
+	entries map[string]struct{}
+}{
+	entries: make(map[string]struct{}),
+}
+
+func tryAcquireScriptStart(deviceID string) bool {
+	if deviceID == "" {
+		return false
+	}
+	scriptStartInFlight.Lock()
+	_, exists := scriptStartInFlight.entries[deviceID]
+	if !exists {
+		scriptStartInFlight.entries[deviceID] = struct{}{}
+	}
+	scriptStartInFlight.Unlock()
+	return !exists
+}
+
+func releaseScriptStart(deviceID string) {
+	if deviceID == "" {
+		return
+	}
+	scriptStartInFlight.Lock()
+	delete(scriptStartInFlight.entries, deviceID)
+	scriptStartInFlight.Unlock()
+}
+
+func startScriptOnDevice(deviceID string, runPayload []byte, runPayloadPrepared bool, runName string, delay time.Duration, done func()) {
 	go func() {
+		defer func() {
+			if done != nil {
+				done()
+			}
+		}()
+
 		if delay > 0 {
 			time.Sleep(delay)
 		}
@@ -155,6 +190,7 @@ func registerPendingScriptStart(deviceID string, runPayload []byte, runPayloadPr
 		delete(pendingScriptStarts.entries, device)
 		pendingScriptStarts.Unlock()
 
+		releaseScriptStart(device)
 		broadcastDeviceMessage(device, "脚本启动失败: 大文件传输超时")
 	}(deviceID, generation, scriptStartWaitTimeout)
 	return true
@@ -186,6 +222,7 @@ func completePendingScriptStart(
 	if !success {
 		delete(pendingScriptStarts.entries, deviceID)
 		pendingScriptStarts.Unlock()
+		releaseScriptStart(deviceID)
 
 		errMsg = strings.TrimSpace(errMsg)
 		if errMsg == "" {
@@ -246,6 +283,7 @@ func completePendingScriptStartByTargetPath(
 	if !success {
 		delete(pendingScriptStarts.entries, deviceID)
 		pendingScriptStarts.Unlock()
+		releaseScriptStart(deviceID)
 
 		errMsg = strings.TrimSpace(errMsg)
 		if errMsg == "" {
@@ -278,6 +316,7 @@ func clearPendingScriptStart(deviceID string) {
 	pendingScriptStarts.Lock()
 	delete(pendingScriptStarts.entries, deviceID)
 	pendingScriptStarts.Unlock()
+	releaseScriptStart(deviceID)
 }
 
 func hasPendingScriptStart(deviceID string) bool {
@@ -345,7 +384,9 @@ func handleTransferFetchCompletionForScriptStart(deviceID string, body interface
 	}
 
 	broadcastDeviceMessage(deviceID, "大文件传输完成，启动脚本...")
-	startScriptOnDevice(deviceID, ready.runPayload, ready.runPayloadPrepared, ready.runName, ScriptStartDelay)
+	startScriptOnDevice(deviceID, ready.runPayload, ready.runPayloadPrepared, ready.runName, ScriptStartDelay, func() {
+		releaseScriptStart(deviceID)
+	})
 }
 
 func normalizeScriptPath(path string) string {
@@ -1045,14 +1086,17 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	if req.Name == "" {
 		deviceConns := snapshotDeviceConns(req.Devices)
 		for _, udid := range req.Devices {
-			if conn, exists := deviceConns[udid]; exists {
-				runMsg := Message{
-					Type: "script/run",
-					Body: gin.H{"name": ""},
-				}
-				sendMessageAsync(conn, runMsg)
+			if !tryAcquireScriptStart(udid) {
+				broadcastDeviceMessage(udid, "脚本启动已取消: 上一次脚本启动尚未完成，请稍后重试")
+				continue
+			}
+			if _, exists := deviceConns[udid]; exists {
+				startScriptOnDevice(udid, nil, false, "", 0, func() {
+					releaseScriptStart(udid)
+				})
 			} else {
 				broadcastDeviceMessage(udid, "脚本启动失败: 设备未连接")
+				releaseScriptStart(udid)
 			}
 		}
 
@@ -1188,6 +1232,11 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	}
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
+			if !tryAcquireScriptStart(udid) {
+				broadcastDeviceMessage(udid, "脚本启动已取消: 上一次脚本启动尚未完成，请稍后重试")
+				continue
+			}
+
 			groupConfig := deviceConfigIndex[udid]
 			groupConfigKey := getGroupConfigKey(groupConfig)
 			plannedLargeFetches := make([]plannedLargeFetch, 0, largeFilesCount)
@@ -1212,6 +1261,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			if len(pendingFetchRequests) > 0 {
 				if !registerPendingScriptStart(udid, runPayload, runPayloadPrepared, runName, pendingFetchRequests) {
 					broadcastDeviceMessage(udid, "脚本启动已取消: 上一次大文件传输尚未完成，请稍后重试")
+					releaseScriptStart(udid)
 					continue
 				}
 				pendingRegistered = true
@@ -1319,6 +1369,8 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			if largeTransferPrepareFailed {
 				if pendingRegistered {
 					clearPendingScriptStart(udid)
+				} else {
+					releaseScriptStart(udid)
 				}
 				broadcastDeviceMessage(udid, "脚本启动已取消: 大文件传输准备失败")
 				continue
@@ -1333,7 +1385,9 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 
 			// 全部为小文件时，保持原有延迟启动行为。
 			broadcastDeviceMessage(udid, "启动脚本...")
-			startScriptOnDevice(udid, runPayload, runPayloadPrepared, runName, ScriptStartDelay)
+			startScriptOnDevice(udid, runPayload, runPayloadPrepared, runName, ScriptStartDelay, func() {
+				releaseScriptStart(udid)
+			})
 		} else {
 			broadcastDeviceMessage(udid, "脚本启动失败: 设备未连接")
 		}

@@ -12,12 +12,25 @@ func resetPendingScriptStartsForTest() {
 	pendingScriptStarts.seq = 0
 	pendingScriptStarts.entries = make(map[string]*pendingScriptStart)
 	pendingScriptStarts.Unlock()
+	resetScriptStartInFlightForTest()
 }
 
 func pendingScriptStartCountForTest() int {
 	pendingScriptStarts.Lock()
 	defer pendingScriptStarts.Unlock()
 	return len(pendingScriptStarts.entries)
+}
+
+func resetScriptStartInFlightForTest() {
+	scriptStartInFlight.Lock()
+	scriptStartInFlight.entries = make(map[string]struct{})
+	scriptStartInFlight.Unlock()
+}
+
+func scriptStartInFlightCountForTest() int {
+	scriptStartInFlight.Lock()
+	defer scriptStartInFlight.Unlock()
+	return len(scriptStartInFlight.entries)
 }
 
 func TestPendingScriptStartCompletesAfterAllRequests(t *testing.T) {
@@ -203,4 +216,55 @@ func TestHandleTransferFetchCompletionForScriptStartLegacyTargetPathFallback(t *
 	if count := pendingScriptStartCountForTest(); count != 0 {
 		t.Fatalf("legacy completion without requestId should still complete by targetPath, got %d", count)
 	}
+}
+
+func TestScriptStartInFlightRejectsReentryUntilReleased(t *testing.T) {
+	resetPendingScriptStartsForTest()
+	defer resetPendingScriptStartsForTest()
+
+	if !tryAcquireScriptStart("device-lock") {
+		t.Fatalf("first acquire should succeed")
+	}
+	if tryAcquireScriptStart("device-lock") {
+		t.Fatalf("second acquire should fail before release")
+	}
+	if count := scriptStartInFlightCountForTest(); count != 1 {
+		t.Fatalf("expected 1 in-flight entry, got %d", count)
+	}
+
+	releaseScriptStart("device-lock")
+
+	if !tryAcquireScriptStart("device-lock") {
+		t.Fatalf("acquire should succeed after release")
+	}
+	releaseScriptStart("device-lock")
+}
+
+func TestClearPendingScriptStartAlsoReleasesInFlightLock(t *testing.T) {
+	resetPendingScriptStartsForTest()
+	oldTimeout := scriptStartWaitTimeout
+	scriptStartWaitTimeout = 0
+	defer func() {
+		scriptStartWaitTimeout = oldTimeout
+		resetPendingScriptStartsForTest()
+	}()
+
+	if !tryAcquireScriptStart("device-clear") {
+		t.Fatalf("acquire should succeed")
+	}
+	if !registerPendingScriptStart("device-clear", []byte("x"), true, "main.lua", []pendingScriptFetchRequest{
+		{requestID: "req-1", targetPath: "a.lua"},
+	}) {
+		t.Fatalf("register should succeed")
+	}
+
+	clearPendingScriptStart("device-clear")
+
+	if count := pendingScriptStartCountForTest(); count != 0 {
+		t.Fatalf("pending entries should be cleared, got %d", count)
+	}
+	if !tryAcquireScriptStart("device-clear") {
+		t.Fatalf("clear should release in-flight lock")
+	}
+	releaseScriptStart("device-clear")
 }
