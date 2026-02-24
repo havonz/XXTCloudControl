@@ -193,3 +193,58 @@ func TestCreateTransferToken_ExplicitOneTimeTrue(t *testing.T) {
 		t.Fatalf("expected explicit oneTime=true to be kept")
 	}
 }
+
+func TestTransferDownloadHandler_DoesNotCompletePendingScriptStartOnHTTPCopy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	resetTransferTokensForTest()
+	resetPendingScriptStartsForTest()
+	t.Cleanup(resetTransferTokensForTest)
+	t.Cleanup(resetPendingScriptStartsForTest)
+
+	oldTimeout := scriptStartWaitTimeout
+	scriptStartWaitTimeout = 0
+	t.Cleanup(func() {
+		scriptStartWaitTimeout = oldTimeout
+	})
+
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "payload.bin")
+	if err := os.WriteFile(filePath, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("write payload failed: %v", err)
+	}
+
+	const (
+		token      = "download-token"
+		deviceSN   = "device-1"
+		targetPath = "lua/scripts/payload.bin"
+	)
+
+	transferTokensMu.Lock()
+	transferTokens[token] = &TransferToken{
+		Type:       "download",
+		FilePath:   filePath,
+		TargetPath: targetPath,
+		DeviceSN:   deviceSN,
+		ExpiresAt:  time.Now().Add(1 * time.Minute),
+		OneTime:    false,
+	}
+	transferTokensMu.Unlock()
+
+	registerPendingScriptStart(deviceSN, []byte(`{"type":"script/run"}`), true, "main.lua", []string{targetPath})
+	if count := pendingScriptStartCountForTest(); count != 1 {
+		t.Fatalf("expected 1 pending entry before HTTP download, got %d", count)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "token", Value: token}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/transfer/download/"+token, nil)
+	transferDownloadHandler(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if count := pendingScriptStartCountForTest(); count != 1 {
+		t.Fatalf("pending script start should not be completed by HTTP copy, got %d", count)
+	}
+}

@@ -513,19 +513,13 @@ func transferDownloadHandler(c *gin.Context) {
 	_, err = io.Copy(pw, file)
 	if err != nil {
 		log.Printf("❌ Download failed: %s - %v", fileName, err)
-		handleTransferFetchCompletionForScriptStart(tokenInfo.DeviceSN, map[string]interface{}{
-			"targetPath": tokenInfo.TargetPath,
-			"success":    false,
-			"error":      err.Error(),
-		})
 		return
 	}
 
 	debugLogf("✅ Download completed: %s → device %s", fileName, tokenInfo.DeviceSN)
-	handleTransferFetchCompletionForScriptStart(tokenInfo.DeviceSN, map[string]interface{}{
-		"targetPath": tokenInfo.TargetPath,
-		"success":    true,
-	})
+	// Do not treat HTTP stream completion as device fetch completion.
+	// Script-start orchestration must only be driven by device WS message:
+	// transfer/fetch/complete.
 
 	// Clean up temp files after successful download
 	// Shared temp file cleanup is managed by shared token ref-count.
