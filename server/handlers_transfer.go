@@ -513,10 +513,19 @@ func transferDownloadHandler(c *gin.Context) {
 	_, err = io.Copy(pw, file)
 	if err != nil {
 		log.Printf("❌ Download failed: %s - %v", fileName, err)
+		handleTransferFetchCompletionForScriptStart(tokenInfo.DeviceSN, map[string]interface{}{
+			"targetPath": tokenInfo.TargetPath,
+			"success":    false,
+			"error":      err.Error(),
+		})
 		return
 	}
 
 	debugLogf("✅ Download completed: %s → device %s", fileName, tokenInfo.DeviceSN)
+	handleTransferFetchCompletionForScriptStart(tokenInfo.DeviceSN, map[string]interface{}{
+		"targetPath": tokenInfo.TargetPath,
+		"success":    true,
+	})
 
 	// Clean up temp files after successful download
 	// Shared temp file cleanup is managed by shared token ref-count.
@@ -919,12 +928,8 @@ func pushFileToDeviceHandler(c *gin.Context) {
 
 	// Build download URL path
 	downloadPath := fmt.Sprintf("/api/transfer/download/%s", token)
-
-	// Build full download URL using serverBaseUrl if provided
-	downloadURL := downloadPath
-	if req.ServerBaseUrl != "" {
-		downloadURL = req.ServerBaseUrl + downloadPath
-	}
+	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
+	downloadURL := transferBaseURL + downloadPath
 
 	// Set timeout
 	timeout := req.Timeout
@@ -1017,12 +1022,8 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 
 	// Build upload URL path
 	uploadPath := fmt.Sprintf("/api/transfer/upload/%s", token)
-
-	// Build full upload URL using serverBaseUrl if provided
-	uploadURL := uploadPath
-	if req.ServerBaseUrl != "" {
-		uploadURL = req.ServerBaseUrl + uploadPath
-	}
+	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
+	uploadURL := transferBaseURL + uploadPath
 
 	// Set timeout
 	timeout := req.Timeout

@@ -197,16 +197,56 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     return deviceControlService;
   };
   
-  // Device control operation messages (temporary messages shown in "消息" column)
-  const [deviceControlMessages, setDeviceControlMessages] = createSignal<Record<string, string>>({}, { equals: false });
+  // Device messages: local immediate write, then backend message overwrites on arrival.
+  const [localDeviceMessages, setLocalDeviceMessages] = createSignal<Record<string, string>>({}, { equals: false });
+  const localMessageTimers = new Map<string, number>();
+  const localMessageTTL = 10000;
+  const clearLocalDeviceMessage = (udid: string) => {
+    const timer = localMessageTimers.get(udid);
+    if (timer) {
+      clearTimeout(timer);
+      localMessageTimers.delete(udid);
+    }
+    setLocalDeviceMessages((prev) => {
+      if (!(udid in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[udid];
+      return next;
+    });
+  };
   const setDeviceMessage = (udid: string, message: string) => {
-    setDeviceControlMessages((prev) => {
+    setLocalDeviceMessages((prev) => {
       if (prev[udid] === message) {
         return prev;
       }
-      prev[udid] = message;
-      return prev;
+      return {
+        ...prev,
+        [udid]: message,
+      };
     });
+    const timer = localMessageTimers.get(udid);
+    if (timer) {
+      clearTimeout(timer);
+    }
+    const nextTimer = window.setTimeout(() => {
+      setLocalDeviceMessages((prev) => {
+        if (prev[udid] !== message) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[udid];
+        return next;
+      });
+      localMessageTimers.delete(udid);
+    }, localMessageTTL);
+    localMessageTimers.set(udid, nextTimer);
+
+    props.webSocketService?.updateDeviceMessage(udid, message);
+  };
+  const getDisplayMessage = (device: Device): string => {
+    return localDeviceMessages()[device.udid] || device.system?.message || '';
   };
   
   // Device context menu state
@@ -427,6 +467,40 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     if (longPressTimer) {
       clearTimeout(longPressTimer);
     }
+    localMessageTimers.forEach((timer) => clearTimeout(timer));
+    localMessageTimers.clear();
+  });
+
+  createEffect(() => {
+    const devices = props.devices;
+    setLocalDeviceMessages((prev) => {
+      if (Object.keys(prev).length === 0) {
+        return prev;
+      }
+      let next: Record<string, string> | null = null;
+      for (const device of devices) {
+        const localMessage = prev[device.udid];
+        if (!localMessage) {
+          continue;
+        }
+        const backendMessage = device.system?.message || '';
+        if (backendMessage && backendMessage !== localMessage) {
+          if (next === null) {
+            next = { ...prev };
+          }
+          delete next[device.udid];
+          const timer = localMessageTimers.get(device.udid);
+          if (timer) {
+            clearTimeout(timer);
+            localMessageTimers.delete(device.udid);
+          }
+        }
+      }
+      if (next === null) {
+        return prev;
+      }
+      return next;
+    });
   });
   
 
@@ -566,6 +640,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
       // 获取按分组分配的设备列表
       const selectedDeviceIds = props.selectedDevices().map((d: Device) => d.udid);
+      selectedDeviceIds.forEach((udid) => {
+        setDeviceMessage(udid, '正在启动脚本...');
+      });
       const groupedDevices = props.getGroupedDevicesForLaunch?.(selectedDeviceIds) || [];
       
       if (groupedDevices.length > 0) {
@@ -592,7 +669,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 devices: group.deviceIds,
                 name: scriptToRun,
                 selectedGroups: [group.groupId],
-                serverBaseUrl: window.location.origin,
+                serverBaseUrl: getTransferBaseUrl(),
               }),
             });
             
@@ -631,7 +708,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             devices: selectedDeviceIds,
             name: effectiveScriptName,
             selectedGroups: ['__all__'],
-            serverBaseUrl: window.location.origin,
+            serverBaseUrl: getTransferBaseUrl(),
           }),
         });
         
@@ -680,6 +757,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // Show toast notification
   const showToastMessage = (message: string) => {
     toast.showInfo(message);
+  };
+
+  const getTransferBaseUrl = () => {
+    const host = props.serverHost?.trim();
+    const port = props.serverPort?.trim();
+    if (!host || !port) {
+      return window.location.origin;
+    }
+    return authService.getHttpBaseUrl(host, port);
   };
   
   // Handle table header click for sorting
@@ -1051,7 +1137,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           devices: deviceUdids,
           name: scriptName,
           selectedGroups: ['__all__'],
-          serverBaseUrl: window.location.origin,
+          serverBaseUrl: getTransferBaseUrl(),
         }),
       });
       
@@ -1749,9 +1835,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                           <div class={styles.tableCell}>
                             <div 
                               class={styles.deviceMessage}
-                              title={deviceControlMessages()[device.udid] || device.system?.message || '无消息'}
+                              title={getDisplayMessage(device) || '无消息'}
                             >
-                              {deviceControlMessages()[device.udid] || device.system?.message || ''}
+                              {getDisplayMessage(device)}
                             </div>
                           </div>
                         </Show>
@@ -1830,9 +1916,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         </div>
                       </div>
                       
-                      <Show when={device.system?.message}>
+                      <Show when={getDisplayMessage(device)}>
                         <div class={styles.cardMessageArea}>
-                          <div class={styles.cardMessageText}>{device.system?.message}</div>
+                          <div class={styles.cardMessageText}>{getDisplayMessage(device)}</div>
                         </div>
                       </Show>
                       

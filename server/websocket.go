@@ -683,6 +683,46 @@ func handleWebSocketConnection(c *gin.Context) {
 	handleDisconnection(safeConn)
 }
 
+func getDeviceUDIDByConn(conn *SafeConn) (string, bool) {
+	mu.RLock()
+	udid, exists := deviceLinksMap[conn]
+	mu.RUnlock()
+	return udid, exists
+}
+
+func forwardDeviceMessageToControllers(conn *SafeConn, data Message) error {
+	var (
+		udid           string
+		controllerList []*SafeConn
+	)
+	mu.RLock()
+	if len(controllers) > 0 {
+		if mappedUDID, exists := deviceLinksMap[conn]; exists {
+			udid = mappedUDID
+			controllerList = snapshotControllerConnsLocked()
+		}
+	}
+	mu.RUnlock()
+
+	if udid == "" || len(controllerList) == 0 {
+		return nil
+	}
+
+	// 记录转发的消息类型
+	if data.Type == "http/response" || data.Type == "http/request" {
+		httpDebugf("[%s] Forwarding %s from device %s to %d controllers", data.Type, data.Type, udid, len(controllerList))
+	}
+	data.UDID = udid
+	encodedData, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	for _, controllerConn := range controllerList {
+		writeTextMessageAsync(controllerConn, encodedData)
+	}
+	return nil
+}
+
 // handleMessage processes incoming WebSocket messages
 func handleMessage(conn *SafeConn, data Message) error {
 	switch data.Type {
@@ -1188,34 +1228,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 		return nil
 
-	default:
-		var (
-			udid           string
-			controllerList []*SafeConn
-		)
-		mu.RLock()
-		if len(controllers) > 0 {
-			if mappedUDID, exists := deviceLinksMap[conn]; exists {
-				udid = mappedUDID
-				controllerList = snapshotControllerConnsLocked()
-			}
+	case "transfer/fetch/complete":
+		if udid, ok := getDeviceUDIDByConn(conn); ok {
+			handleTransferFetchCompletionForScriptStart(udid, data.Body)
 		}
-		mu.RUnlock()
+		return forwardDeviceMessageToControllers(conn, data)
 
-		if udid != "" && len(controllerList) > 0 {
-			// 记录转发的消息类型
-			if data.Type == "http/response" || data.Type == "http/request" {
-				httpDebugf("[%s] Forwarding %s from device %s to %d controllers", data.Type, data.Type, udid, len(controllerList))
-			}
-			data.UDID = udid
-			encodedData, err := json.Marshal(data)
-			if err != nil {
-				return err
-			}
-			for _, controllerConn := range controllerList {
-				writeTextMessageAsync(controllerConn, encodedData)
-			}
-		}
+	default:
+		return forwardDeviceMessageToControllers(conn, data)
 	}
 
 	return nil
@@ -1301,6 +1321,7 @@ func handleDisconnection(conn *SafeConn) {
 		unsubscribeTargets []*SafeConn
 		disconnectTargets  []*SafeConn
 		disconnectUDID     string
+		disconnectedUDID   string
 	)
 
 	mu.Lock()
@@ -1337,6 +1358,7 @@ func handleDisconnection(conn *SafeConn) {
 
 	if udid, exists := deviceLinksMap[conn]; exists {
 		wsDebugf("Device %s disconnected", udid)
+		disconnectedUDID = udid
 
 		delete(deviceLinksMap, conn)
 
@@ -1366,6 +1388,10 @@ func handleDisconnection(conn *SafeConn) {
 		}
 	}
 	mu.Unlock()
+
+	if disconnectedUDID != "" {
+		clearPendingScriptStart(disconnectedUDID)
+	}
 
 	if disconnectUDID != "" && len(disconnectTargets) > 0 {
 		disconnectMsg := Message{

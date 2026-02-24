@@ -25,6 +25,8 @@ const (
 	scriptPackageCacheTrimTo = 48
 )
 
+var scriptStartWaitTimeout = 6 * time.Minute
+
 type scriptFileData struct {
 	Path           string
 	NormalizedPath string
@@ -44,11 +46,219 @@ type scriptPackageCacheEntry struct {
 	files     []scriptFileData
 }
 
+type pendingScriptStart struct {
+	runPayload         []byte
+	runPayloadPrepared bool
+	runName            string
+	remaining          map[string]struct{}
+	generation         uint64
+}
+
 var scriptPackageCache = struct {
 	sync.RWMutex
 	entries map[string]scriptPackageCacheEntry
 }{
 	entries: make(map[string]scriptPackageCacheEntry),
+}
+
+var pendingScriptStarts = struct {
+	sync.Mutex
+	seq     uint64
+	entries map[string]*pendingScriptStart
+}{
+	entries: make(map[string]*pendingScriptStart),
+}
+
+func startScriptOnDevice(deviceID string, runPayload []byte, runPayloadPrepared bool, runName string, delay time.Duration) {
+	go func() {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+
+		mu.RLock()
+		conn, exists := deviceLinks[deviceID]
+		mu.RUnlock()
+		if !exists {
+			broadcastDeviceMessage(deviceID, "脚本启动失败: 设备已离线")
+			return
+		}
+
+		if runPayloadPrepared {
+			_ = writeTextMessage(conn, runPayload)
+		} else {
+			_ = sendMessage(conn, Message{
+				Type: "script/run",
+				Body: gin.H{
+					"name": runName,
+				},
+			})
+		}
+
+		broadcastDeviceMessage(deviceID, "脚本已启动")
+	}()
+}
+
+func registerPendingScriptStart(deviceID string, runPayload []byte, runPayloadPrepared bool, runName string, targetPaths []string) {
+	if deviceID == "" || len(targetPaths) == 0 {
+		return
+	}
+
+	remaining := make(map[string]struct{}, len(targetPaths))
+	for _, path := range targetPaths {
+		if path == "" {
+			continue
+		}
+		remaining[path] = struct{}{}
+	}
+	if len(remaining) == 0 {
+		return
+	}
+
+	entry := &pendingScriptStart{
+		runPayload:         append([]byte(nil), runPayload...),
+		runPayloadPrepared: runPayloadPrepared,
+		runName:            runName,
+		remaining:          remaining,
+	}
+
+	pendingScriptStarts.Lock()
+	pendingScriptStarts.seq++
+	entry.generation = pendingScriptStarts.seq
+	pendingScriptStarts.entries[deviceID] = entry
+	generation := entry.generation
+	pendingScriptStarts.Unlock()
+
+	if scriptStartWaitTimeout <= 0 {
+		return
+	}
+
+	go func(device string, gen uint64, wait time.Duration) {
+		time.Sleep(wait)
+
+		pendingScriptStarts.Lock()
+		current := pendingScriptStarts.entries[device]
+		if current == nil || current.generation != gen {
+			pendingScriptStarts.Unlock()
+			return
+		}
+		delete(pendingScriptStarts.entries, device)
+		pendingScriptStarts.Unlock()
+
+		broadcastDeviceMessage(device, "脚本启动失败: 大文件传输超时")
+	}(deviceID, generation, scriptStartWaitTimeout)
+}
+
+func completePendingScriptStart(
+	deviceID string,
+	targetPath string,
+	success bool,
+	errMsg string,
+) (ready *pendingScriptStart, cancelMsg string, handled bool) {
+	if deviceID == "" || targetPath == "" {
+		return nil, "", false
+	}
+
+	pendingScriptStarts.Lock()
+	entry := pendingScriptStarts.entries[deviceID]
+	if entry == nil {
+		pendingScriptStarts.Unlock()
+		return nil, "", false
+	}
+
+	if _, exists := entry.remaining[targetPath]; !exists {
+		pendingScriptStarts.Unlock()
+		return nil, "", false
+	}
+
+	if !success {
+		delete(pendingScriptStarts.entries, deviceID)
+		pendingScriptStarts.Unlock()
+
+		errMsg = strings.TrimSpace(errMsg)
+		if errMsg == "" {
+			errMsg = "未知错误"
+		}
+		return nil, errMsg, true
+	}
+
+	delete(entry.remaining, targetPath)
+	if len(entry.remaining) > 0 {
+		pendingScriptStarts.Unlock()
+		return nil, "", true
+	}
+
+	ready = &pendingScriptStart{
+		runPayload:         append([]byte(nil), entry.runPayload...),
+		runPayloadPrepared: entry.runPayloadPrepared,
+		runName:            entry.runName,
+	}
+	delete(pendingScriptStarts.entries, deviceID)
+	pendingScriptStarts.Unlock()
+
+	return ready, "", true
+}
+
+func clearPendingScriptStart(deviceID string) {
+	if deviceID == "" {
+		return
+	}
+	pendingScriptStarts.Lock()
+	delete(pendingScriptStarts.entries, deviceID)
+	pendingScriptStarts.Unlock()
+}
+
+func hasPendingScriptStart(deviceID string) bool {
+	if deviceID == "" {
+		return false
+	}
+	pendingScriptStarts.Lock()
+	_, exists := pendingScriptStarts.entries[deviceID]
+	pendingScriptStarts.Unlock()
+	return exists
+}
+
+func handleTransferFetchCompletionForScriptStart(deviceID string, body interface{}) {
+	bodyMap, ok := body.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	targetPath, ok := bodyMap["targetPath"].(string)
+	if !ok || targetPath == "" {
+		return
+	}
+
+	success := false
+	switch value := bodyMap["success"].(type) {
+	case bool:
+		success = value
+	case string:
+		success = strings.EqualFold(value, "true")
+	case float64:
+		success = value != 0
+	}
+
+	errMsg := ""
+	if value, ok := bodyMap["error"].(string); ok {
+		errMsg = value
+	}
+
+	ready, cancelMsg, handled := completePendingScriptStart(deviceID, targetPath, success, errMsg)
+	if !handled {
+		return
+	}
+
+	if cancelMsg != "" {
+		broadcastDeviceMessage(deviceID, "脚本启动已取消: "+cancelMsg)
+		return
+	}
+
+	if ready == nil {
+		return
+	}
+
+	broadcastDeviceMessage(deviceID, "大文件传输完成，启动脚本...")
+	startScriptOnDevice(deviceID, ready.runPayload, ready.runPayloadPrepared, ready.runName, ScriptStartDelay)
 }
 
 func normalizeScriptPath(path string) string {
@@ -522,6 +732,7 @@ func scriptsSendHandler(c *gin.Context) {
 
 	largeFileMD5 := calculateLargeFileMD5(filesToSend)
 	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
+	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 
 	deviceConfigIndex := buildDeviceScriptConfigIndex(req.Name, req.SelectedGroups)
 	groupConfigKeyCache := make(map[uintptr]string)
@@ -663,13 +874,7 @@ func scriptsSendHandler(c *gin.Context) {
 					}
 					transferTokensMu.Unlock()
 
-					// Build download URL using serverBaseUrl if provided, otherwise fallback to localhost
-					downloadURL := fmt.Sprintf("/api/transfer/download/%s", token)
-					if req.ServerBaseUrl != "" {
-						downloadURL = req.ServerBaseUrl + downloadURL
-					} else {
-						downloadURL = fmt.Sprintf("http://127.0.0.1:%d%s", serverConfig.Port, downloadURL)
-					}
+					downloadURL := fmt.Sprintf("%s/api/transfer/download/%s", transferBaseURL, token)
 
 					fetchMsg := Message{
 						Type: "transfer/fetch",
@@ -844,6 +1049,8 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			"name": runName,
 		},
 	})
+	runPayloadPrepared := runPayloadErr == nil
+	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 
 	deviceConns := snapshotDeviceConns(req.Devices)
 	basePutPayloadCache := make(map[string][]byte, len(filesToSend))
@@ -852,122 +1059,131 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		if conn, exists := deviceConns[udid]; exists {
 			groupConfig := deviceConfigIndex[udid]
 			groupConfigKey := getGroupConfigKey(groupConfig)
+			pendingLargeTargets := make([]string, 0, largeFilesCount)
+			for _, f := range filesToSend {
+				if f.Data == "" {
+					pendingLargeTargets = append(pendingLargeTargets, f.Path)
+				}
+			}
+			largeTransferPrepareFailed := false
 
 			// 广播状态: 正在发送文件
 			broadcastDeviceMessage(udid, fmt.Sprintf("发送脚本 (%d小文件, %d大文件)", smallFilesCount, largeFilesCount))
 
-			// Send small files via WebSocket, large files via HTTP
+			// 先发送小文件，避免大文件过早完成导致脚本提前启动。
 			for _, f := range filesToSend {
-				// Handle main.json config merging for small files
-				if f.Data != "" {
-					if !f.IsMainJSON || groupConfig == nil {
-						payload, ok := basePutPayloadCache[f.Path]
-						if !ok {
-							encoded, buildErr := buildFilePutPayload(f.Path, f.Data)
-							if buildErr != nil {
-								continue
-							}
-							payload = encoded
-							basePutPayloadCache[f.Path] = payload
-						}
-						writeTextMessageAsync(conn, payload)
-						continue
-					}
+				if f.Data == "" {
+					continue
+				}
 
-					cacheKey := ""
-					if groupConfigKey != "" {
-						cacheKey = f.NormalizedPath + "|" + groupConfigKey
-						if cachedPayload, ok := mergedPutPayloadCache[cacheKey]; ok {
-							writeTextMessageAsync(conn, cachedPayload)
+				if !f.IsMainJSON || groupConfig == nil {
+					payload, ok := basePutPayloadCache[f.Path]
+					if !ok {
+						encoded, buildErr := buildFilePutPayload(f.Path, f.Data)
+						if buildErr != nil {
 							continue
 						}
-					}
-
-					finalData := f.Data
-					template := parseMainJSONTemplate(f.NormalizedPath, f.Data)
-					if mergedData, ok := buildMergedMainJSONData(template, groupConfig); ok {
-						finalData = mergedData
-					}
-
-					payload, buildErr := buildFilePutPayload(f.Path, finalData)
-					if buildErr != nil {
-						continue
-					}
-					if cacheKey != "" {
-						mergedPutPayloadCache[cacheKey] = payload
+						payload = encoded
+						basePutPayloadCache[f.Path] = payload
 					}
 					writeTextMessageAsync(conn, payload)
-				} else {
-					// Large file: use HTTP transfer
-					broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
-
-					md5Info, ok := largeFileMD5[f.SourcePath]
-					if !ok || md5Info.err != nil {
-						broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
-						continue
-					}
-					md5Hash := md5Info.hash
-
-					// Create transfer token
-					token := uuid.New().String()
-					transferTokensMu.Lock()
-					transferTokens[token] = &TransferToken{
-						Type:       "download",
-						FilePath:   f.SourcePath,
-						TargetPath: f.Path,
-						DeviceSN:   udid,
-						ExpiresAt:  time.Now().Add(5 * time.Minute),
-						OneTime:    true,
-						TotalBytes: f.Size,
-						MD5:        md5Hash,
-					}
-					transferTokensMu.Unlock()
-
-					// Build download URL (device will download from server)
-					downloadURL := fmt.Sprintf("/api/transfer/download/%s", token)
-					if req.ServerBaseUrl != "" {
-						downloadURL = req.ServerBaseUrl + downloadURL
-					} else {
-						downloadURL = fmt.Sprintf("http://127.0.0.1:%d%s", serverConfig.Port, downloadURL)
-					}
-
-					// Send transfer/fetch command to device
-					fetchMsg := Message{
-						Type: "transfer/fetch",
-						Body: gin.H{
-							"url":        downloadURL,
-							"targetPath": f.Path,
-							"md5":        md5Hash,
-							"totalBytes": f.Size,
-							"timeout":    300, // 5 minutes
-						},
-					}
-					fetchPayload, marshalErr := json.Marshal(fetchMsg)
-					if marshalErr != nil {
-						continue
-					}
-					writeTextMessageAsync(conn, fetchPayload)
+					continue
 				}
+
+				cacheKey := ""
+				if groupConfigKey != "" {
+					cacheKey = f.NormalizedPath + "|" + groupConfigKey
+					if cachedPayload, ok := mergedPutPayloadCache[cacheKey]; ok {
+						writeTextMessageAsync(conn, cachedPayload)
+						continue
+					}
+				}
+
+				finalData := f.Data
+				template := parseMainJSONTemplate(f.NormalizedPath, f.Data)
+				if mergedData, ok := buildMergedMainJSONData(template, groupConfig); ok {
+					finalData = mergedData
+				}
+
+				payload, buildErr := buildFilePutPayload(f.Path, finalData)
+				if buildErr != nil {
+					continue
+				}
+				if cacheKey != "" {
+					mergedPutPayloadCache[cacheKey] = payload
+				}
+				writeTextMessageAsync(conn, payload)
 			}
 
-			// 广播状态: 正在启动脚本
-			broadcastDeviceMessage(udid, "启动脚本...")
+			if len(pendingLargeTargets) > 0 {
+				registerPendingScriptStart(udid, runPayload, runPayloadPrepared, runName, pendingLargeTargets)
+			}
 
-			go func(c *SafeConn, deviceId string) {
-				time.Sleep(ScriptStartDelay)
-				if runPayloadErr == nil {
-					_ = writeTextMessage(c, runPayload)
-				} else {
-					_ = sendMessage(c, Message{
-						Type: "script/run",
-						Body: gin.H{
-							"name": runName,
-						},
-					})
+			// 再发送大文件，避免 transfer/fetch/complete 在注册前到达。
+			for _, f := range filesToSend {
+				if f.Data != "" {
+					continue
 				}
-				// 脚本启动后更新状态并保持显示
-				broadcastDeviceMessage(deviceId, "脚本已启动")
-			}(conn, udid)
+
+				broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
+
+				md5Info, ok := largeFileMD5[f.SourcePath]
+				if !ok || md5Info.err != nil {
+					broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
+					largeTransferPrepareFailed = true
+					break
+				}
+				md5Hash := md5Info.hash
+
+				token := uuid.New().String()
+				transferTokensMu.Lock()
+				transferTokens[token] = &TransferToken{
+					Type:       "download",
+					FilePath:   f.SourcePath,
+					TargetPath: f.Path,
+					DeviceSN:   udid,
+					ExpiresAt:  time.Now().Add(5 * time.Minute),
+					OneTime:    true,
+					TotalBytes: f.Size,
+					MD5:        md5Hash,
+				}
+				transferTokensMu.Unlock()
+
+				downloadURL := fmt.Sprintf("%s/api/transfer/download/%s", transferBaseURL, token)
+				fetchMsg := Message{
+					Type: "transfer/fetch",
+					Body: gin.H{
+						"url":        downloadURL,
+						"targetPath": f.Path,
+						"md5":        md5Hash,
+						"totalBytes": f.Size,
+						"timeout":    300, // 5 minutes
+					},
+				}
+				fetchPayload, marshalErr := json.Marshal(fetchMsg)
+				if marshalErr != nil {
+					largeTransferPrepareFailed = true
+					break
+				}
+				writeTextMessageAsync(conn, fetchPayload)
+			}
+
+			if largeTransferPrepareFailed {
+				clearPendingScriptStart(udid)
+				broadcastDeviceMessage(udid, "脚本启动已取消: 大文件传输准备失败")
+				continue
+			}
+
+			if len(pendingLargeTargets) > 0 {
+				if hasPendingScriptStart(udid) {
+					broadcastDeviceMessage(udid, fmt.Sprintf("等待大文件传输完成后启动脚本 (%d)", len(pendingLargeTargets)))
+				}
+				continue
+			}
+
+			// 全部为小文件时，保持原有延迟启动行为。
+			broadcastDeviceMessage(udid, "启动脚本...")
+			startScriptOnDevice(udid, runPayload, runPayloadPrepared, runName, ScriptStartDelay)
 		}
 	}
 
