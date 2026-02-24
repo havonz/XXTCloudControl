@@ -1051,6 +1051,8 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 					Body: gin.H{"name": ""},
 				}
 				sendMessageAsync(conn, runMsg)
+			} else {
+				broadcastDeviceMessage(udid, "脚本启动失败: 设备未连接")
 			}
 		}
 
@@ -1332,6 +1334,8 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			// 全部为小文件时，保持原有延迟启动行为。
 			broadcastDeviceMessage(udid, "启动脚本...")
 			startScriptOnDevice(udid, runPayload, runPayloadPrepared, runName, ScriptStartDelay)
+		} else {
+			broadcastDeviceMessage(udid, "脚本启动失败: 设备未连接")
 		}
 	}
 
