@@ -480,6 +480,9 @@
 
 .typeColumn {
   width: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   cursor: pointer;
 }
@@ -511,6 +514,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--text);
 }
 
 .fileName {
