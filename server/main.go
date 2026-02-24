@@ -1,10 +1,13 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -261,13 +264,26 @@ func main() {
 
 	fmt.Println("Press Ctrl+C to stop the server")
 
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
+	}
+
+	var err error
 	if tlsEnabled {
-		if err := r.RunTLS(addr, serverConfig.TLSCertFile, serverConfig.TLSKeyFile); err != nil {
+		err = httpServer.ListenAndServeTLS(serverConfig.TLSCertFile, serverConfig.TLSKeyFile)
+	} else {
+		err = httpServer.ListenAndServe()
+	}
+
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if tlsEnabled {
 			log.Fatalf("HTTPS server failed to start: %v", err)
 		}
-	} else {
-		if err := r.Run(addr); err != nil {
-			log.Fatalf("HTTP server failed to start: %v", err)
-		}
+		log.Fatalf("HTTP server failed to start: %v", err)
 	}
 }
