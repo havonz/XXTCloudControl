@@ -1033,6 +1033,8 @@ export class WebSocketService {
     if (existingIndex >= 0) {
       // 提取现有的消息以便保留
       const existingMsg = this.devices[existingIndex].system?.message;
+      // 提取现有的最后日志以便保留（app/state 可能不带 log 字段）
+      const existingLog = this.devices[existingIndex].system?.log;
       
       // 更新现有设备的数据，保持原有的 udid 字段
       this.devices[existingIndex] = { 
@@ -1046,6 +1048,13 @@ export class WebSocketService {
           this.devices[existingIndex].system = {};
         }
         this.devices[existingIndex].system.message = existingMsg;
+      }
+
+      if (existingLog !== undefined && (!deviceData.system || deviceData.system.log === undefined)) {
+        if (!this.devices[existingIndex].system) {
+          this.devices[existingIndex].system = {};
+        }
+        this.devices[existingIndex].system.log = existingLog;
       }
 
       // 确保 script 对象完整同步
@@ -1169,10 +1178,16 @@ export class WebSocketService {
 
     const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
-      if (!this.devices[existingIndex].system) {
-        this.devices[existingIndex].system = {};
+      const device = this.devices[existingIndex];
+      const system = { ...(device.system || {}) };
+      if (system.message === msg) {
+        return;
       }
-      this.devices[existingIndex].system.message = msg;
+      system.message = msg;
+      this.devices[existingIndex] = {
+        ...device,
+        system,
+      };
       
       this.scheduleDeviceUpdate();
     }
@@ -1204,10 +1219,16 @@ export class WebSocketService {
 
     const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
-      if (!this.devices[existingIndex].system) {
-        this.devices[existingIndex].system = {};
+      const device = this.devices[existingIndex];
+      const system = { ...(device.system || {}) };
+      if (system.log === lastLine) {
+        return;
       }
-      this.devices[existingIndex].system.log = lastLine;
+      system.log = lastLine;
+      this.devices[existingIndex] = {
+        ...device,
+        system,
+      };
       this.scheduleDeviceUpdate();
     }
   }
