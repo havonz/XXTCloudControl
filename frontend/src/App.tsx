@@ -24,6 +24,12 @@ type PendingFileGet =
   | { kind: 'download'; deviceUdid: string; fileName: string; path: string }
   | { kind: 'read'; deviceUdid: string; path: string };
 
+interface PendingLargeDownload {
+  deviceUdid: string;
+  fileName: string;
+  savePath: string;
+}
+
 type UpdateBusyAction = '' | 'check' | 'download' | 'apply';
 
 interface UpdateState {
@@ -96,6 +102,7 @@ const App: Component = () => {
   
   let wsService: WebSocketService | null = null;
   const pendingFileGets = new Map<string, PendingFileGet[]>();
+  const pendingLargeDownloads = new Map<string, PendingLargeDownload>();
   const authService = AuthService.getInstance();
   const fileTransferService = FileTransferService.getInstance();
   let updatePanelRef: HTMLDivElement | undefined;
@@ -432,6 +439,32 @@ const App: Component = () => {
     return entry;
   };
 
+  const buildPendingLargeDownloadKey = (deviceUdid: string, savePath: string): string => `${deviceUdid}::${savePath}`;
+
+  const enqueuePendingLargeDownload = (entry: PendingLargeDownload) => {
+    pendingLargeDownloads.set(buildPendingLargeDownloadKey(entry.deviceUdid, entry.savePath), entry);
+  };
+
+  const dequeuePendingLargeDownload = (deviceUdid: string | undefined, savePath: string): PendingLargeDownload | undefined => {
+    if (deviceUdid) {
+      const key = buildPendingLargeDownloadKey(deviceUdid, savePath);
+      const entry = pendingLargeDownloads.get(key);
+      if (entry) {
+        pendingLargeDownloads.delete(key);
+        return entry;
+      }
+    }
+
+    for (const [key, entry] of pendingLargeDownloads.entries()) {
+      if (entry.savePath === savePath) {
+        pendingLargeDownloads.delete(key);
+        return entry;
+      }
+    }
+
+    return undefined;
+  };
+
   // Setup global event listeners
   document.addEventListener('contextmenu', handleGlobalContextMenu);
   document.addEventListener('keydown', handleGlobalKeyDown);
@@ -609,49 +642,55 @@ const App: Component = () => {
           // Note: Device message update is now handled in WebSocketService.ts
         } else if (message.type === 'transfer/fetch/complete' || message.type === 'transfer/send/complete') {
           // Note: Device message update is now handled in WebSocketService.ts
-          
-          if (message.error) {
-            console.error('❌ 大文件传输失败:', message.error);
+
+          const transferError = message.error || (message.body?.success === false ? (message.body.error || '传输失败') : '');
+          if (transferError) {
+            console.error('❌ 大文件传输失败:', transferError);
+            if (message.type === 'transfer/send/complete' && typeof message.body?.savePath === 'string') {
+              dequeuePendingLargeDownload(message.udid, message.body.savePath);
+            }
           } else {
             debugLog('transfer', '✅ 大文件传输成功:', message.body);
             
-            // 如果是从设备上传到服务器完成（设备主动发送 file/upload/complete）
-            // 服务器此时已经收到了文件，我们需要触发浏览器下载
-            if (message.type === 'transfer/send/complete' && message.body.savePath) {
-              const downloadPath = `/api/server-files/download/files/${message.body.savePath}`;
-              const fileName = message.body.sourcePath.split('/').pop() || 'downloaded_file';
-              const tempFilePath = message.body.savePath;
-              debugLog('transfer', `💾 Triggering authenticated browser download: ${downloadPath}`);
-              
-              // Use authenticated fetch to download the file (wrapped in async IIFE)
-              (async () => {
-                try {
-                  const response = await fileTransferService.downloadFromServer(downloadPath);
-                  if (response.ok) {
-                    const blob = await response.blob();
-                    const blobUrl = URL.createObjectURL(blob);
-                    
-                    const link = document.createElement('a');
-                    link.href = blobUrl;
-                    link.download = fileName;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    
-                    // Clean up blob URL
-                    URL.revokeObjectURL(blobUrl);
-                    debugLog('transfer', `✅ File downloaded: ${fileName}`);
-                    
-                    // Clean up temp file on server
-                    await fileTransferService.deleteTempFile('files', tempFilePath);
-                    debugLog('transfer', `🧹 Cleaned up temp file: ${tempFilePath}`);
-                  } else {
-                    console.error(`❌ Download failed: ${response.status} ${response.statusText}`);
+            // 仅“下载到本地”流程会在这里触发浏览器下载，发送到云控不应触发。
+            if (message.type === 'transfer/send/complete' && typeof message.body?.savePath === 'string') {
+              const pendingLargeDownload = dequeuePendingLargeDownload(message.udid, message.body.savePath);
+              if (pendingLargeDownload) {
+                const downloadPath = `/api/server-files/download/files/${pendingLargeDownload.savePath}`;
+                debugLog('transfer', `💾 Triggering authenticated browser download: ${downloadPath}`);
+                
+                // Use authenticated fetch to download the file (wrapped in async IIFE)
+                (async () => {
+                  try {
+                    const response = await fileTransferService.downloadFromServer(downloadPath);
+                    if (response.ok) {
+                      const blob = await response.blob();
+                      const blobUrl = URL.createObjectURL(blob);
+                      
+                      const link = document.createElement('a');
+                      link.href = blobUrl;
+                      link.download = pendingLargeDownload.fileName;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                      
+                      // Clean up blob URL
+                      URL.revokeObjectURL(blobUrl);
+                      debugLog('transfer', `✅ File downloaded: ${pendingLargeDownload.fileName}`);
+                      
+                      // Clean up temp file on server
+                      await fileTransferService.deleteTempFile('files', pendingLargeDownload.savePath);
+                      debugLog('transfer', `🧹 Cleaned up temp file: ${pendingLargeDownload.savePath}`);
+                    } else {
+                      console.error(`❌ Download failed: ${response.status} ${response.statusText}`);
+                    }
+                  } catch (err) {
+                    console.error('❌ Download error:', err);
                   }
-                } catch (err) {
-                  console.error('❌ Download error:', err);
-                }
-              })();
+                })();
+              } else {
+                debugLog('transfer', `ℹ️ Skip browser download for non-local transfer: ${message.body.savePath}`);
+              }
             }
             
             // 只在上传到设备完成时刷新文件列表（设备文件有变化）
@@ -678,6 +717,7 @@ const App: Component = () => {
       wsService = null;
     }
     pendingFileGets.clear();
+    pendingLargeDownloads.clear();
     
     setIsAuthenticated(false);
     setDevices([]);
@@ -997,7 +1037,13 @@ const App: Component = () => {
     
     if (result.success) {
       debugLog('transfer', `✅ Large file download initiated: token=${result.token}, savePath=${result.savePath}`);
-      // TODO: Listen for file/upload/complete WebSocket message, then download from server
+      if (result.savePath) {
+        enqueuePendingLargeDownload({
+          deviceUdid,
+          fileName,
+          savePath: result.savePath,
+        });
+      }
     } else {
       console.error(`❌ Large file download failed: ${result.error}`);
     }
