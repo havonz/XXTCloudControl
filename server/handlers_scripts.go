@@ -265,6 +265,34 @@ func normalizeScriptPath(path string) string {
 	return strings.ReplaceAll(path, "\\", "/")
 }
 
+type resolvedScriptPath struct {
+	absPath        string
+	normalizedName string
+}
+
+func resolveScriptPath(rawName string) (resolvedScriptPath, error) {
+	name := strings.TrimSpace(rawName)
+	if name == "" {
+		return resolvedScriptPath{}, fmt.Errorf("script name is required")
+	}
+
+	// Reuse shared relative path sanitizer to block traversal and absolute paths.
+	safeName, err := sanitizeRelativeItemPath(name)
+	if err != nil {
+		return resolvedScriptPath{}, fmt.Errorf("invalid script name")
+	}
+
+	absPath, err := validatePath("scripts", safeName)
+	if err != nil {
+		return resolvedScriptPath{}, fmt.Errorf("invalid script name")
+	}
+
+	return resolvedScriptPath{
+		absPath:        absPath,
+		normalizedName: normalizeScriptPath(safeName),
+	}, nil
+}
+
 func isMainJSONPath(path string) bool {
 	normalized := normalizeScriptPath(path)
 	return normalized == "lua/scripts/main.json" || strings.HasSuffix(normalized, "/main.json")
@@ -703,8 +731,13 @@ func scriptsSendHandler(c *gin.Context) {
 		return
 	}
 
-	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
-	scriptPath := filepath.Join(scriptsDir, req.Name)
+	resolved, err := resolveScriptPath(req.Name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	scriptPath := resolved.absPath
+	scriptName := resolved.normalizedName
 
 	fileInfo, err := os.Stat(scriptPath)
 	if err != nil {
@@ -720,7 +753,7 @@ func scriptsSendHandler(c *gin.Context) {
 		}
 	}
 
-	filesToSend, err := collectScriptFilesCached(scriptPath, req.Name, isDir, isPiled)
+	filesToSend, err := collectScriptFilesCached(scriptPath, scriptName, isDir, isPiled)
 	if err != nil {
 		errorMsg := "failed to read script directory"
 		if !isDir {
@@ -734,7 +767,7 @@ func scriptsSendHandler(c *gin.Context) {
 	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 
-	deviceConfigIndex := buildDeviceScriptConfigIndex(req.Name, req.SelectedGroups)
+	deviceConfigIndex := buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups)
 	groupConfigKeyCache := make(map[uintptr]string)
 	groupConfigKeySeq := 0
 	getGroupConfigKey := func(groupConfig map[string]interface{}) string {
@@ -938,8 +971,13 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		return
 	}
 
-	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
-	scriptPath := filepath.Join(scriptsDir, req.Name)
+	resolved, err := resolveScriptPath(req.Name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	scriptPath := resolved.absPath
+	scriptName := resolved.normalizedName
 
 	fileInfo, err := os.Stat(scriptPath)
 	if err != nil {
@@ -955,7 +993,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		}
 	}
 
-	filesToSend, err := collectScriptFilesCached(scriptPath, req.Name, isDir, isPiled)
+	filesToSend, err := collectScriptFilesCached(scriptPath, scriptName, isDir, isPiled)
 	if err != nil {
 		errorMsg := "failed to read script directory"
 		if !isDir {
@@ -968,7 +1006,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	largeFileMD5 := calculateLargeFileMD5(filesToSend)
 	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 
-	deviceConfigIndex := buildDeviceScriptConfigIndex(req.Name, req.SelectedGroups)
+	deviceConfigIndex := buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups)
 	groupConfigKeyCache := make(map[uintptr]string)
 	groupConfigKeySeq := 0
 	getGroupConfigKey := func(groupConfig map[string]interface{}) string {
@@ -1034,7 +1072,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		return base64.StdEncoding.EncodeToString(newJSON), true
 	}
 
-	runName := req.Name
+	runName := scriptName
 	if isPiled {
 		if _, err := os.Stat(filepath.Join(scriptPath, "lua", "scripts", "main.lua")); err == nil {
 			runName = "main.lua"
@@ -1198,8 +1236,12 @@ func scriptConfigStatusHandler(c *gin.Context) {
 		return
 	}
 
-	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
-	scriptPath := filepath.Join(scriptsDir, name)
+	resolved, err := resolveScriptPath(name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	scriptPath := resolved.absPath
 
 	info, err := os.Stat(scriptPath)
 	if err != nil || !info.IsDir() {
@@ -1223,8 +1265,12 @@ func scriptConfigGetHandler(c *gin.Context) {
 		return
 	}
 
-	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
-	mainJsonPath := filepath.Join(scriptsDir, name, "lua", "scripts", "main.json")
+	resolved, err := resolveScriptPath(name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	mainJsonPath := filepath.Join(resolved.absPath, "lua", "scripts", "main.json")
 
 	data, err := os.ReadFile(mainJsonPath)
 	if err != nil {
@@ -1253,8 +1299,12 @@ func scriptConfigSaveHandler(c *gin.Context) {
 		return
 	}
 
-	scriptsDir := filepath.Join(serverConfig.DataDir, "scripts")
-	mainJsonPath := filepath.Join(scriptsDir, req.Name, "lua", "scripts", "main.json")
+	resolved, err := resolveScriptPath(req.Name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	mainJsonPath := filepath.Join(resolved.absPath, "lua", "scripts", "main.json")
 
 	data, err := os.ReadFile(mainJsonPath)
 	if err != nil {
