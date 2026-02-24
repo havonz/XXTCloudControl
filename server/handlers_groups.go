@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -157,20 +156,36 @@ func groupsReorderHandler(c *gin.Context) {
 	deviceGroupsMu.Lock()
 	backupGroups := cloneGroupInfos(deviceGroups)
 
-	orderMap := make(map[string]int)
+	if len(req.Order) != len(deviceGroups) {
+		deviceGroupsMu.Unlock()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Order must include all groups"})
+		return
+	}
+
+	groupByID := make(map[string]GroupInfo, len(deviceGroups))
+	for _, group := range deviceGroups {
+		groupByID[group.ID] = group
+	}
+	seen := make(map[string]struct{}, len(req.Order))
+	reorderedGroups := make([]GroupInfo, 0, len(req.Order))
 	for i, id := range req.Order {
-		orderMap[id] = i
-	}
-
-	for i := range deviceGroups {
-		if newOrder, ok := orderMap[deviceGroups[i].ID]; ok {
-			deviceGroups[i].SortOrder = newOrder
+		if _, exists := seen[id]; exists {
+			deviceGroupsMu.Unlock()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Order contains duplicate group IDs"})
+			return
 		}
+		group, ok := groupByID[id]
+		if !ok {
+			deviceGroupsMu.Unlock()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Order contains unknown group ID"})
+			return
+		}
+		seen[id] = struct{}{}
+		group.SortOrder = i
+		reorderedGroups = append(reorderedGroups, group)
 	}
 
-	sort.Slice(deviceGroups, func(i, j int) bool {
-		return deviceGroups[i].SortOrder < deviceGroups[j].SortOrder
-	})
+	deviceGroups = reorderedGroups
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
