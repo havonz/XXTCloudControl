@@ -46,12 +46,17 @@ type scriptPackageCacheEntry struct {
 	files     []scriptFileData
 }
 
+type pendingScriptFetchRequest struct {
+	requestID  string
+	targetPath string
+}
+
 type pendingScriptStart struct {
-	runPayload         []byte
-	runPayloadPrepared bool
-	runName            string
-	remaining          map[string]struct{}
-	generation         uint64
+	runPayload             []byte
+	runPayloadPrepared     bool
+	runName                string
+	remainingFetchRequests map[string]string // requestID -> targetPath
+	generation             uint64
 }
 
 var scriptPackageCache = struct {
@@ -98,30 +103,36 @@ func startScriptOnDevice(deviceID string, runPayload []byte, runPayloadPrepared 
 	}()
 }
 
-func registerPendingScriptStart(deviceID string, runPayload []byte, runPayloadPrepared bool, runName string, targetPaths []string) {
-	if deviceID == "" || len(targetPaths) == 0 {
-		return
+func registerPendingScriptStart(deviceID string, runPayload []byte, runPayloadPrepared bool, runName string, fetchRequests []pendingScriptFetchRequest) bool {
+	if deviceID == "" || len(fetchRequests) == 0 {
+		return false
 	}
 
-	remaining := make(map[string]struct{}, len(targetPaths))
-	for _, path := range targetPaths {
-		if path == "" {
+	remainingFetchRequests := make(map[string]string, len(fetchRequests))
+	for _, fetchRequest := range fetchRequests {
+		requestID := strings.TrimSpace(fetchRequest.requestID)
+		targetPath := strings.TrimSpace(fetchRequest.targetPath)
+		if requestID == "" || targetPath == "" {
 			continue
 		}
-		remaining[path] = struct{}{}
+		remainingFetchRequests[requestID] = targetPath
 	}
-	if len(remaining) == 0 {
-		return
+	if len(remainingFetchRequests) == 0 {
+		return false
 	}
 
 	entry := &pendingScriptStart{
-		runPayload:         append([]byte(nil), runPayload...),
-		runPayloadPrepared: runPayloadPrepared,
-		runName:            runName,
-		remaining:          remaining,
+		runPayload:             append([]byte(nil), runPayload...),
+		runPayloadPrepared:     runPayloadPrepared,
+		runName:                runName,
+		remainingFetchRequests: remainingFetchRequests,
 	}
 
 	pendingScriptStarts.Lock()
+	if current := pendingScriptStarts.entries[deviceID]; current != nil && len(current.remainingFetchRequests) > 0 {
+		pendingScriptStarts.Unlock()
+		return false
+	}
 	pendingScriptStarts.seq++
 	entry.generation = pendingScriptStarts.seq
 	pendingScriptStarts.entries[deviceID] = entry
@@ -129,7 +140,7 @@ func registerPendingScriptStart(deviceID string, runPayload []byte, runPayloadPr
 	pendingScriptStarts.Unlock()
 
 	if scriptStartWaitTimeout <= 0 {
-		return
+		return true
 	}
 
 	go func(device string, gen uint64, wait time.Duration) {
@@ -146,9 +157,64 @@ func registerPendingScriptStart(deviceID string, runPayload []byte, runPayloadPr
 
 		broadcastDeviceMessage(device, "脚本启动失败: 大文件传输超时")
 	}(deviceID, generation, scriptStartWaitTimeout)
+	return true
 }
 
 func completePendingScriptStart(
+	deviceID string,
+	requestID string,
+	success bool,
+	errMsg string,
+) (ready *pendingScriptStart, cancelMsg string, handled bool) {
+	if deviceID == "" || requestID == "" {
+		return nil, "", false
+	}
+
+	pendingScriptStarts.Lock()
+	entry := pendingScriptStarts.entries[deviceID]
+	if entry == nil {
+		pendingScriptStarts.Unlock()
+		return nil, "", false
+	}
+
+	targetPath, exists := entry.remainingFetchRequests[requestID]
+	if !exists {
+		pendingScriptStarts.Unlock()
+		return nil, "", false
+	}
+
+	if !success {
+		delete(pendingScriptStarts.entries, deviceID)
+		pendingScriptStarts.Unlock()
+
+		errMsg = strings.TrimSpace(errMsg)
+		if errMsg == "" {
+			errMsg = "未知错误"
+		}
+		if targetPath != "" {
+			return nil, fmt.Sprintf("%s (%s)", errMsg, targetPath), true
+		}
+		return nil, errMsg, true
+	}
+
+	delete(entry.remainingFetchRequests, requestID)
+	if len(entry.remainingFetchRequests) > 0 {
+		pendingScriptStarts.Unlock()
+		return nil, "", true
+	}
+
+	ready = &pendingScriptStart{
+		runPayload:         append([]byte(nil), entry.runPayload...),
+		runPayloadPrepared: entry.runPayloadPrepared,
+		runName:            entry.runName,
+	}
+	delete(pendingScriptStarts.entries, deviceID)
+	pendingScriptStarts.Unlock()
+
+	return ready, "", true
+}
+
+func completePendingScriptStartByTargetPath(
 	deviceID string,
 	targetPath string,
 	success bool,
@@ -165,7 +231,14 @@ func completePendingScriptStart(
 		return nil, "", false
 	}
 
-	if _, exists := entry.remaining[targetPath]; !exists {
+	matchedRequestID := ""
+	for requestID, pendingPath := range entry.remainingFetchRequests {
+		if pendingPath == targetPath {
+			matchedRequestID = requestID
+			break
+		}
+	}
+	if matchedRequestID == "" {
 		pendingScriptStarts.Unlock()
 		return nil, "", false
 	}
@@ -178,11 +251,11 @@ func completePendingScriptStart(
 		if errMsg == "" {
 			errMsg = "未知错误"
 		}
-		return nil, errMsg, true
+		return nil, fmt.Sprintf("%s (%s)", errMsg, targetPath), true
 	}
 
-	delete(entry.remaining, targetPath)
-	if len(entry.remaining) > 0 {
+	delete(entry.remainingFetchRequests, matchedRequestID)
+	if len(entry.remainingFetchRequests) > 0 {
 		pendingScriptStarts.Unlock()
 		return nil, "", true
 	}
@@ -223,10 +296,14 @@ func handleTransferFetchCompletionForScriptStart(deviceID string, body interface
 		return
 	}
 
-	targetPath, ok := bodyMap["targetPath"].(string)
-	if !ok || targetPath == "" {
-		return
+	requestID, _ := bodyMap["requestId"].(string)
+	if strings.TrimSpace(requestID) == "" {
+		requestID, _ = bodyMap["requestID"].(string)
 	}
+	requestID = strings.TrimSpace(requestID)
+
+	targetPath, _ := bodyMap["targetPath"].(string)
+	targetPath = strings.TrimSpace(targetPath)
 
 	success := false
 	switch value := bodyMap["success"].(type) {
@@ -243,7 +320,17 @@ func handleTransferFetchCompletionForScriptStart(deviceID string, body interface
 		errMsg = value
 	}
 
-	ready, cancelMsg, handled := completePendingScriptStart(deviceID, targetPath, success, errMsg)
+	var (
+		ready     *pendingScriptStart
+		cancelMsg string
+		handled   bool
+	)
+	if requestID != "" {
+		ready, cancelMsg, handled = completePendingScriptStart(deviceID, requestID, success, errMsg)
+	} else if targetPath != "" {
+		// Backward compatibility: legacy clients do not send requestId.
+		ready, cancelMsg, handled = completePendingScriptStartByTargetPath(deviceID, targetPath, success, errMsg)
+	}
 	if !handled {
 		return
 	}
@@ -1093,17 +1180,40 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	deviceConns := snapshotDeviceConns(req.Devices)
 	basePutPayloadCache := make(map[string][]byte, len(filesToSend))
 	mergedPutPayloadCache := make(map[string][]byte)
+	type plannedLargeFetch struct {
+		file      scriptFileData
+		requestID string
+	}
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
 			groupConfig := deviceConfigIndex[udid]
 			groupConfigKey := getGroupConfigKey(groupConfig)
-			pendingLargeTargets := make([]string, 0, largeFilesCount)
+			plannedLargeFetches := make([]plannedLargeFetch, 0, largeFilesCount)
 			for _, f := range filesToSend {
 				if f.Data == "" {
-					pendingLargeTargets = append(pendingLargeTargets, f.Path)
+					plannedLargeFetches = append(plannedLargeFetches, plannedLargeFetch{
+						file:      f,
+						requestID: uuid.New().String(),
+					})
 				}
 			}
+			pendingFetchRequests := make([]pendingScriptFetchRequest, 0, len(plannedLargeFetches))
+			for _, planned := range plannedLargeFetches {
+				pendingFetchRequests = append(pendingFetchRequests, pendingScriptFetchRequest{
+					requestID:  planned.requestID,
+					targetPath: planned.file.Path,
+				})
+			}
 			largeTransferPrepareFailed := false
+			pendingRegistered := false
+
+			if len(pendingFetchRequests) > 0 {
+				if !registerPendingScriptStart(udid, runPayload, runPayloadPrepared, runName, pendingFetchRequests) {
+					broadcastDeviceMessage(udid, "脚本启动已取消: 上一次大文件传输尚未完成，请稍后重试")
+					continue
+				}
+				pendingRegistered = true
+			}
 
 			// 广播状态: 正在发送文件
 			broadcastDeviceMessage(udid, fmt.Sprintf("发送脚本 (%d小文件, %d大文件)", smallFilesCount, largeFilesCount))
@@ -1153,15 +1263,9 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				writeTextMessageAsync(conn, payload)
 			}
 
-			if len(pendingLargeTargets) > 0 {
-				registerPendingScriptStart(udid, runPayload, runPayloadPrepared, runName, pendingLargeTargets)
-			}
-
 			// 再发送大文件，避免 transfer/fetch/complete 在注册前到达。
-			for _, f := range filesToSend {
-				if f.Data != "" {
-					continue
-				}
+			for _, planned := range plannedLargeFetches {
+				f := planned.file
 
 				broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
 
@@ -1193,6 +1297,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 					Body: gin.H{
 						"url":        downloadURL,
 						"targetPath": f.Path,
+						"requestId":  planned.requestID,
 						"md5":        md5Hash,
 						"totalBytes": f.Size,
 						"timeout":    300, // 5 minutes
@@ -1200,6 +1305,9 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				}
 				fetchPayload, marshalErr := json.Marshal(fetchMsg)
 				if marshalErr != nil {
+					transferTokensMu.Lock()
+					delete(transferTokens, token)
+					transferTokensMu.Unlock()
 					largeTransferPrepareFailed = true
 					break
 				}
@@ -1207,14 +1315,16 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			}
 
 			if largeTransferPrepareFailed {
-				clearPendingScriptStart(udid)
+				if pendingRegistered {
+					clearPendingScriptStart(udid)
+				}
 				broadcastDeviceMessage(udid, "脚本启动已取消: 大文件传输准备失败")
 				continue
 			}
 
-			if len(pendingLargeTargets) > 0 {
+			if len(pendingFetchRequests) > 0 {
 				if hasPendingScriptStart(udid) {
-					broadcastDeviceMessage(udid, fmt.Sprintf("等待大文件传输完成后启动脚本 (%d)", len(pendingLargeTargets)))
+					broadcastDeviceMessage(udid, fmt.Sprintf("等待大文件传输完成后启动脚本 (%d)", len(pendingFetchRequests)))
 				}
 				continue
 			}

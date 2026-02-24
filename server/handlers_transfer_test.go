@@ -232,7 +232,11 @@ func TestTransferDownloadHandler_DoesNotCompletePendingScriptStartOnHTTPCopy(t *
 	}
 	transferTokensMu.Unlock()
 
-	registerPendingScriptStart(deviceSN, []byte(`{"type":"script/run"}`), true, "main.lua", []string{targetPath})
+	if !registerPendingScriptStart(deviceSN, []byte(`{"type":"script/run"}`), true, "main.lua", []pendingScriptFetchRequest{
+		{requestID: "req-http-copy", targetPath: targetPath},
+	}) {
+		t.Fatalf("register should succeed")
+	}
 	if count := pendingScriptStartCountForTest(); count != 1 {
 		t.Fatalf("expected 1 pending entry before HTTP download, got %d", count)
 	}

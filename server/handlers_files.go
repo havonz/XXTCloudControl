@@ -305,6 +305,9 @@ func serverFilesDownloadHandler(c *gin.Context) {
 
 	c.Header("Content-Type", mimeType)
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	// Large browser downloads can legitimately exceed the server global WriteTimeout.
+	// Clear per-request deadlines for this response to avoid mid-transfer truncation.
+	clearTransferRequestDeadlines(c)
 	c.File(targetPath)
 }
 
