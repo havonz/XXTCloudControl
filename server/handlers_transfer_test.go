@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -246,5 +248,71 @@ func TestTransferDownloadHandler_DoesNotCompletePendingScriptStartOnHTTPCopy(t *
 	}
 	if count := pendingScriptStartCountForTest(); count != 1 {
 		t.Fatalf("pending script start should not be completed by HTTP copy, got %d", count)
+	}
+}
+
+func TestNormalizeTransferTimeoutSeconds_DefaultValue(t *testing.T) {
+	got := normalizeTransferTimeoutSeconds(0)
+	if got != defaultTransferTimeoutSec {
+		t.Fatalf("expected default timeout %d, got %d", defaultTransferTimeoutSec, got)
+	}
+}
+
+func TestNormalizeTransferTimeoutSeconds_KeepRequestedValue(t *testing.T) {
+	const requested = 3600
+	got := normalizeTransferTimeoutSeconds(requested)
+	if got != requested {
+		t.Fatalf("expected requested timeout %d, got %d", requested, got)
+	}
+}
+
+func TestTransferTokenTTLForTimeout(t *testing.T) {
+	if got := transferTokenTTLForTimeout(30); got != defaultTransferTokenTTL {
+		t.Fatalf("expected minimum token ttl %s, got %s", defaultTransferTokenTTL, got)
+	}
+
+	timeout := 3600
+	expected := time.Duration(timeout)*time.Second + transferTokenTTLGrace
+	if got := transferTokenTTLForTimeout(timeout); got != expected {
+		t.Fatalf("expected ttl %s, got %s", expected, got)
+	}
+}
+
+func TestProgressWriter_TouchWriteCalled(t *testing.T) {
+	var touched int32
+	pw := &ProgressWriter{
+		w: bytes.NewBuffer(nil),
+		touchWrite: func() {
+			atomic.AddInt32(&touched, 1)
+		},
+	}
+
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	if got := atomic.LoadInt32(&touched); got != 1 {
+		t.Fatalf("expected touchWrite called once, got %d", got)
+	}
+}
+
+func TestProgressReader_TouchReadCalled(t *testing.T) {
+	var touched int32
+	pr := &ProgressReader{
+		r: bytes.NewBufferString("abc"),
+		touchRead: func() {
+			atomic.AddInt32(&touched, 1)
+		},
+	}
+
+	buf := make([]byte, 4)
+	n, err := pr.Read(buf)
+	if err != nil && err != io.EOF {
+		t.Fatalf("read failed: %v", err)
+	}
+	if n == 0 {
+		t.Fatalf("expected to read bytes")
+	}
+	if got := atomic.LoadInt32(&touched); got != 1 {
+		t.Fatalf("expected touchRead called once, got %d", got)
 	}
 }

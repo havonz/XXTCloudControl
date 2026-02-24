@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -49,11 +50,85 @@ type sharedTempRef struct {
 }
 
 const (
-	md5CacheMaxEntries  = 2048
-	md5CacheTrimEntries = 1536
+	md5CacheMaxEntries        = 2048
+	md5CacheTrimEntries       = 1536
+	defaultTransferTimeoutSec = 300
+	defaultTransferTokenTTL   = 5 * time.Minute
+	transferTokenTTLGrace     = 30 * time.Second
+	transferIOIdleTimeout     = 300 * time.Second
 )
 
 var sharedTempCleanupGrace = 10 * time.Second
+
+func normalizeTransferTimeoutSeconds(requestedSeconds int) int {
+	timeout := requestedSeconds
+	if timeout <= 0 {
+		timeout = defaultTransferTimeoutSec
+	}
+	return timeout
+}
+
+func transferTokenTTLForTimeout(timeoutSeconds int) time.Duration {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = defaultTransferTimeoutSec
+	}
+	ttl := time.Duration(timeoutSeconds)*time.Second + transferTokenTTLGrace
+	if ttl < defaultTransferTokenTTL {
+		return defaultTransferTokenTTL
+	}
+	return ttl
+}
+
+func clearTransferRequestDeadlines(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	rc := http.NewResponseController(c.Writer)
+	if err := rc.SetReadDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		debugLogf("⚠️ Failed to clear transfer read deadline: %v", err)
+	}
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		debugLogf("⚠️ Failed to clear transfer write deadline: %v", err)
+	}
+}
+
+func makeTransferDeadlineTouchers(c *gin.Context, idleTimeout time.Duration) (touchRead func(), touchWrite func()) {
+	if c == nil || idleTimeout <= 0 {
+		return nil, nil
+	}
+
+	rc := http.NewResponseController(c.Writer)
+	readUnsupported := false
+	writeUnsupported := false
+
+	touchRead = func() {
+		if readUnsupported {
+			return
+		}
+		if err := rc.SetReadDeadline(time.Now().Add(idleTimeout)); err != nil {
+			if errors.Is(err, http.ErrNotSupported) {
+				readUnsupported = true
+				return
+			}
+			debugLogf("⚠️ Failed to update transfer read deadline: %v", err)
+		}
+	}
+
+	touchWrite = func() {
+		if writeUnsupported {
+			return
+		}
+		if err := rc.SetWriteDeadline(time.Now().Add(idleTimeout)); err != nil {
+			if errors.Is(err, http.ErrNotSupported) {
+				writeUnsupported = true
+				return
+			}
+			debugLogf("⚠️ Failed to update transfer write deadline: %v", err)
+		}
+	}
+
+	return touchRead, touchWrite
+}
 
 // Transfer token storage
 var (
@@ -345,9 +420,14 @@ type ProgressWriter struct {
 	onProgress  func(progress TransferProgress)
 	lastReport  time.Time
 	minInterval time.Duration
+	touchWrite  func()
 }
 
 func (pw *ProgressWriter) Write(p []byte) (int, error) {
+	if pw.touchWrite != nil {
+		pw.touchWrite()
+	}
+
 	n, err := pw.w.Write(p)
 	pw.written += int64(n)
 
@@ -384,9 +464,14 @@ type ProgressReader struct {
 	onProgress  func(progress TransferProgress)
 	lastReport  time.Time
 	minInterval time.Duration
+	touchRead   func()
 }
 
 func (pr *ProgressReader) Read(p []byte) (int, error) {
+	if pr.touchRead != nil {
+		pr.touchRead()
+	}
+
 	n, err := pr.r.Read(p)
 	pr.read += int64(n)
 
@@ -415,6 +500,12 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 // transferDownloadHandler handles GET /api/transfer/download/:token
 // This endpoint does NOT require authentication - the token IS the auth
 func transferDownloadHandler(c *gin.Context) {
+	clearTransferRequestDeadlines(c)
+	_, touchWriteDeadline := makeTransferDeadlineTouchers(c, transferIOIdleTimeout)
+	if touchWriteDeadline != nil {
+		touchWriteDeadline()
+	}
+
 	token := c.Param("token")
 	if token == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "token is required"})
@@ -500,6 +591,7 @@ func transferDownloadHandler(c *gin.Context) {
 		deviceSN:    tokenInfo.DeviceSN,
 		targetPath:  tokenInfo.TargetPath,
 		minInterval: 200 * time.Millisecond,
+		touchWrite:  touchWriteDeadline,
 		onProgress: func(progress TransferProgress) {
 			// Broadcast progress to frontend via WebSocket
 			broadcastTransferProgress(progress)
@@ -532,6 +624,12 @@ func transferDownloadHandler(c *gin.Context) {
 // transferUploadHandler handles PUT /api/transfer/upload/:token
 // This endpoint does NOT require authentication - the token IS the auth
 func transferUploadHandler(c *gin.Context) {
+	clearTransferRequestDeadlines(c)
+	touchReadDeadline, _ := makeTransferDeadlineTouchers(c, transferIOIdleTimeout)
+	if touchReadDeadline != nil {
+		touchReadDeadline()
+	}
+
 	token := c.Param("token")
 	if token == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "token is required"})
@@ -589,6 +687,7 @@ func transferUploadHandler(c *gin.Context) {
 		deviceSN:    tokenInfo.DeviceSN,
 		filePath:    tokenInfo.FilePath,
 		minInterval: 200 * time.Millisecond,
+		touchRead:   touchReadDeadline,
 		onProgress: func(progress TransferProgress) {
 			// Broadcast progress to frontend via WebSocket
 			broadcastTransferProgress(progress)
@@ -898,7 +997,8 @@ func pushFileToDeviceHandler(c *gin.Context) {
 
 	// Large file: use transfer/fetch (existing logic)
 	token := uuid.New().String()
-	expiresAt := time.Now().Add(5 * time.Minute)
+	timeout := normalizeTransferTimeoutSeconds(req.Timeout)
+	expiresAt := time.Now().Add(transferTokenTTLForTimeout(timeout))
 
 	md5Hash, _ := calculateFileMD5Cached(filePath, info)
 
@@ -924,12 +1024,6 @@ func pushFileToDeviceHandler(c *gin.Context) {
 	downloadPath := fmt.Sprintf("/api/transfer/download/%s", token)
 	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 	downloadURL := transferBaseURL + downloadPath
-
-	// Set timeout
-	timeout := req.Timeout
-	if timeout <= 0 {
-		timeout = 300 // Default 5 minutes
-	}
 
 	// Send command to device
 	// Broadcast status to frontend
@@ -1000,7 +1094,8 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 
 	// Generate token
 	token := uuid.New().String()
-	expiresAt := time.Now().Add(5 * time.Minute)
+	timeout := normalizeTransferTimeoutSeconds(req.Timeout)
+	expiresAt := time.Now().Add(transferTokenTTLForTimeout(timeout))
 
 	transferTokensMu.Lock()
 	transferTokens[token] = &TransferToken{
@@ -1018,12 +1113,6 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 	uploadPath := fmt.Sprintf("/api/transfer/upload/%s", token)
 	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 	uploadURL := transferBaseURL + uploadPath
-
-	// Set timeout
-	timeout := req.Timeout
-	if timeout <= 0 {
-		timeout = 300 // Default 5 minutes
-	}
 
 	// Send command to device
 	if err := sendFileUploadCommand(req.DeviceSN, uploadURL, req.SourcePath, req.Path, timeout); err != nil {

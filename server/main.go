@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -267,10 +266,10 @@ func main() {
 	httpServer := &http.Server{
 		Addr:              addr,
 		Handler:           r,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       5 * time.Minute,
-		WriteTimeout:      10 * time.Minute,
-		IdleTimeout:       2 * time.Minute,
+		ReadHeaderTimeout: httpServerReadHeaderTimeout,
+		ReadTimeout:       httpServerReadTimeout,
+		WriteTimeout:      httpServerWriteTimeout,
+		IdleTimeout:       httpServerIdleTimeout,
 	}
 
 	var err error
