@@ -397,9 +397,41 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     window.open(url, '_blank');
   };
 
+  const getDeleteConfirmMessage = (file: ServerFileItem): string => {
+    if (file.type !== 'dir') {
+      return `确定要删除 "${file.name}" 吗？`;
+    }
+
+    if (file.isSymlink === true) {
+      return `确定要删除目录符号链接 "${file.name}" 吗？此操作仅删除符号链接本体，不会删除目标目录中的内容。`;
+    }
+
+    return `确定要删除目录 "${file.name}" 吗？此操作会删除目录中的所有内容。`;
+  };
+
+  const getBatchDeleteConfirmMessage = (selected: Set<string>): string => {
+    const selectedFiles = files().filter((file) => selected.has(file.name));
+    const dirCount = selectedFiles.filter((file) => file.type === 'dir' && file.isSymlink !== true).length;
+    const dirSymlinkCount = selectedFiles.filter((file) => file.type === 'dir' && file.isSymlink === true).length;
+
+    const detailParts: string[] = [];
+    if (dirCount > 0) {
+      detailParts.push(`${dirCount} 个目录会连同目录内内容一并删除`);
+    }
+    if (dirSymlinkCount > 0) {
+      detailParts.push(`${dirSymlinkCount} 个目录符号链接仅删除链接本体，不影响目标目录内容`);
+    }
+
+    if (detailParts.length === 0) {
+      return `确定要删除选中的 ${selected.size} 个项目吗？`;
+    }
+
+    return `确定要删除选中的 ${selected.size} 个项目吗？其中${detailParts.join('，')}。`;
+  };
+
   const handleDelete = async (file: ServerFileItem) => {
     const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
-    if (!await dialog.confirm(`确定要删除 "${file.name}" 吗？`)) return;
+    if (!await dialog.confirm(getDeleteConfirmMessage(file))) return;
     
     try {
       const params = new URLSearchParams({ category: currentCategory(), path: filePath });
@@ -415,7 +447,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const handleBatchDelete = async () => {
     const selected = selectedItems();
     if (selected.size === 0) return;
-    if (!await dialog.confirm(`确定要删除选中的 ${selected.size} 个项目吗？`)) return;
+    if (!await dialog.confirm(getBatchDeleteConfirmMessage(selected))) return;
     
     for (const name of selected) {
       const filePath = currentPath() ? `${currentPath()}/${name}` : name;
