@@ -25,6 +25,48 @@ func isValidCategory(category string) bool {
 	return false
 }
 
+func classifyEntry(parentPath string, entry os.DirEntry, includeMeta bool) (fileType string, size int64, modTime string, isSymlink bool) {
+	fileType = "file"
+	entryPath := filepath.Join(parentPath, entry.Name())
+	entryType := entry.Type()
+
+	// DirEntry.Type() may be unknown on some filesystems, so use Lstat fallback.
+	if entryType&os.ModeSymlink != 0 {
+		isSymlink = true
+	} else if entryType == 0 {
+		if info, lstatErr := os.Lstat(entryPath); lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			isSymlink = true
+		}
+	}
+
+	// Follow symlink targets so linked directories can be browsed like normal folders.
+	info, err := os.Stat(entryPath)
+	if err != nil {
+		if entry.IsDir() {
+			fileType = "dir"
+		}
+		if includeMeta {
+			if fallbackInfo, fallbackErr := os.Lstat(entryPath); fallbackErr == nil {
+				size = fallbackInfo.Size()
+				modTime = fallbackInfo.ModTime().Format("2006-01-02 15:04:05")
+			} else if fallbackInfo, fallbackErr := entry.Info(); fallbackErr == nil {
+				size = fallbackInfo.Size()
+				modTime = fallbackInfo.ModTime().Format("2006-01-02 15:04:05")
+			}
+		}
+		return
+	}
+
+	if info.IsDir() {
+		fileType = "dir"
+	}
+	if includeMeta {
+		size = info.Size()
+		modTime = info.ModTime().Format("2006-01-02 15:04:05")
+	}
+	return
+}
+
 func isPathWithinAbsBase(absBaseDir, absTargetPath string) bool {
 	base := filepath.Clean(absBaseDir)
 	target := filepath.Clean(absTargetPath)
@@ -162,26 +204,14 @@ func serverFilesListHandler(c *gin.Context) {
 
 	files := make([]ServerFileItem, 0, len(entries))
 	for _, entry := range entries {
-		fileType := "file"
-		if entry.IsDir() {
-			fileType = "dir"
-		}
-
-		var size int64
-		var modTime string
-		if includeMeta {
-			info, err := entry.Info()
-			if err == nil {
-				size = info.Size()
-				modTime = info.ModTime().Format("2006-01-02 15:04:05")
-			}
-		}
+		fileType, size, modTime, isSymlink := classifyEntry(targetPath, entry, includeMeta)
 
 		files = append(files, ServerFileItem{
-			Name:    entry.Name(),
-			Type:    fileType,
-			Size:    size,
-			ModTime: modTime,
+			Name:      entry.Name(),
+			Type:      fileType,
+			Size:      size,
+			ModTime:   modTime,
+			IsSymlink: isSymlink,
 		})
 	}
 
@@ -334,7 +364,7 @@ func serverFilesDeleteHandler(c *gin.Context) {
 		return
 	}
 
-	info, err := os.Stat(targetPath)
+	info, err := os.Lstat(targetPath)
 	if os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file or directory not found"})
 		return
@@ -344,7 +374,10 @@ func serverFilesDeleteHandler(c *gin.Context) {
 		return
 	}
 
-	if info.IsDir() {
+	// Never recurse into symlink targets; remove the symlink itself only.
+	if info.Mode()&os.ModeSymlink != 0 {
+		err = os.Remove(targetPath)
+	} else if info.IsDir() {
 		err = os.RemoveAll(targetPath)
 	} else {
 		err = os.Remove(targetPath)
@@ -646,7 +679,30 @@ func serverFilesOpenLocalHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// copyDirRecursive recursively copies a directory
+func copySymlink(src, dst string) error {
+	target, err := os.Readlink(src)
+	if err != nil {
+		return err
+	}
+	return os.Symlink(target, dst)
+}
+
+func copyPathPreserveSymlink(src, dst string) error {
+	srcInfo, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		return copySymlink(src, dst)
+	}
+	if srcInfo.IsDir() {
+		return copyDirRecursive(src, dst)
+	}
+	return copyFile(src, dst)
+}
+
+// copyDirRecursive recursively copies a directory while preserving symlink entries.
 func copyDirRecursive(src, dst string) error {
 	srcInfo, err := os.Stat(src)
 	if err != nil {
@@ -666,7 +722,16 @@ func copyDirRecursive(src, dst string) error {
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
 
-		if entry.IsDir() {
+		entryInfo, err := os.Lstat(srcPath)
+		if err != nil {
+			return err
+		}
+
+		if entryInfo.Mode()&os.ModeSymlink != 0 {
+			if err := copySymlink(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else if entry.IsDir() {
 			if err := copyDirRecursive(srcPath, dstPath); err != nil {
 				return err
 			}
@@ -802,7 +867,7 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 			continue
 		}
 
-		srcInfo, err := os.Stat(srcPath)
+		_, err = os.Lstat(srcPath)
 		if os.IsNotExist(err) {
 			errors = append(errors, fmt.Sprintf("%s: not found", item))
 			continue
@@ -813,22 +878,14 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 		}
 
 		// Check if destination already exists
-		if _, err := os.Stat(dstPath); !os.IsNotExist(err) {
+		if _, err := os.Lstat(dstPath); !os.IsNotExist(err) {
 			errors = append(errors, fmt.Sprintf("%s: already exists at destination", item))
 			continue
 		}
 
-		// Copy based on type
-		if srcInfo.IsDir() {
-			if err := copyDirRecursive(srcPath, dstPath); err != nil {
-				errors = append(errors, fmt.Sprintf("%s: %v", item, err))
-				continue
-			}
-		} else {
-			if err := copyFile(srcPath, dstPath); err != nil {
-				errors = append(errors, fmt.Sprintf("%s: %v", item, err))
-				continue
-			}
+		if err := copyPathPreserveSymlink(srcPath, dstPath); err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", item, err))
+			continue
 		}
 
 		successCount++
@@ -940,41 +997,54 @@ func serverFilesBatchMoveHandler(c *gin.Context) {
 			continue
 		}
 
-		// Check if source exists
-		if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+		_, err = os.Lstat(srcPath)
+		if os.IsNotExist(err) {
 			errors = append(errors, fmt.Sprintf("%s: not found", item))
+			continue
+		}
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", item, err))
 			continue
 		}
 
 		// Check if destination already exists
-		if _, err := os.Stat(dstPath); !os.IsNotExist(err) {
+		if _, err := os.Lstat(dstPath); !os.IsNotExist(err) {
 			errors = append(errors, fmt.Sprintf("%s: already exists at destination", item))
 			continue
 		}
 
 		// Move the file/directory (use copy+delete for cross-filesystem moves)
 		if err := os.Rename(srcPath, dstPath); err != nil {
-			// os.Rename fails across filesystems, so try copy+delete
-			srcInfo, statErr := os.Stat(srcPath)
+			// os.Rename may fail across filesystems, so try copy+delete while preserving symlinks.
+			srcInfo, statErr := os.Lstat(srcPath)
+			if os.IsNotExist(statErr) {
+				errors = append(errors, fmt.Sprintf("%s: not found", item))
+				continue
+			}
 			if statErr != nil {
 				errors = append(errors, fmt.Sprintf("%s: %v", item, err))
 				continue
 			}
-			var copyErr error
-			if srcInfo.IsDir() {
-				copyErr = copyDirRecursive(srcPath, dstPath)
-			} else {
-				copyErr = copyFile(srcPath, dstPath)
-			}
-			if copyErr != nil {
+			if copyErr := copyPathPreserveSymlink(srcPath, dstPath); copyErr != nil {
 				errors = append(errors, fmt.Sprintf("%s: %v", item, copyErr))
 				continue
 			}
-			// Remove source after successful copy
-			if srcInfo.IsDir() {
-				os.RemoveAll(srcPath)
+			// Remove source after successful copy.
+			if srcInfo.Mode()&os.ModeSymlink != 0 {
+				if removeErr := os.Remove(srcPath); removeErr != nil {
+					errors = append(errors, fmt.Sprintf("%s: failed to remove source symlink: %v", item, removeErr))
+					continue
+				}
+			} else if srcInfo.IsDir() {
+				if removeErr := os.RemoveAll(srcPath); removeErr != nil {
+					errors = append(errors, fmt.Sprintf("%s: failed to remove source directory: %v", item, removeErr))
+					continue
+				}
 			} else {
-				os.Remove(srcPath)
+				if removeErr := os.Remove(srcPath); removeErr != nil {
+					errors = append(errors, fmt.Sprintf("%s: failed to remove source file: %v", item, removeErr))
+					continue
+				}
 			}
 		}
 

@@ -14,6 +14,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func createSymlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink is not available in this environment: %v", err)
+	}
+}
+
 func setupFileHandlersTestDataDir(t *testing.T) string {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -125,6 +132,323 @@ func TestServerFilesListHandler_MetaParam(t *testing.T) {
 		if resp.Files[0].ModTime == "" {
 			t.Fatalf("expected modTime when meta=1")
 		}
+	}
+}
+
+func TestServerFilesListHandler_SymlinkDirectorySupport(t *testing.T) {
+	dataDir := setupFileHandlersTestDataDir(t)
+
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "outside.txt"), []byte("external"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	createSymlinkOrSkip(t, outsideDir, filepath.Join(dataDir, "scripts", "linked-dir"))
+
+	rootListW := httptest.NewRecorder()
+	rootListC, _ := gin.CreateTestContext(rootListW)
+	rootListC.Request = httptest.NewRequest("GET", "/api/server-files/list?category=scripts&path=&meta=1", nil)
+	serverFilesListHandler(rootListC)
+
+	if rootListW.Code != http.StatusOK {
+		t.Fatalf("root list status=%d body=%s", rootListW.Code, rootListW.Body.String())
+	}
+
+	var rootResp struct {
+		Files []ServerFileItem `json:"files"`
+	}
+	if err := json.NewDecoder(rootListW.Body).Decode(&rootResp); err != nil {
+		t.Fatalf("decode root list response: %v", err)
+	}
+
+	var linkedItem *ServerFileItem
+	for i := range rootResp.Files {
+		if rootResp.Files[i].Name == "linked-dir" {
+			linkedItem = &rootResp.Files[i]
+			break
+		}
+	}
+	if linkedItem == nil {
+		t.Fatalf("linked-dir not found in list")
+	}
+	if linkedItem.Type != "dir" {
+		t.Fatalf("expected linked-dir type=dir, got %s", linkedItem.Type)
+	}
+	if !linkedItem.IsSymlink {
+		t.Fatalf("expected linked-dir isSymlink=true")
+	}
+
+	linkedListW := httptest.NewRecorder()
+	linkedListC, _ := gin.CreateTestContext(linkedListW)
+	linkedListC.Request = httptest.NewRequest("GET", "/api/server-files/list?category=scripts&path=linked-dir&meta=1", nil)
+	serverFilesListHandler(linkedListC)
+
+	if linkedListW.Code != http.StatusOK {
+		t.Fatalf("linked dir list status=%d body=%s", linkedListW.Code, linkedListW.Body.String())
+	}
+
+	var linkedResp struct {
+		Files []ServerFileItem `json:"files"`
+	}
+	if err := json.NewDecoder(linkedListW.Body).Decode(&linkedResp); err != nil {
+		t.Fatalf("decode linked dir list response: %v", err)
+	}
+	if len(linkedResp.Files) != 1 || linkedResp.Files[0].Name != "outside.txt" {
+		t.Fatalf("unexpected linked dir list result: %+v", linkedResp.Files)
+	}
+}
+
+func TestServerFilesListHandler_SymlinkFileMarksAsSymlink(t *testing.T) {
+	dataDir := setupFileHandlersTestDataDir(t)
+
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.lua")
+	if err := os.WriteFile(outsideFile, []byte("print('outside')"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	createSymlinkOrSkip(t, outsideFile, filepath.Join(dataDir, "scripts", "linked.lua"))
+
+	rootListW := httptest.NewRecorder()
+	rootListC, _ := gin.CreateTestContext(rootListW)
+	rootListC.Request = httptest.NewRequest("GET", "/api/server-files/list?category=scripts&path=&meta=1", nil)
+	serverFilesListHandler(rootListC)
+
+	if rootListW.Code != http.StatusOK {
+		t.Fatalf("root list status=%d body=%s", rootListW.Code, rootListW.Body.String())
+	}
+
+	var rootResp struct {
+		Files []ServerFileItem `json:"files"`
+	}
+	if err := json.NewDecoder(rootListW.Body).Decode(&rootResp); err != nil {
+		t.Fatalf("decode root list response: %v", err)
+	}
+
+	var linkedItem *ServerFileItem
+	for i := range rootResp.Files {
+		if rootResp.Files[i].Name == "linked.lua" {
+			linkedItem = &rootResp.Files[i]
+			break
+		}
+	}
+	if linkedItem == nil {
+		t.Fatalf("linked.lua not found in list")
+	}
+	if linkedItem.Type != "file" {
+		t.Fatalf("expected linked.lua type=file, got %s", linkedItem.Type)
+	}
+	if !linkedItem.IsSymlink {
+		t.Fatalf("expected linked.lua isSymlink=true")
+	}
+}
+
+func TestServerFilesReadAndSaveHandler_SymlinkFileSupport(t *testing.T) {
+	dataDir := setupFileHandlersTestDataDir(t)
+
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.lua")
+	if err := os.WriteFile(outsideFile, []byte("print('v1')"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	createSymlinkOrSkip(t, outsideFile, filepath.Join(dataDir, "scripts", "linked.lua"))
+
+	readW := httptest.NewRecorder()
+	readC, _ := gin.CreateTestContext(readW)
+	readC.Request = httptest.NewRequest("GET", "/api/server-files/read?category=scripts&path=linked.lua", nil)
+	serverFilesReadHandler(readC)
+
+	if readW.Code != http.StatusOK {
+		t.Fatalf("read status=%d body=%s", readW.Code, readW.Body.String())
+	}
+
+	var readResp struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(readW.Body).Decode(&readResp); err != nil {
+		t.Fatalf("decode read response: %v", err)
+	}
+	if readResp.Content != "print('v1')" {
+		t.Fatalf("unexpected read content: %q", readResp.Content)
+	}
+
+	savePayload := map[string]any{
+		"category": "scripts",
+		"path":     "linked.lua",
+		"content":  "print('v2')",
+	}
+	saveW := performJSONHandlerRequest(t, "POST", "/api/server-files/save", savePayload, serverFilesSaveHandler)
+	if saveW.Code != http.StatusOK {
+		t.Fatalf("save status=%d body=%s", saveW.Code, saveW.Body.String())
+	}
+
+	updated, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatalf("read outside file after save: %v", err)
+	}
+	if string(updated) != "print('v2')" {
+		t.Fatalf("outside file not updated through symlink, got %q", string(updated))
+	}
+}
+
+func TestServerFilesDeleteHandler_DeletesOnlySymlinkForExternalDirectory(t *testing.T) {
+	dataDir := setupFileHandlersTestDataDir(t)
+
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "keep.txt")
+	if err := os.WriteFile(outsideFile, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	symlinkPath := filepath.Join(dataDir, "scripts", "linked-dir")
+	createSymlinkOrSkip(t, outsideDir, symlinkPath)
+
+	deleteReq := httptest.NewRequest("DELETE", "/api/server-files/delete?category=scripts&path=linked-dir", nil)
+	deleteW := httptest.NewRecorder()
+	deleteC, _ := gin.CreateTestContext(deleteW)
+	deleteC.Request = deleteReq
+	serverFilesDeleteHandler(deleteC)
+
+	if deleteW.Code != http.StatusOK {
+		t.Fatalf("delete status=%d body=%s", deleteW.Code, deleteW.Body.String())
+	}
+
+	if _, err := os.Lstat(symlinkPath); !os.IsNotExist(err) {
+		t.Fatalf("symlink should be removed, err=%v", err)
+	}
+
+	content, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatalf("outside target file should remain: %v", err)
+	}
+	if string(content) != "keep" {
+		t.Fatalf("outside target file content changed unexpectedly: %q", string(content))
+	}
+}
+
+func TestServerFilesBatchCopyHandler_CopiesFileSymlinkItself(t *testing.T) {
+	dataDir := setupFileHandlersTestDataDir(t)
+
+	outsideFile := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	srcSymlink := filepath.Join(dataDir, "scripts", "linked.txt")
+	createSymlinkOrSkip(t, outsideFile, srcSymlink)
+
+	payload := map[string]any{
+		"srcCategory": "scripts",
+		"dstCategory": "files",
+		"items":       []string{"linked.txt"},
+		"srcPath":     "",
+		"dstPath":     "",
+	}
+	w := performJSONHandlerRequest(t, "POST", "/api/server-files/batch-copy", payload, serverFilesBatchCopyHandler)
+	if w.Code != http.StatusOK {
+		t.Fatalf("copy status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		SuccessCount int      `json:"successCount"`
+		Errors       []string `json:"errors"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.SuccessCount != 1 {
+		t.Fatalf("expected 1 copied item, got %d, errors=%v", resp.SuccessCount, resp.Errors)
+	}
+
+	dstSymlink := filepath.Join(dataDir, "files", "linked.txt")
+	dstInfo, err := os.Lstat(dstSymlink)
+	if err != nil {
+		t.Fatalf("destination symlink lstat failed: %v", err)
+	}
+	if dstInfo.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("expected destination to be symlink, mode=%v", dstInfo.Mode())
+	}
+
+	srcTarget, err := os.Readlink(srcSymlink)
+	if err != nil {
+		t.Fatalf("read source symlink failed: %v", err)
+	}
+	dstTarget, err := os.Readlink(dstSymlink)
+	if err != nil {
+		t.Fatalf("read destination symlink failed: %v", err)
+	}
+	if srcTarget != dstTarget {
+		t.Fatalf("symlink target mismatch: src=%q dst=%q", srcTarget, dstTarget)
+	}
+}
+
+func TestServerFilesBatchMoveHandler_MovesDirectorySymlinkItself(t *testing.T) {
+	dataDir := setupFileHandlersTestDataDir(t)
+
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	srcSymlink := filepath.Join(dataDir, "scripts", "linked-dir")
+	createSymlinkOrSkip(t, outsideDir, srcSymlink)
+	srcTarget, err := os.Readlink(srcSymlink)
+	if err != nil {
+		t.Fatalf("read source symlink failed: %v", err)
+	}
+
+	payload := map[string]any{
+		"srcCategory": "scripts",
+		"dstCategory": "files",
+		"items":       []string{"linked-dir"},
+		"srcPath":     "",
+		"dstPath":     "",
+	}
+	w := performJSONHandlerRequest(t, "POST", "/api/server-files/batch-move", payload, serverFilesBatchMoveHandler)
+	if w.Code != http.StatusOK {
+		t.Fatalf("move status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		SuccessCount int      `json:"successCount"`
+		Errors       []string `json:"errors"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.SuccessCount != 1 {
+		t.Fatalf("expected 1 moved item, got %d, errors=%v", resp.SuccessCount, resp.Errors)
+	}
+
+	if _, err := os.Lstat(srcSymlink); !os.IsNotExist(err) {
+		t.Fatalf("source symlink should be removed, err=%v", err)
+	}
+
+	dstSymlink := filepath.Join(dataDir, "files", "linked-dir")
+	dstInfo, err := os.Lstat(dstSymlink)
+	if err != nil {
+		t.Fatalf("destination symlink lstat failed: %v", err)
+	}
+	if dstInfo.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("expected destination to be symlink, mode=%v", dstInfo.Mode())
+	}
+
+	dstTarget, err := os.Readlink(dstSymlink)
+	if err != nil {
+		t.Fatalf("read destination symlink failed: %v", err)
+	}
+	if srcTarget != dstTarget {
+		t.Fatalf("symlink target mismatch: src=%q dst=%q", srcTarget, dstTarget)
+	}
+
+	after, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatalf("outside target content should remain: %v", err)
+	}
+	if string(after) != "outside" {
+		t.Fatalf("outside target file content changed unexpectedly: %q", string(after))
 	}
 }
 

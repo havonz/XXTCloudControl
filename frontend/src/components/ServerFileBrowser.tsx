@@ -1,6 +1,7 @@
 import { createSignal, createEffect, For, Show, onMount, onCleanup, createMemo } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { Select, createListCollection } from '@ark-ui/solid';
+import { FaSolidSquareArrowUpRight } from 'solid-icons/fa';
 import { useDialog } from './DialogContext';
 import { useToast } from './ToastContext';
 import {
@@ -41,6 +42,7 @@ export interface ServerFileItem {
   type: 'file' | 'dir';
   size: number;
   modTime: string;
+  isSymlink?: boolean;
 }
 
 export interface ServerFileBrowserProps {
@@ -442,7 +444,10 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     let sentCount = 0;
     
     // 递归获取目录中的所有文件
-    const getAllFilesInDir = async (dirPath: string, basePath: string): Promise<Array<{path: string, targetRelPath: string}>> => {
+    const getAllFilesInDir = async (
+      dirPath: string,
+      basePath: string
+    ): Promise<Array<{path: string, targetRelPath: string}>> => {
       const result: Array<{path: string, targetRelPath: string}> = [];
       
       try {
@@ -460,10 +465,15 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
             const relPath = basePath ? `${basePath}/${file.name}` : file.name;
             
             if (file.type === 'dir') {
+              // 统一规则：遍历中遇到目录符号链接直接忽略，不继续深入。
+              if (file.isSymlink === true) {
+                continue;
+              }
               // 递归处理子目录
               const subFiles = await getAllFilesInDir(filePath, relPath);
               result.push(...subFiles);
             } else {
+              // 文件（含文件符号链接）都按文件发送，后端会读取目标内容。
               result.push({ path: filePath, targetRelPath: relPath });
             }
           }
@@ -486,7 +496,6 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         if (!file) continue;
         
         if (file.type === 'dir') {
-          // 递归获取目录中的所有文件
           const dirFiles = await getAllFilesInDir(filePath, fileName);
           filesToSend.push(...dirFiles);
         } else {
@@ -935,8 +944,15 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                           </div>
                         </Show>
                         <div class={`${styles.tableCell} ${styles.typeColumn}`}>
-                          <span class={styles.fileIcon}>
-                            {renderFileIcon(file.name, { isDirectory: file.type === 'dir' })}
+                          <span class={styles.fileIconWrap}>
+                            <span class={styles.fileIcon}>
+                              {renderFileIcon(file.name, { isDirectory: file.type === 'dir' })}
+                            </span>
+                            <Show when={file.isSymlink === true}>
+                              <span class={styles.symlinkBadge} aria-hidden="true">
+                                <FaSolidSquareArrowUpRight class={styles.symlinkBadgeIcon} size={7} />
+                              </span>
+                            </Show>
                           </span>
                         </div>
                         <div class={`${styles.tableCell} ${styles.nameColumn}`}>
@@ -1042,7 +1058,16 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                     const file = files().find(f => f.name === name);
                     return (
                       <div style={{ 'display': 'flex', 'align-items': 'center', 'gap': '8px', 'padding': '4px 0', 'font-size': '13px', 'color': 'var(--text)' }}>
-                        {renderFileIcon(name, { isDirectory: file?.type === 'dir', size: 14 })}
+                        <span class={`${styles.fileIconWrap} ${styles.previewFileIconWrap}`}>
+                          <span class={styles.fileIcon}>
+                            {renderFileIcon(name, { isDirectory: file?.type === 'dir', size: 14 })}
+                          </span>
+                          <Show when={file?.isSymlink === true}>
+                            <span class={styles.symlinkBadge} aria-hidden="true">
+                              <FaSolidSquareArrowUpRight class={styles.symlinkBadgeIcon} size={7} />
+                            </span>
+                          </Show>
+                        </span>
                         <span style={{ 'overflow': 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{name}</span>
                       </div>
                     );

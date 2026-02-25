@@ -215,10 +215,11 @@ type BinaryRoute struct {
 
 // ServerFileItem represents a file or directory in the server file browser
 type ServerFileItem struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"` // "file" or "dir"
-	Size    int64  `json:"size"`
-	ModTime string `json:"modTime"`
+	Name      string `json:"name"`
+	Type      string `json:"type"` // "file" or "dir"
+	Size      int64  `json:"size"`
+	ModTime   string `json:"modTime"`
+	IsSymlink bool   `json:"isSymlink,omitempty"`
 }
 
 // GroupInfo represents a device group

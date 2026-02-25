@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -21,6 +22,13 @@ func decodeBase64ForTest(t *testing.T, encoded string) string {
 		t.Fatalf("failed to decode base64: %v", err)
 	}
 	return string(data)
+}
+
+func createScriptSymlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink is not available in this environment: %v", err)
+	}
 }
 
 func TestCollectScriptFilesCachedInvalidatesOnSingleFileChange(t *testing.T) {
@@ -96,5 +104,62 @@ func TestCollectScriptFilesCachedInvalidatesOnDirectoryFileAdd(t *testing.T) {
 	}
 	if len(files2) != 2 {
 		t.Fatalf("expected 2 files after add, got %d", len(files2))
+	}
+}
+
+func TestCollectScriptFilesCached_SkipNestedDirectorySymlinkAndIncludeFileSymlink(t *testing.T) {
+	resetScriptPackageCacheForTest()
+
+	rootDir := t.TempDir()
+	scriptDir := filepath.Join(rootDir, "bundle")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatalf("failed to create script dir: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(scriptDir, "a.lua"), []byte("print('a')"), 0o644); err != nil {
+		t.Fatalf("failed to write regular file: %v", err)
+	}
+
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "nested.lua"), []byte("print('nested')"), 0o644); err != nil {
+		t.Fatalf("failed to write outside nested file: %v", err)
+	}
+	createScriptSymlinkOrSkip(t, outsideDir, filepath.Join(scriptDir, "linked-dir"))
+
+	outsideFile := filepath.Join(t.TempDir(), "linked-file.lua")
+	if err := os.WriteFile(outsideFile, []byte("print('linked-file')"), 0o644); err != nil {
+		t.Fatalf("failed to write outside linked file: %v", err)
+	}
+	createScriptSymlinkOrSkip(t, outsideFile, filepath.Join(scriptDir, "linked-file.lua"))
+
+	files, err := collectScriptFilesCached(scriptDir, "bundle", true, false)
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files (regular + symlink file), got %d", len(files))
+	}
+
+	foundRegular := false
+	foundSymlinkFile := false
+	for _, f := range files {
+		if strings.Contains(f.NormalizedPath, "linked-dir/") {
+			t.Fatalf("directory symlink content should be skipped, got path=%s", f.NormalizedPath)
+		}
+		if strings.HasSuffix(f.NormalizedPath, "/a.lua") {
+			foundRegular = true
+		}
+		if strings.HasSuffix(f.NormalizedPath, "/linked-file.lua") {
+			foundSymlinkFile = true
+			if got := decodeBase64ForTest(t, f.Data); got != "print('linked-file')" {
+				t.Fatalf("unexpected symlink file content: %q", got)
+			}
+		}
+	}
+	if !foundRegular {
+		t.Fatalf("regular file not found in package")
+	}
+	if !foundSymlinkFile {
+		t.Fatalf("symlink file not found in package")
 	}
 }

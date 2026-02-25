@@ -509,12 +509,50 @@
   justify-content: flex-end;
 }
 
+.fileIconWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  min-height: 18px;
+}
+
 .fileIcon {
   font-size: 1.1rem;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text);
+}
+
+.previewFileIconWrap {
+  min-width: 16px;
+  min-height: 16px;
+}
+
+.symlinkBadge {
+  position: absolute;
+  left: -1px;
+  bottom: -1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--panel);
+  color: var(--symlink-badge-color, var(--muted-2));
+  box-shadow: 0 0 0 1px var(--symlink-badge-ring, color-mix(in oklab, var(--text) 18%, transparent));
+  line-height: 1;
+  pointer-events: none;
+  transition: all 0.15s ease;
+}
+
+.symlinkBadgeIcon {
+  display: block;
+  width: 7px;
+  height: 7px;
 }
 
 .fileName {

@@ -439,6 +439,64 @@ func scriptPackageCacheKey(scriptRootPath string, scriptName string, isDir bool,
 	return fmt.Sprintf("%s|%s|%t|%t", scriptRootPath, scriptName, isDir, isPiled)
 }
 
+// walkScriptFiles visits files under scriptRootPath.
+// Directory symlinks are skipped; file symlinks are treated as files (using resolved metadata).
+func walkScriptFiles(scriptRootPath string, visit func(path string, info os.FileInfo) error) error {
+	rootInfo, err := os.Stat(scriptRootPath)
+	if err != nil {
+		return err
+	}
+	if !rootInfo.IsDir() {
+		return fmt.Errorf("script root is not a directory: %s", scriptRootPath)
+	}
+
+	var walkDir func(dirPath string) error
+	walkDir = func(dirPath string) error {
+		entries, readErr := os.ReadDir(dirPath)
+		if readErr != nil {
+			return readErr
+		}
+
+		for _, entry := range entries {
+			entryPath := filepath.Join(dirPath, entry.Name())
+			lstatInfo, lstatErr := os.Lstat(entryPath)
+			if lstatErr != nil {
+				return lstatErr
+			}
+
+			if lstatInfo.Mode()&os.ModeSymlink != 0 {
+				resolvedInfo, statErr := os.Stat(entryPath)
+				if statErr != nil {
+					return statErr
+				}
+				if resolvedInfo.IsDir() {
+					// Skip nested directory symlinks to avoid traversing outside trees.
+					continue
+				}
+				if err := visit(entryPath, resolvedInfo); err != nil {
+					return err
+				}
+				continue
+			}
+
+			if lstatInfo.IsDir() {
+				if err := walkDir(entryPath); err != nil {
+					return err
+				}
+				continue
+			}
+
+			if err := visit(entryPath, lstatInfo); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	return walkDir(scriptRootPath)
+}
+
 // buildScriptSourceSignature computes a content signature using relative path + size + mtime.
 // It avoids reading full file contents, and is used for cache invalidation.
 func buildScriptSourceSignature(scriptRootPath string, isDir bool) (string, error) {
@@ -459,13 +517,7 @@ func buildScriptSourceSignature(scriptRootPath string, isDir bool) (string, erro
 		return hex.EncodeToString(signatureHash.Sum(nil)), nil
 	}
 
-	walkErr := filepath.Walk(scriptRootPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
+	walkErr := walkScriptFiles(scriptRootPath, func(path string, info os.FileInfo) error {
 		relPath, relErr := filepath.Rel(scriptRootPath, path)
 		if relErr != nil {
 			return relErr
@@ -589,11 +641,7 @@ func collectScriptFiles(scriptRootPath string, scriptName string, isDir bool, is
 		return filesToSend, nil
 	}
 
-	walkErr := filepath.Walk(scriptRootPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return err
-		}
-
+	walkErr := walkScriptFiles(scriptRootPath, func(path string, info os.FileInfo) error {
 		relPath, _ := filepath.Rel(scriptRootPath, path)
 		normalizedRelPath := normalizeScriptPath(relPath)
 
@@ -671,6 +719,18 @@ func isSelectableScript(basePath string, name string, isDir bool) bool {
 	return selectable
 }
 
+func resolveEntryIsDir(basePath string, entry os.DirEntry) bool {
+	if entry.IsDir() {
+		return true
+	}
+	// Follow symlink targets so linked script directories can be selectable.
+	info, err := os.Stat(filepath.Join(basePath, entry.Name()))
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
 // selectableScriptsHandler handles GET /api/scripts/selectable
 // Returns a list of scripts with name (display name) and path (actual script to select)
 // For piled scripts, path is "main.lua" or "main.xxt" depending on entry point
@@ -700,7 +760,7 @@ func selectableScriptsHandler(c *gin.Context) {
 			continue
 		}
 
-		scriptPath, selectable := getSelectableScriptPath(scriptsDir, name, entry.IsDir())
+		scriptPath, selectable := getSelectableScriptPath(scriptsDir, name, resolveEntryIsDir(scriptsDir, entry))
 		if !selectable {
 			continue
 		}

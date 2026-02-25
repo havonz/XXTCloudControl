@@ -19,6 +19,8 @@
   --text-secondary: #6b7280;
   --text-muted: #a1a1a1;
   --muted-2: #94a3b8;
+  --symlink-badge-color: #4b5563;
+  --symlink-badge-ring: rgba(75, 85, 99, 0.28);
   --text-on-gradient: #ffffff;
   
   /* Border colors */
@@ -140,6 +142,8 @@
   --text-secondary: #9aa3b2;
   --text-muted: #64748b;
   --muted-2: #94a3b8;
+  --symlink-badge-color: #cbd5e1;
+  --symlink-badge-ring: rgba(203, 213, 225, 0.28);
   --text-on-gradient: #e6e9ef;
   
   /* Border colors */
