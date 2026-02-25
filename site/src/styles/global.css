@@ -247,6 +247,7 @@ a:hover {
     background: var(--ifm-surface);
     border: 1px solid var(--ifm-border);
     box-shadow: var(--ifm-shadow-soft);
+    min-width: 0;
   }
 
   .card-title {
@@ -261,6 +262,7 @@ a:hover {
 
   .card-meta {
     color: var(--ifm-text);
+    min-width: 0;
   }
 
   .meta-label {
@@ -274,6 +276,9 @@ a:hover {
   .sha-code {
     background: var(--ifm-code-bg);
     color: var(--ifm-text);
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    white-space: normal;
   }
 
   .copy-btn {
@@ -319,5 +324,41 @@ a:hover {
 
   .guide-item-body {
     color: var(--ifm-text);
+  }
+}
+
+@media (max-width: 640px) {
+  .hero-panel,
+  .screenshot-panel,
+  .guide-panel {
+    border-radius: 1.5rem;
+  }
+
+  .download-card {
+    padding: 1rem;
+  }
+
+  .download-card-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .size-pill {
+    align-self: flex-start;
+  }
+
+  .sha-row {
+    flex-direction: column;
+  }
+
+  .copy-btn {
+    min-height: 2.2rem;
+    width: 100%;
+  }
+
+  .action-btn {
+    justify-content: center;
+    width: 100%;
   }
 }

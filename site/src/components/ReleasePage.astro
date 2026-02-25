@@ -194,10 +194,10 @@ const formatBytes = (value) => {
       {assets.length === 0 ? (
         <div class="empty-state rounded-2xl p-4 text-sm">{text.noAssets}</div>
       ) : (
-        <div class="grid gap-4 md:grid-cols-2">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           {assets.map((asset) => (
             <article class="download-card rounded-2xl p-5">
-              <div class="mb-3 flex items-center justify-between gap-3">
+              <div class="download-card-head mb-3 flex items-center justify-between gap-3">
                 <h3 class="card-title text-lg font-bold">{asset.platform}</h3>
                 <span class="size-pill rounded-full px-3 py-1 text-xs font-semibold">
                   {formatBytes(asset.sizeBytes)}
@@ -212,8 +212,8 @@ const formatBytes = (value) => {
 
                 <div>
                   <p class="meta-label mb-1 text-xs font-semibold uppercase tracking-wide">{text.shaLabel}</p>
-                  <div class="flex gap-2">
-                    <code class="sha-code min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-lg px-2 py-1 font-mono text-[10px] tracking-tight">
+                  <div class="sha-row flex gap-2">
+                    <code class="sha-code min-w-0 flex-1 rounded-lg px-2 py-1 font-mono text-[10px] tracking-tight">
                       {asset.sha256 || '-'}
                     </code>
                     <button
@@ -260,7 +260,7 @@ const formatBytes = (value) => {
         </a>
       </div>
 
-      <div class="grid gap-3 sm:grid-cols-2">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {text.guideItems.map((item) => (
           <article class="guide-item rounded-xl px-4 py-3">
             <h3 class="guide-item-title font-semibold">{item.title}</h3>
