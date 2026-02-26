@@ -1202,14 +1202,14 @@ const App: Component = () => {
                   <button
                     class={`${styles.versionBadge} ${styles.versionBadgeButton} ${updateStatus()?.state?.hasUpdate ? styles.versionBadgeHighlight : ''}`}
                     onClick={() => setUpdatePanelOpen(!updatePanelOpen())}
-                    title="更新管理"
+                    title="自更新"
                     disabled={!isAuthenticated()}
                   >
                     {serverVersion()}
                   </button>
                   {updatePanelOpen() && (
                     <div class={styles.updatePanel}>
-                      <div class={styles.updatePanelTitle}>更新管理</div>
+                      <div class={styles.updatePanelTitle}>自更新</div>
                       <div class={styles.updateMeta}>
                         <div class={styles.updateMetaItem}>
                           <span>当前版本</span>
