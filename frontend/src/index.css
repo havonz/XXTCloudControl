@@ -6,6 +6,10 @@
 :root,
 :root[data-theme="light"] {
   color-scheme: light;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
   /* Background colors */
   --bg: #ffffff;
   --bg-gradient: #ffffff;
@@ -129,6 +133,10 @@
 /* Dark Theme */
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
   /* Background colors */
   --bg: #0b1020;
   --bg-gradient: #0b1020;

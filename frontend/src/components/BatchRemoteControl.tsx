@@ -1502,7 +1502,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           </div>
 
           {/* 调整大小手柄 */}
-          <Show when={!isFullscreen()}>
+          <Show when={!isFullscreen() && !isMobile()}>
             <div 
               class={styles.resizeHandle}
               onMouseDown={handleResizeStart}
