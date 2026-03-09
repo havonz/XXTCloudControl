@@ -554,21 +554,32 @@
   }
   
   .controlBar {
+    flex-direction: column;
+    align-items: stretch;
     padding: 8px calc(12px + var(--safe-area-right)) 8px calc(12px + var(--safe-area-left));
-    gap: 12px;
+    gap: 10px;
   }
   
+  .sliderGroup {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr) 48px;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+
   .sliderGroup label {
     font-size: 11px;
   }
   
   .sliderGroup input[type="range"] {
-    width: 60px;
+    width: 100%;
+    min-width: 0;
   }
   
   .sliderGroup span {
     font-size: 11px;
-    min-width: 32px;
+    min-width: 0;
   }
   
   .deviceGrid {
@@ -603,19 +614,8 @@
 
 /* 响应式 - 小屏手机 */
 @media (max-width: 480px) {
-  .controlBar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
   .sliderGroup {
-    justify-content: space-between;
-    width: 100%;
-  }
-  
-  .sliderGroup input[type="range"] {
-    flex: 1;
-    max-width: 120px;
+    grid-template-columns: 58px minmax(0, 1fr) 44px;
   }
   
   .deviceGrid {
