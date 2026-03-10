@@ -186,6 +186,9 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .toolButton:hover:not(:disabled) {

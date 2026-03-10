@@ -179,3 +179,4 @@ cython_debug/
 /assets/icons/
 /frontend/public/
 .playwright-mcp/
+/workflow_release.sh

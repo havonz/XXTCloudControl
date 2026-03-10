@@ -2,6 +2,22 @@
   box-sizing: border-box;
 }
 
+@media (max-width: 768px) {
+  html,
+  body,
+  #root,
+  button,
+  a,
+  input,
+  label,
+  select,
+  summary,
+  textarea,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+}
+
 /* Light Theme (default) */
 :root,
 :root[data-theme="light"] {
