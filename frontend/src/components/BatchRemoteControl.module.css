@@ -581,12 +581,11 @@
     font-size: 11px;
     min-width: 0;
   }
-  
+
   .deviceGrid {
     padding: 8px calc(8px + var(--safe-area-right)) calc(8px + var(--safe-area-bottom)) calc(8px + var(--safe-area-left));
     gap: 6px;
-    /* 移动端限制最大4列 */
-    grid-template-columns: repeat(min(var(--columns, 3), 4), 1fr);
+    grid-template-columns: repeat(var(--columns, 4), 1fr);
   }
   
   .deviceHeader {
@@ -618,7 +617,4 @@
     grid-template-columns: 58px minmax(0, 1fr) 44px;
   }
   
-  .deviceGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }

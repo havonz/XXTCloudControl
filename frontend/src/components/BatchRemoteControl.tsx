@@ -1,4 +1,5 @@
-import { createSignal, For, Show, onCleanup, createEffect, onMount, untrack } from 'solid-js';
+import { createSignal, For, Show, onCleanup, createEffect, onMount, createMemo } from 'solid-js';
+import { createStore, reconcile } from 'solid-js/store';
 import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste } from '../icons';
 import styles from './BatchRemoteControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
@@ -14,13 +15,34 @@ export interface BatchRemoteControlProps {
   password: string;
 }
 
-// 设备连接状态
-interface DeviceConnection {
-  udid: string;
-  service: WebRTCService | null;
-  stream: MediaStream | null;
-  state: 'disconnected' | 'connecting' | 'connected';
-  videoRef?: HTMLVideoElement;
+type ConnectionState = 'disconnected' | 'connecting' | 'connected';
+
+interface ConnectionViewState {
+  state: ConnectionState;
+  hasStream: boolean;
+}
+
+interface BatchRemoteSettings {
+  windowPos?: { x: number; y: number };
+  windowSize?: { width: number; height: number };
+  resolution?: number;
+  frameRate?: number;
+  columns?: number;
+}
+
+function createDisconnectedViewState(): ConnectionViewState {
+  return {
+    state: 'disconnected',
+    hasStream: false
+  };
+}
+
+function createConnectionStateMap(devices: Device[]): Record<string, ConnectionViewState> {
+  const next: Record<string, ConnectionViewState> = {};
+  for (const device of devices) {
+    next[device.udid] = createDisconnectedViewState();
+  }
+  return next;
 }
 
 // 获取设备名称的辅助函数
@@ -53,8 +75,17 @@ function getDeviceHttpPort(device: Device): number | undefined {
 }
 
 export default function BatchRemoteControl(props: BatchRemoteControlProps) {
-  // 设备连接状态管理
-  const [connections, setConnections] = createSignal<Map<string, DeviceConnection>>(new Map());
+  const MOBILE_MAX_COLUMNS = 4;
+  const DESKTOP_MAX_COLUMNS = 8;
+  const currentIsOpen = createMemo(() => props.isOpen);
+  const currentDevices = createMemo(() => props.devices);
+  const currentWebSocketService = createMemo(() => props.webSocketService);
+  const currentPassword = createMemo(() => props.password);
+  const [connectionStates, setConnectionStates] = createStore<Record<string, ConnectionViewState>>({});
+  const serviceByUdid = new Map<string, WebRTCService>();
+  const streamByUdid = new Map<string, MediaStream>();
+  const videoRefByUdid = new Map<string, HTMLVideoElement>();
+  const lastAppliedResolutionByUdid = new Map<string, number>();
   
   // 缓存的设备列表（不会因为 props.devices 状态更新而改变）
   const [cachedDevices, setCachedDevices] = createSignal<Device[]>([]);
@@ -82,15 +113,15 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     onCleanup(() => window.removeEventListener('resize', handleResize));
   });
   
-  // localStorage 键名
   const STORAGE_KEY = 'batchRemoteControl';
-  
-  // 从 localStorage 加载保存的设置
-  const loadSettings = () => {
+  const getMaxColumns = () => (isMobile() ? MOBILE_MAX_COLUMNS : DESKTOP_MAX_COLUMNS);
+  const clampColumns = (value: number, max: number = getMaxColumns()) => Math.max(2, Math.min(max, value));
+
+  const loadSettings = (): BatchRemoteSettings | null => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        return JSON.parse(saved) as BatchRemoteSettings;
       }
     } catch (e) {
       console.error('[BatchRemote] Failed to load settings:', e);
@@ -98,18 +129,18 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     return null;
   };
   
-  // 保存设置到 localStorage
-  const saveSettings = (settings: Record<string, unknown>) => {
+  const savedSettings = loadSettings() || {};
+  let persistedSettings: BatchRemoteSettings = { ...savedSettings };
+
+  const saveSettings = (settings: Partial<BatchRemoteSettings>) => {
     try {
-      const current = loadSettings() || {};
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...settings }));
+      persistedSettings = { ...persistedSettings, ...settings };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedSettings));
     } catch (e) {
       console.error('[BatchRemote] Failed to save settings:', e);
     }
   };
-  
-  const savedSettings = loadSettings();
-  
+
   // 窗口位置和尺寸（用于拖动和调整大小）
   const [windowPos, setWindowPos] = createSignal(savedSettings?.windowPos || { x: 0, y: 0 });
   const [windowSize, setWindowSize] = createSignal(savedSettings?.windowSize || { width: 0, height: 0 });
@@ -120,21 +151,15 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   let resizeStart = { x: 0, y: 0, width: 0, height: 0 };
   let panelRef: HTMLDivElement | null = null;
   
-  // 参数控制 - 从 localStorage 加载初始值
-  const [resolution, setResolution] = createSignal(savedSettings?.resolution ?? 0.2);
-  const [frameRate, setFrameRate] = createSignal(savedSettings?.frameRate ?? 10);
-  const [columns, setColumns] = createSignal(savedSettings?.columns ?? 4);
-  
-  // 保存设置到 localStorage 的 effects
-  createEffect(() => {
-    if (windowInitialized()) {
-      saveSettings({ windowPos: windowPos(), windowSize: windowSize() });
-    }
-  });
-  
-  createEffect(() => {
-    saveSettings({ resolution: resolution(), frameRate: frameRate(), columns: columns() });
-  });
+  const initialResolution = savedSettings?.resolution ?? 0.2;
+  const initialFrameRate = savedSettings?.frameRate ?? 10;
+  const initialColumns = clampColumns(savedSettings?.columns ?? 4, window.innerWidth <= 768 ? MOBILE_MAX_COLUMNS : DESKTOP_MAX_COLUMNS);
+  const [resolutionDraft, setResolutionDraft] = createSignal(initialResolution);
+  const [appliedResolution, setAppliedResolution] = createSignal(initialResolution);
+  const [frameRateDraft, setFrameRateDraft] = createSignal(initialFrameRate);
+  const [appliedFrameRate, setAppliedFrameRate] = createSignal(initialFrameRate);
+  const [columnsDraft, setColumnsDraft] = createSignal(initialColumns);
+  const [appliedColumns, setAppliedColumns] = createSignal(initialColumns);
   
   // 设备卡片引用和可见性追踪
   const cardRefs = new Map<string, HTMLDivElement>();
@@ -142,6 +167,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const [visibleDevices, setVisibleDevices] = createSignal<Set<string>>(new Set());
   let intersectionObserver: IntersectionObserver | null = null;
   let isDisconnectingAll = false;
+  let scheduledResolutionRefreshId: number | null = null;
+  const bindFrameByUdid = new Map<string, number>();
   
   // 触控状态
   const [activeDevice, setActiveDevice] = createSignal<string | null>(null);
@@ -156,6 +183,266 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   let pendingMove: { x: number; y: number } | null = null;
   let moveRafId: number | null = null;
   let lastSentMove: { x: number; y: number } | null = null;
+
+  createEffect(() => {
+    const maxColumns = getMaxColumns();
+    const nextDraft = clampColumns(columnsDraft(), maxColumns);
+    const nextApplied = clampColumns(appliedColumns(), maxColumns);
+    let changed = false;
+
+    if (nextDraft !== columnsDraft()) {
+      setColumnsDraft(nextDraft);
+      changed = true;
+    }
+
+    if (nextApplied !== appliedColumns()) {
+      setAppliedColumns(nextApplied);
+      scheduleResolutionRefresh();
+      changed = true;
+    }
+
+    if (changed) {
+      flushSettings();
+    }
+  });
+
+  const isSameNumber = (a: number, b: number, epsilon: number = 0.0001) => Math.abs(a - b) < epsilon;
+
+  const getConnectionState = (udid: string): ConnectionViewState => {
+    return connectionStates[udid] || createDisconnectedViewState();
+  };
+
+  const getService = (udid: string) => serviceByUdid.get(udid) || null;
+
+  const flushSettings = () => {
+    saveSettings({
+      windowPos: windowPos(),
+      windowSize: windowSize(),
+      resolution: appliedResolution(),
+      frameRate: appliedFrameRate(),
+      columns: appliedColumns()
+    });
+  };
+
+  const bindStreamToVideo = (udid: string) => {
+    const video = videoRefByUdid.get(udid);
+    if (!video) return;
+
+    const stream = streamByUdid.get(udid) || null;
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+
+    if (stream) {
+      queueMicrotask(() => {
+        video.play().catch((e: unknown) => {
+          if (e instanceof DOMException && e.name === 'AbortError') {
+            return;
+          }
+          console.error('[BatchRemote] Video play error:', e);
+        });
+      });
+    }
+  };
+
+  const scheduleBindStreamToVideo = (udid: string) => {
+    if (bindFrameByUdid.has(udid)) return;
+    const rafId = requestAnimationFrame(() => {
+      bindFrameByUdid.delete(udid);
+      bindStreamToVideo(udid);
+    });
+    bindFrameByUdid.set(udid, rafId);
+  };
+
+  const setDeviceStream = (udid: string, stream: MediaStream | null) => {
+    if (stream) {
+      streamByUdid.set(udid, stream);
+    } else {
+      streamByUdid.delete(udid);
+    }
+    setConnectionStates(udid, {
+      ...getConnectionState(udid),
+      hasStream: !!stream
+    });
+    scheduleBindStreamToVideo(udid);
+  };
+
+  const setVideoRef = (udid: string, el: HTMLVideoElement | null) => {
+    const existing = videoRefByUdid.get(udid);
+    if (existing && existing !== el && existing.srcObject) {
+      existing.srcObject = null;
+    }
+
+    if (el) {
+      videoRefByUdid.set(udid, el);
+      scheduleBindStreamToVideo(udid);
+      return;
+    }
+
+    if (existing) {
+      existing.srcObject = null;
+    }
+    videoRefByUdid.delete(udid);
+  };
+
+  const clearDeviceRuntime = (udid: string, expectedService?: WebRTCService) => {
+    const currentService = serviceByUdid.get(udid);
+    if (expectedService && currentService && currentService !== expectedService) {
+      return;
+    }
+
+    if (currentService && (!expectedService || currentService === expectedService)) {
+      currentService.cleanup();
+    }
+
+    serviceByUdid.delete(udid);
+    lastAppliedResolutionByUdid.delete(udid);
+    const pendingBind = bindFrameByUdid.get(udid);
+    if (pendingBind !== undefined) {
+      cancelAnimationFrame(pendingBind);
+      bindFrameByUdid.delete(udid);
+    }
+    setDeviceStream(udid, null);
+    setConnectionStates(udid, createDisconnectedViewState());
+  };
+
+  const getPanelWidthForResolution = () => {
+    if (gridRef?.clientWidth) {
+      return gridRef.clientWidth;
+    }
+    if (panelRef?.clientWidth) {
+      return panelRef.clientWidth;
+    }
+    if (windowInitialized() && windowSize().width > 0) {
+      return windowSize().width;
+    }
+    return isFullscreen() || isMobile() ? window.innerWidth : window.innerWidth * 0.9;
+  };
+
+  const calculateOptimalResolution = (device: Device, maxScale: number = appliedResolution(), columnCount: number = appliedColumns()): number => {
+    let nativeW = device.width || 1170;
+    let nativeH = device.height || 2532;
+
+    if (nativeW > nativeH) {
+      const tmp = nativeW;
+      nativeW = nativeH;
+      nativeH = tmp;
+    }
+
+    const GRID_GAP = 12;
+    const GRID_PADDING = 16;
+    const cols = Math.max(1, columnCount);
+    const panelWidth = getPanelWidthForResolution();
+    const availableWidth = panelWidth - (GRID_PADDING * 2) - (GRID_GAP * (cols - 1));
+    const cardWidth = Math.max(1, availableWidth / cols);
+    const containerWidth = cardWidth;
+    const containerHeight = containerWidth * (16 / 9);
+
+    const deviceAspect = nativeW / nativeH;
+    const containerAspect = 9 / 16;
+
+    let displayWidth;
+    let displayHeight;
+    if (deviceAspect > containerAspect) {
+      displayWidth = containerWidth;
+      displayHeight = containerWidth / deviceAspect;
+    } else {
+      displayHeight = containerHeight;
+      displayWidth = containerHeight * deviceAspect;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const displayPhysicalW = displayWidth * dpr;
+    const displayPhysicalH = displayHeight * dpr;
+    const containerScaleW = displayPhysicalW / nativeW;
+    const containerScaleH = displayPhysicalH / nativeH;
+    const containerScale = Math.min(containerScaleW, containerScaleH);
+
+    const MAX_PIXELS = 720 * 1280;
+    const nativePixels = nativeW * nativeH;
+    const pixelLimitScale = Math.floor(Math.sqrt(MAX_PIXELS / nativePixels) * 100) / 100;
+
+    const finalScale = Math.min(maxScale, containerScale, pixelLimitScale);
+    return Math.max(0.1, Math.min(1.0, finalScale));
+  };
+
+  const applyFrameRateToConnectedDevices = (fps: number) => {
+    cachedDevices().forEach((device) => {
+      if (getConnectionState(device.udid).state !== 'connected') return;
+      const service = getService(device.udid);
+      if (!service) return;
+      service.setFrameRate(fps).catch(err => {
+        console.error(`[BatchRemote] Failed to set FPS for ${device.udid}:`, err);
+      });
+      debugLog('batch_remote', `[BatchRemote] Device ${device.udid} FPS updated to ${fps}`);
+    });
+  };
+
+  const applyResolutionToConnectedDevices = () => {
+    cachedDevices().forEach((device) => {
+      if (getConnectionState(device.udid).state !== 'connected') return;
+      const service = getService(device.udid);
+      if (!service) return;
+
+      const nextScale = calculateOptimalResolution(device);
+      const previousScale = lastAppliedResolutionByUdid.get(device.udid);
+      if (previousScale !== undefined && isSameNumber(previousScale, nextScale)) {
+        return;
+      }
+
+      lastAppliedResolutionByUdid.set(device.udid, nextScale);
+
+      service.setResolution(nextScale).catch(err => {
+        console.error(`[BatchRemote] Failed to set resolution for ${device.udid}:`, err);
+        if (previousScale === undefined) {
+          lastAppliedResolutionByUdid.delete(device.udid);
+        } else {
+          lastAppliedResolutionByUdid.set(device.udid, previousScale);
+        }
+      });
+      debugLog('batch_remote', `[BatchRemote] Device ${device.udid} resolution updated to ${nextScale.toFixed(3)}`);
+    });
+  };
+
+  const scheduleResolutionRefresh = () => {
+    if (scheduledResolutionRefreshId !== null) return;
+    scheduledResolutionRefreshId = requestAnimationFrame(() => {
+      scheduledResolutionRefreshId = null;
+      applyResolutionToConnectedDevices();
+    });
+  };
+
+  const commitResolution = () => {
+    const next = resolutionDraft();
+    if (!isSameNumber(next, appliedResolution())) {
+      setAppliedResolution(next);
+      applyResolutionToConnectedDevices();
+    }
+    flushSettings();
+  };
+
+  const commitFrameRate = () => {
+    const next = frameRateDraft();
+    if (next !== appliedFrameRate()) {
+      setAppliedFrameRate(next);
+      applyFrameRateToConnectedDevices(next);
+    }
+    flushSettings();
+  };
+
+  const commitColumns = () => {
+    const next = clampColumns(columnsDraft());
+    if (next !== appliedColumns()) {
+      setColumnsDraft(next);
+      setAppliedColumns(next);
+      scheduleResolutionRefresh();
+    }
+    flushSettings();
+  };
+
+  const handleConnectButton = async (device: Device) => {
+    await connectDevice(device);
+  };
   
   // 初始化 IntersectionObserver
   const setupIntersectionObserver = () => {
@@ -189,16 +476,15 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
               // 变为可见 - 重新连接
               const device = cachedDevices().find(d => d.udid === udid);
               if (device) {
-                const currentConn = connections().get(udid);
-                if (!currentConn?.service || currentConn.state === 'disconnected') {
+                const currentState = getConnectionState(udid);
+                if (!getService(udid) || currentState.state === 'disconnected') {
                   debugLog('batch_remote', `[BatchRemote] Device ${udid} visible, reconnecting...`);
                   connectDevice(device);
                 }
               }
             } else {
               // 变为不可见 - 断开连接
-              const currentConn = connections().get(udid);
-              if (currentConn?.service && currentConn.state === 'connected') {
+              if (getService(udid) && getConnectionState(udid).state === 'connected') {
                 debugLog('batch_remote', `[BatchRemote] Device ${udid} hidden, disconnecting...`);
                 disconnectDevice(udid);
               }
@@ -270,6 +556,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     setIsDragging(false);
     document.removeEventListener('mousemove', handleDragMove);
     document.removeEventListener('mouseup', handleDragEnd);
+    flushSettings();
   };
 
   // 页面调整大小时，优先推面板位置，再缩小面板尺寸
@@ -320,6 +607,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       if (newWidth !== size.width || newHeight !== size.height) {
         setWindowSize({ width: newWidth, height: newHeight });
       }
+
+      if (newX !== pos.x || newY !== pos.y || newWidth !== size.width || newHeight !== size.height) {
+        scheduleResolutionRefresh();
+        flushSettings();
+      }
     };
     
     window.addEventListener('resize', handleWindowResize);
@@ -352,6 +644,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     setIsResizing(false);
     document.removeEventListener('mousemove', handleResizeMove);
     document.removeEventListener('mouseup', handleResizeEnd);
+    scheduleResolutionRefresh();
+    flushSettings();
   };
   // 获取当前选中的设备列表 (被勾选的)
   const getCheckedDevicesList = (): string[] => {
@@ -367,11 +661,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const splitDevicesByControlChannel = (udids: string[]) => {
     const viaWebRTC: string[] = [];
     const viaWebSocket: string[] = [];
-    const connMap = connections();
 
     for (const udid of udids) {
-      const conn = connMap.get(udid);
-      if (conn?.service && conn.state === 'connected') {
+      if (getService(udid) && getConnectionState(udid).state === 'connected') {
         viaWebRTC.push(udid);
       } else {
         viaWebSocket.push(udid);
@@ -381,124 +673,43 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     return { viaWebRTC, viaWebSocket };
   };
 
-  // 计算设备的最优分辨率 - 取 min(用户设置, 容器适配, 720p限制)
-  const calculateOptimalResolution = (device: Device): number => {
-    // 1. 用户设置的最大分辨率
-    const userMaxScale = resolution();
-    
-    // 2. 获取设备原始分辨率
-    let nativeW = device.width || 1170;
-    let nativeH = device.height || 2532;
-    
-    // 如果设备是横屏，交换宽高
-    if (nativeW > nativeH) {
-      const tmp = nativeW;
-      nativeW = nativeH;
-      nativeH = tmp;
-    }
-    
-    // 3. 计算容器尺寸
-    const GRID_GAP = 12;
-    const GRID_PADDING = 16;
-    const cols = columns();
-    const panelWidth = isFullscreen() ? window.innerWidth : window.innerWidth * 0.9;
-    const availableWidth = panelWidth - (GRID_PADDING * 2) - (GRID_GAP * (cols - 1));
-    const cardWidth = availableWidth / cols;
-    const containerWidth = cardWidth;
-    const containerHeight = containerWidth * (16 / 9);
-    
-    // 设备画面在容器中的实际显示尺寸 (object-fit: contain)
-    const deviceAspect = nativeW / nativeH;
-    const containerAspect = 9 / 16;
-    
-    let displayWidth, displayHeight;
-    if (deviceAspect > containerAspect) {
-      displayWidth = containerWidth;
-      displayHeight = containerWidth / deviceAspect;
-    } else {
-      displayHeight = containerHeight;
-      displayWidth = containerHeight * deviceAspect;
-    }
-    
-    const dpr = window.devicePixelRatio || 1;
-    const displayPhysicalW = displayWidth * dpr;
-    const displayPhysicalH = displayHeight * dpr;
-    const containerScaleW = displayPhysicalW / nativeW;
-    const containerScaleH = displayPhysicalH / nativeH;
-    const containerScale = Math.min(containerScaleW, containerScaleH);
-    
-    // 4. 像素限制 (720x1280)
-    const MAX_PIXELS = 720 * 1280;
-    const nativePixels = nativeW * nativeH;
-    const pixelLimitScale = Math.floor(Math.sqrt(MAX_PIXELS / nativePixels) * 100) / 100;
-    
-    // 取三者最小值
-    const finalScale = Math.min(userMaxScale, containerScale, pixelLimitScale);
-    return Math.max(0.1, Math.min(1.0, finalScale));
-  };
-
   // 连接单个设备
   const connectDevice = async (device: Device) => {
-    const conn = connections().get(device.udid);
-    if (!conn || conn.state !== 'disconnected' || !props.webSocketService) return;
+    const wsService = currentWebSocketService();
+    if (getConnectionState(device.udid).state !== 'disconnected' || !wsService) return;
 
-    // 更新状态为连接中
-    setConnections(prev => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(device.udid);
-      if (existing) {
-        newMap.set(device.udid, { ...existing, state: 'connecting' });
-      }
-      return newMap;
+    setConnectionStates(device.udid, {
+      ...getConnectionState(device.udid),
+      state: 'connecting'
     });
 
     const httpPort = getDeviceHttpPort(device);
 
     const service = new WebRTCService(
-      props.webSocketService,
+      wsService,
       device.udid,
-      props.password,
+      currentPassword(),
       {
         onConnected: () => {
-          setConnections(prev => {
-            const newMap = new Map(prev);
-            const existing = newMap.get(device.udid);
-            if (existing) {
-              newMap.set(device.udid, { ...existing, state: 'connected' });
-            }
-            return newMap;
+          if (!currentIsOpen()) return;
+          if (serviceByUdid.get(device.udid) !== service) return;
+          setConnectionStates(device.udid, {
+            ...getConnectionState(device.udid),
+            state: 'connected'
           });
+          scheduleResolutionRefresh();
         },
         onDisconnected: () => {
-          setConnections(prev => {
-            const newMap = new Map(prev);
-            const existing = newMap.get(device.udid);
-            if (existing) {
-              newMap.set(device.udid, { ...existing, state: 'disconnected', stream: null });
-            }
-            return newMap;
-          });
+          clearDeviceRuntime(device.udid, service);
         },
         onError: (error) => {
           console.error(`[BatchRemote] Device ${device.udid} error:`, error);
-          setConnections(prev => {
-            const newMap = new Map(prev);
-            const existing = newMap.get(device.udid);
-            if (existing) {
-              newMap.set(device.udid, { ...existing, state: 'disconnected' });
-            }
-            return newMap;
-          });
+          clearDeviceRuntime(device.udid, service);
         },
         onTrack: (stream) => {
-          setConnections(prev => {
-            const newMap = new Map(prev);
-            const existing = newMap.get(device.udid);
-            if (existing) {
-              newMap.set(device.udid, { ...existing, stream });
-            }
-            return newMap;
-          });
+          if (!currentIsOpen()) return;
+          if (serviceByUdid.get(device.udid) !== service) return;
+          setDeviceStream(device.udid, stream);
         },
         onClipboard: () => {},
         onClipboardError: () => {}
@@ -507,61 +718,42 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     );
 
     try {
-      const clampedScale = calculateOptimalResolution(device);
+      const clampedScale = calculateOptimalResolution(device, appliedResolution(), appliedColumns());
       debugLog('batch_remote', `[BatchRemote] Device ${device.udid} resolution scale: ${clampedScale.toFixed(3)}`);
       
       const options: WebRTCStartOptions = {
         resolution: clampedScale,
-        fps: frameRate(),
+        fps: appliedFrameRate(),
         force: true
       };
-      
+
+      serviceByUdid.set(device.udid, service);
+      lastAppliedResolutionByUdid.set(device.udid, clampedScale);
       await service.startStream(options);
-      
-      setConnections(prev => {
-        const newMap = new Map(prev);
-        const existing = newMap.get(device.udid);
-        if (existing) {
-          newMap.set(device.udid, { ...existing, service });
-        }
-        return newMap;
-      });
     } catch (error) {
       console.error(`[BatchRemote] Failed to connect ${device.udid}:`, error);
-      service.cleanup();
-      setConnections(prev => {
-        const newMap = new Map(prev);
-        const existing = newMap.get(device.udid);
-        if (existing) {
-          newMap.set(device.udid, { ...existing, state: 'disconnected' });
-        }
-        return newMap;
-      });
+      clearDeviceRuntime(device.udid, service);
     }
   };
 
   // 断开单个设备
   const disconnectDevice = async (udid: string) => {
-    const conn = connections().get(udid);
-    if (!conn || !conn.service) return;
+    const service = getService(udid);
+    if (!service) {
+      clearDeviceRuntime(udid);
+      return;
+    }
 
     try {
-      await conn.service.stopStream();
+      await service.stopStream();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message !== 'Service destroyed') {
         debugWarn('batch_remote', `[BatchRemote] Failed to stop stream for ${udid}:`, error);
       }
     }
-    
-    setConnections(prev => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(udid);
-      if (existing) {
-        newMap.set(udid, { ...existing, service: null, stream: null, state: 'disconnected' });
-      }
-      return newMap;
-    });
+
+    clearDeviceRuntime(udid, service);
   };
 
   // 断开所有设备
@@ -570,9 +762,12 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     isDisconnectingAll = true;
 
     try {
-      const allConnections = Array.from(connections().entries());
-      for (const [udid, conn] of allConnections) {
-        if (conn.service) {
+      const activeUdids = cachedDevices()
+        .map(device => device.udid)
+        .filter(udid => getService(udid) || getConnectionState(udid).state !== 'disconnected' || getConnectionState(udid).hasStream);
+
+      for (const udid of activeUdids) {
+        if (getService(udid) || getConnectionState(udid).hasStream) {
           await disconnectDevice(udid);
         }
       }
@@ -651,10 +846,10 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const sendMove = (coords: { x: number; y: number }) => {
     const active = activeDevice();
     if (!active) return;
-    
-    const conn = connections().get(active);
-    if (conn?.service) {
-      conn.service.sendTouchCommand('move', coords.x, coords.y);
+
+    const service = getService(active);
+    if (service) {
+      service.sendTouchCommand('move', coords.x, coords.y);
     }
     
     // 只有当操作的设备是选中状态时，才同步到其他选中设备
@@ -713,11 +908,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const handleDeviceMouseDown = (udid: string, event: MouseEvent) => {
     if (event.button !== 0) return;
     event.preventDefault();
-    
-    const conn = connections().get(udid);
-    if (!conn?.videoRef) return;
 
-    const coords = convertToDeviceCoordinates(event, conn.videoRef);
+    const videoRef = videoRefByUdid.get(udid);
+    if (!videoRef) return;
+
+    const coords = convertToDeviceCoordinates(event, videoRef);
     if (!coords) return;
 
     resetMoveState();
@@ -726,8 +921,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     lastTouchPosition = coords;
 
     // 发送到当前设备 (via DataChannel)
-    if (conn.service) {
-      conn.service.sendTouchCommand('down', coords.x, coords.y);
+    const service = getService(udid);
+    if (service) {
+      service.sendTouchCommand('down', coords.x, coords.y);
     }
 
     // 只有当操作的设备是选中状态时，才同步到其他选中设备
@@ -743,10 +939,10 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (!isTouching() || activeDevice() !== udid) return;
     event.preventDefault();
 
-    const conn = connections().get(udid);
-    if (!conn?.videoRef) return;
+    const videoRef = videoRefByUdid.get(udid);
+    if (!videoRef) return;
 
-    const coords = convertToDeviceCoordinates(event, conn.videoRef);
+    const coords = convertToDeviceCoordinates(event, videoRef);
     if (!coords) return;
 
     lastTouchPosition = coords;
@@ -759,13 +955,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     
     flushQueuedMove();
 
-    const conn = connections().get(udid);
-    const coords = conn?.videoRef ? convertToDeviceCoordinates(event, conn.videoRef) : null;
+    const videoRef = videoRefByUdid.get(udid);
+    const coords = videoRef ? convertToDeviceCoordinates(event, videoRef) : null;
     const finalCoords = coords || lastTouchPosition;
 
     // 发送到当前设备
-    if (conn?.service) {
-      conn.service.sendTouchCommand('up', finalCoords.x, finalCoords.y);
+    const service = getService(udid);
+    if (service) {
+      service.sendTouchCommand('up', finalCoords.x, finalCoords.y);
     }
 
     // 只有当操作的设备是选中状态时，才同步到其他选中设备（延迟100ms）
@@ -784,10 +981,10 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const handleDeviceMouseLeave = (udid: string) => {
     if (isTouching() && activeDevice() === udid) {
       flushQueuedMove();
-      
-      const conn = connections().get(udid);
-      if (conn?.service) {
-        conn.service.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
+
+      const service = getService(udid);
+      if (service) {
+        service.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
       }
       
       // 只有当操作的设备是选中状态时，才同步（延迟100ms）
@@ -807,11 +1004,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 右键 = Home 键 (对所有设备生效，选中设备会同步)
   const handleDeviceContextMenu = (udid: string, event: MouseEvent) => {
     event.preventDefault();
-    
+
     // 始终对当前设备生效
-    const conn = connections().get(udid);
-    if (conn?.service) {
-      conn.service.sendKeyCommand('homebutton', 'press');
+    const service = getService(udid);
+    if (service) {
+      service.sendKeyCommand('homebutton', 'press');
     }
 
     // 如果当前设备是选中状态，同步到其他选中设备
@@ -826,14 +1023,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 触摸事件处理 (移动端)
   const handleDeviceTouchStart = (udid: string, event: TouchEvent) => {
     event.preventDefault();
-    
-    const conn = connections().get(udid);
-    if (!conn?.videoRef) return;
+
+    const videoRef = videoRefByUdid.get(udid);
+    if (!videoRef) return;
 
     const touch = event.touches[0];
     if (!touch) return;
 
-    const coords = convertToDeviceCoordinates(touch, conn.videoRef);
+    const coords = convertToDeviceCoordinates(touch, videoRef);
     if (!coords) return;
 
     resetMoveState();
@@ -841,8 +1038,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     setIsTouching(true);
     lastTouchPosition = coords;
 
-    if (conn.service) {
-      conn.service.sendTouchCommand('down', coords.x, coords.y);
+    const service = getService(udid);
+    if (service) {
+      service.sendTouchCommand('down', coords.x, coords.y);
     }
 
     // 只有当操作的设备是选中状态时，才同步
@@ -858,13 +1056,13 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     event.preventDefault();
     if (!isTouching() || activeDevice() !== udid) return;
 
-    const conn = connections().get(udid);
-    if (!conn?.videoRef) return;
+    const videoRef = videoRefByUdid.get(udid);
+    if (!videoRef) return;
 
     const touch = event.touches[0];
     if (!touch) return;
 
-    const coords = convertToDeviceCoordinates(touch, conn.videoRef);
+    const coords = convertToDeviceCoordinates(touch, videoRef);
     if (!coords) return;
 
     lastTouchPosition = coords;
@@ -877,9 +1075,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
     flushQueuedMove();
 
-    const conn = connections().get(udid);
-    if (conn?.service) {
-      conn.service.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
+    const service = getService(udid);
+    if (service) {
+      service.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
     }
 
     // 只有当操作的设备是选中状态时，才同步（延迟100ms）
@@ -900,12 +1098,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const checked = getCheckedDevicesList();
 
     const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
-    const connMap = connections();
 
     for (const udid of viaWebRTC) {
-      const conn = connMap.get(udid);
-      if (conn?.service) {
-        conn.service.sendKeyCommand('homebutton', 'press');
+      const service = getService(udid);
+      if (service) {
+        service.sendKeyCommand('homebutton', 'press');
       }
     }
 
@@ -917,12 +1114,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const handleVolumeUp = () => {
     const checked = getCheckedDevicesList();
     const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
-    const connMap = connections();
-    
+
     for (const udid of viaWebRTC) {
-      const conn = connMap.get(udid);
-      if (conn?.service) {
-        conn.service.sendKeyCommand('volumeup', 'press');
+      const service = getService(udid);
+      if (service) {
+        service.sendKeyCommand('volumeup', 'press');
       }
     }
     
@@ -935,12 +1131,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const handleVolumeDown = () => {
     const checked = getCheckedDevicesList();
     const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
-    const connMap = connections();
-    
+
     for (const udid of viaWebRTC) {
-      const conn = connMap.get(udid);
-      if (conn?.service) {
-        conn.service.sendKeyCommand('volumedown', 'press');
+      const service = getService(udid);
+      if (service) {
+        service.sendKeyCommand('volumedown', 'press');
       }
     }
     
@@ -953,12 +1148,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const handleLockScreen = () => {
     const checked = getCheckedDevicesList();
     const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
-    const connMap = connections();
-    
+
     for (const udid of viaWebRTC) {
-      const conn = connMap.get(udid);
-      if (conn?.service) {
-        conn.service.sendKeyCommand('lock', 'press');
+      const service = getService(udid);
+      if (service) {
+        service.sendKeyCommand('lock', 'press');
       }
     }
     
@@ -979,9 +1173,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const checked = getCheckedDevicesList();
     
     for (const udid of checked) {
-      const conn = connections().get(udid);
-      if (conn?.service) {
-        conn.service.sendPasteCommand(text);
+      const service = getService(udid);
+      if (service) {
+        service.sendPasteCommand(text);
       }
     }
 
@@ -992,10 +1186,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 全屏切换
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen());
+    scheduleResolutionRefresh();
+    flushSettings();
   };
 
   // 关闭面板
   const handleClose = () => {
+    setVisibleDevices(new Set());
+    flushSettings();
     disconnectAllDevices();
     props.onClose();
   };
@@ -1005,80 +1203,42 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 当面板打开时初始化并连接
   createEffect(() => {
-    const isOpen = props.isOpen;
-    const devices = props.devices;
+    const isOpen = currentIsOpen();
+    const devices = currentDevices();
     
     if (isOpen && devices.length > 0 && !hasInitialized) {
       hasInitialized = true;
       // 缓存设备列表（仅在初始化时设置一次）
       setCachedDevices([...devices]);
-      // 初始化连接映射
-      const newConnections = new Map<string, DeviceConnection>();
-      for (const device of devices) {
-        newConnections.set(device.udid, {
-          udid: device.udid,
-          service: null,
-          stream: null,
-          state: 'disconnected'
-        });
-      }
-      setConnections(newConnections);
+      setConnectionStates(reconcile(createConnectionStateMap(devices)));
       // 默认不勾选任何设备
       setCheckedDevices(new Set<string>());
       // 每次打开都重置可见集合，避免继承上一次状态
       setVisibleDevices(new Set<string>());
+      serviceByUdid.clear();
+      streamByUdid.clear();
+      videoRefByUdid.clear();
+      lastAppliedResolutionByUdid.clear();
       
       // 延迟初始化可见性观察器，由可见性驱动连接
       setTimeout(() => {
         setupIntersectionObserver();
       }, 100);
     } else if (!isOpen && hasInitialized) {
+      flushSettings();
       disconnectAllDevices();
       // 面板关闭时重置标记和缓存
       hasInitialized = false;
       setCachedDevices([]);
+      setCheckedDevices(new Set<string>());
       setVisibleDevices(new Set<string>());
+      setConnectionStates(reconcile({}));
+      videoRefByUdid.clear();
       if (intersectionObserver) {
         intersectionObserver.disconnect();
         intersectionObserver = null;
       }
     }
-  });
-
-  // 当帧率变化时，动态更新所有已连接设备的帧率
-  createEffect(() => {
-    const fps = frameRate();
-    // 遍历所有已连接的设备并更新帧率
-    const connMap = untrack(() => connections());
-    connMap.forEach((conn, udid) => {
-      if (conn.service && conn.state === 'connected') {
-        conn.service.setFrameRate(fps).catch(err => {
-          console.error(`[BatchRemote] Failed to set FPS for ${udid}:`, err);
-        });
-        debugLog('batch_remote', `[BatchRemote] Device ${udid} FPS updated to ${fps}`);
-      }
-    });
-  });
-
-  // 当分辨率/列数/全屏状态变化时，动态更新所有已连接设备的分辨率
-  createEffect(() => {
-    // 依赖这些信号触发重新计算
-    const _ = resolution();
-    const __ = columns();
-    const ___ = isFullscreen();
-    
-    // 遍历所有已连接的设备并更新分辨率
-    const connMap = untrack(() => connections());
-    cachedDevices().forEach((device) => {
-      const conn = connMap.get(device.udid);
-      if (conn?.service && conn.state === 'connected') {
-        const optimalScale = calculateOptimalResolution(device);
-        conn.service.setResolution(optimalScale).catch(err => {
-          console.error(`[BatchRemote] Failed to set resolution for ${device.udid}:`, err);
-        });
-        debugLog('batch_remote', `[BatchRemote] Device ${device.udid} resolution updated to ${optimalScale.toFixed(3)}`);
-      }
-    });
   });
 
   // 确保触控状态正确清理的函数
@@ -1087,9 +1247,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       const active = activeDevice();
       if (active) {
         // 发送 touch.up 到当前活动设备
-        const conn = connections().get(active);
-        if (conn?.service) {
-          conn.service.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
+        const service = getService(active);
+        if (service) {
+          service.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
         }
         
         // 如果当前设备是选中状态，同步到其他选中设备（延迟100ms）
@@ -1113,6 +1273,12 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (intersectionObserver) {
       intersectionObserver.disconnect();
       intersectionObserver = null;
+    }
+    bindFrameByUdid.forEach((rafId) => cancelAnimationFrame(rafId));
+    bindFrameByUdid.clear();
+    if (scheduledResolutionRefreshId !== null) {
+      cancelAnimationFrame(scheduledResolutionRefreshId);
+      scheduledResolutionRefreshId = null;
     }
     // 确保发送 touch.up
     cleanupTouchState();
@@ -1224,13 +1390,12 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
     const checked = getCheckedDevicesList();
     const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
-    const connMap = connections();
-    
+
     // 发送到已连接 WebRTC 的设备
     for (const udid of viaWebRTC) {
-      const conn = connMap.get(udid);
-      if (conn?.service && conn.state === 'connected') {
-        conn.service.sendKeyCommand(deviceKey, 'down');
+      const service = getService(udid);
+      if (service && getConnectionState(udid).state === 'connected') {
+        service.sendKeyCommand(deviceKey, 'down');
       }
     }
 
@@ -1254,11 +1419,10 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
     const checked = getCheckedDevicesList();
     const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
-    const connMap = connections();
     for (const udid of viaWebRTC) {
-      const conn = connMap.get(udid);
-      if (conn?.service && conn.state === 'connected') {
-        conn.service.sendKeyCommand(deviceKey, 'up');
+      const service = getService(udid);
+      if (service && getConnectionState(udid).state === 'connected') {
+        service.sendKeyCommand(deviceKey, 'up');
       }
     }
 
@@ -1275,30 +1439,6 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   onCleanup(() => {
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
-  });
-
-  // 设置视频 ref
-  const setVideoRef = (udid: string, el: HTMLVideoElement) => {
-    setConnections(prev => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(udid);
-      if (existing) {
-        newMap.set(udid, { ...existing, videoRef: el });
-      }
-      return newMap;
-    });
-  };
-
-  // 绑定视频流到 video 元素
-  createEffect(() => {
-    for (const [, conn] of connections()) {
-      if (conn.videoRef && conn.stream) {
-        if (conn.videoRef.srcObject !== conn.stream) {
-          conn.videoRef.srcObject = conn.stream;
-          conn.videoRef.play().catch(e => console.error('[BatchRemote] Video play error:', e));
-        }
-      }
-    }
   });
 
   return (
@@ -1392,10 +1532,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                 min="0.1" 
                 max="1.0" 
                 step="0.05"
-                value={resolution()}
-                onInput={(e) => setResolution(parseFloat(e.currentTarget.value))}
+                value={resolutionDraft()}
+                onInput={(e) => setResolutionDraft(parseFloat(e.currentTarget.value))}
+                onChange={commitResolution}
               />
-              <span>{resolution().toFixed(2)}x</span>
+              <span>{resolutionDraft().toFixed(2)}x</span>
             </div>
             
             <div class={styles.sliderGroup}>
@@ -1405,10 +1546,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                 min="1" 
                 max="30" 
                 step="1"
-                value={frameRate()}
-                onInput={(e) => setFrameRate(parseInt(e.currentTarget.value))}
+                value={frameRateDraft()}
+                onInput={(e) => setFrameRateDraft(parseInt(e.currentTarget.value, 10))}
+                onChange={commitFrameRate}
               />
-              <span>{frameRate()}</span>
+              <span>{frameRateDraft()}</span>
             </div>
             
             <div class={styles.sliderGroup}>
@@ -1416,12 +1558,13 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
               <input 
                 type="range" 
                 min="2" 
-                max="8" 
+                max={String(getMaxColumns())}
                 step="1"
-                value={columns()}
-                onInput={(e) => setColumns(parseInt(e.currentTarget.value))}
+                value={columnsDraft()}
+                onInput={(e) => setColumnsDraft(clampColumns(parseInt(e.currentTarget.value, 10)))}
+                onChange={commitColumns}
               />
-              <span>{columns()}</span>
+              <span>{columnsDraft()}</span>
             </div>
           </div>
 
@@ -1429,14 +1572,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           <div 
             ref={(el) => { gridRef = el; }}
             class={styles.deviceGrid}
-            style={{ '--columns': columns() }}
+            style={{ '--columns': columnsDraft() }}
           >
             <For each={cachedDevices()}>
               {(device) => {
-                const conn = () => connections().get(device.udid);
+                const viewState = () => connectionStates[device.udid];
                 const isChecked = () => checkedDevices().has(device.udid);
-                const isConnected = () => conn()?.state === 'connected';
-                const hasStream = () => !!conn()?.stream;
+                const isConnected = () => viewState()?.state === 'connected';
+                const hasStream = () => !!viewState()?.hasStream;
                 
                 return (
                   <div 
@@ -1463,13 +1606,13 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                         when={hasStream()} 
                         fallback={
                           <div class={styles.videoPlaceholder}>
-                            <Show when={conn()?.state === 'connecting'}>
+                            <Show when={viewState()?.state === 'connecting'}>
                               <span>连接中...</span>
                             </Show>
-                            <Show when={conn()?.state === 'disconnected'}>
+                            <Show when={viewState()?.state === 'disconnected'}>
                               <button 
                                 class={styles.connectButton}
-                                onClick={() => connectDevice(device)}
+                                onClick={() => void handleConnectButton(device)}
                               >
                                 连接
                               </button>

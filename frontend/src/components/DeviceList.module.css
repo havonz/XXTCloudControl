@@ -1966,7 +1966,7 @@
     order: 3;
   }
   
-  .scriptControlGroup .scriptControlButton {
+  .scriptControlButton {
     flex: 1 !important;
     padding: 8px !important;
     min-width: 0 !important;
@@ -2059,7 +2059,7 @@
   }
 
   /* Make the select input inside the group take full width of its grid cell */
-  .scriptActionGroup {
+  .scriptSelectGroup {
     display: flex !important;
     gap: 4px !important; /* Tight gap as requested "挨在一起" */
     align-items: center !important;
@@ -2083,7 +2083,7 @@
     display: flex !important;
   }
 
-  .scriptActionGroup :global(.cbx-select) {
+  .scriptSelectGroup :global(.cbx-select) {
     width: 100% !important;
     min-width: 0 !important;
     height: 30px !important;
@@ -2093,8 +2093,7 @@
     flex: 1 !important;
   }
 
-  .scriptActionGroup .iconButton,
-  .scriptActionGroup > .scriptControlButton {
+  .scriptSelectGroup .iconButton {
     width: 30px;
     height: 30px;
     background: var(--panel-2);
@@ -2103,15 +2102,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text);
+    color: var(--text-secondary);
     flex-shrink: 0;
-  }
-
-  .scriptActionGroup > .scriptControlButton {
-    padding: 8px !important;
-    min-width: 30px !important;
-    width: 30px !important;
-    flex: 0 0 30px !important;
   }
 
   .toolbarActionButton,
