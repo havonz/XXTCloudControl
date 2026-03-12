@@ -1,12 +1,21 @@
 import { createSignal, For, Show, onCleanup, createEffect, onMount, createMemo } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
-import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste } from '../icons';
+import { CgMaximizeAlt, CgMinimizeAlt } from 'solid-icons/cg';
+import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconGear } from '../icons';
 import styles from './BatchRemoteControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
 import type { WebSocketService } from '../services/WebSocketService';
 import { MultiTouchSessionManager, type TouchPoint } from '../utils/multiTouchSession';
 import { debugLog, debugWarn } from '../utils/debugLogger';
+import {
+  canHandleRemoteWheel,
+  createRemoteWheelBatcher,
+  normalizeRemoteWheelSettings,
+  normalizeWheelDeltaY,
+  parseRemoteWheelSetting,
+  type RemoteWheelSettings,
+} from '../utils/remoteWheel';
 
 export interface BatchRemoteControlProps {
   isOpen: boolean;
@@ -29,6 +38,7 @@ interface BatchRemoteSettings {
   resolution?: number;
   frameRate?: number;
   columns?: number;
+  wheel?: Partial<RemoteWheelSettings>;
 }
 
 function createDisconnectedViewState(): ConnectionViewState {
@@ -78,6 +88,8 @@ function getDeviceHttpPort(device: Device): number | undefined {
 export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const MOBILE_MAX_COLUMNS = 4;
   const DESKTOP_MAX_COLUMNS = 8;
+  const VIEWPORT_MOBILE_BREAKPOINT = 768;
+  const COMPACT_PANEL_BREAKPOINT = 700;
   const currentIsOpen = createMemo(() => props.isOpen);
   const currentDevices = createMemo(() => props.devices);
   const currentWebSocketService = createMemo(() => props.webSocketService);
@@ -103,20 +115,10 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   
   // 全屏模式（仅用于桌面端手动切换）
   const [isFullscreen, setIsFullscreen] = createSignal(false);
-  
-  // 检测是否是移动端（响应式）
-  const [isMobile, setIsMobile] = createSignal(window.innerWidth <= 768);
-  
-  // 监听窗口大小变化，更新 isMobile 状态
-  createEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 768);
-    window.addEventListener('resize', handleResize);
-    onCleanup(() => window.removeEventListener('resize', handleResize));
-  });
+  const [isViewportMobile, setIsViewportMobile] = createSignal(window.innerWidth <= VIEWPORT_MOBILE_BREAKPOINT);
   
   const STORAGE_KEY = 'batchRemoteControl';
-  const getMaxColumns = () => (isMobile() ? MOBILE_MAX_COLUMNS : DESKTOP_MAX_COLUMNS);
-  const clampColumns = (value: number, max: number = getMaxColumns()) => Math.max(2, Math.min(max, value));
+  const clampColumns = (value: number, max: number = DESKTOP_MAX_COLUMNS) => Math.max(2, Math.min(max, value));
 
   const loadSettings = (): BatchRemoteSettings | null => {
     try {
@@ -131,7 +133,13 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   };
   
   const savedSettings = loadSettings() || {};
+  const savedWheelSettings = normalizeRemoteWheelSettings(savedSettings?.wheel);
   let persistedSettings: BatchRemoteSettings = { ...savedSettings };
+  const initialPanelWidth = savedSettings?.windowSize?.width ?? Math.round(window.innerWidth * 0.95);
+  const [panelWidth, setPanelWidth] = createSignal(initialPanelWidth);
+  const isCompactPanel = createMemo(() => !isViewportMobile() && !isFullscreen() && panelWidth() < COMPACT_PANEL_BREAKPOINT);
+  const usesSidebarLayout = createMemo(() => isViewportMobile() || isCompactPanel());
+  const getLayoutMaxColumns = () => (usesSidebarLayout() ? MOBILE_MAX_COLUMNS : DESKTOP_MAX_COLUMNS);
 
   const saveSettings = (settings: Partial<BatchRemoteSettings>) => {
     try {
@@ -151,16 +159,19 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   let dragOffset = { x: 0, y: 0 };
   let resizeStart = { x: 0, y: 0, width: 0, height: 0 };
   let panelRef: HTMLDivElement | null = null;
+  let panelResizeObserver: ResizeObserver | null = null;
   
   const initialResolution = savedSettings?.resolution ?? 0.2;
   const initialFrameRate = savedSettings?.frameRate ?? 10;
-  const initialColumns = clampColumns(savedSettings?.columns ?? 4, window.innerWidth <= 768 ? MOBILE_MAX_COLUMNS : DESKTOP_MAX_COLUMNS);
+  const initialColumnPreference = clampColumns(savedSettings?.columns ?? 4, DESKTOP_MAX_COLUMNS);
+  const [columnPreference, setColumnPreference] = createSignal(initialColumnPreference);
   const [resolutionDraft, setResolutionDraft] = createSignal(initialResolution);
   const [appliedResolution, setAppliedResolution] = createSignal(initialResolution);
   const [frameRateDraft, setFrameRateDraft] = createSignal(initialFrameRate);
   const [appliedFrameRate, setAppliedFrameRate] = createSignal(initialFrameRate);
-  const [columnsDraft, setColumnsDraft] = createSignal(initialColumns);
-  const [appliedColumns, setAppliedColumns] = createSignal(initialColumns);
+  const [columnsDraft, setColumnsDraft] = createSignal(clampColumns(initialColumnPreference, getLayoutMaxColumns()));
+  const appliedColumns = createMemo(() => clampColumns(columnPreference(), getLayoutMaxColumns()));
+  const previewColumns = createMemo(() => clampColumns(columnsDraft(), getLayoutMaxColumns()));
   
   // 设备卡片引用和可见性追踪
   const cardRefs = new Map<string, HTMLDivElement>();
@@ -181,6 +192,18 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 粘贴文本模态框
   const [showPasteModal, setShowPasteModal] = createSignal(false);
   const [pasteText, setPasteText] = createSignal('');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = createSignal(false);
+  const [wheelSettingsOpen, setWheelSettingsOpen] = createSignal(false);
+  const [wheelEnabled, setWheelEnabled] = createSignal<boolean>(savedWheelSettings.enabled);
+  const [wheelNatural, setWheelNatural] = createSignal<boolean>(savedWheelSettings.natural);
+  const [wheelBrakeEnabled, setWheelBrakeEnabled] = createSignal<boolean>(savedWheelSettings.brakeEnabled);
+  const [wheelStepPx, setWheelStepPx] = createSignal<number>(savedWheelSettings.stepPx);
+  const [wheelCoalesceMs, setWheelCoalesceMs] = createSignal<number>(savedWheelSettings.coalesceMs);
+  const [wheelAmp, setWheelAmp] = createSignal<number>(savedWheelSettings.amp);
+  const [wheelDurBaseMs, setWheelDurBaseMs] = createSignal<number>(savedWheelSettings.durBaseMs);
+  const [wheelReleaseDelayMs, setWheelReleaseDelayMs] = createSignal<number>(savedWheelSettings.releaseDelayMs);
+  const [wheelBrakeReversePx, setWheelBrakeReversePx] = createSignal<number>(savedWheelSettings.brakeReversePx);
+  let wheelSettingsRef: HTMLDivElement | null = null;
   
   // Move throttling 相关变量
   const MOVE_EPSILON = 0.0015;
@@ -188,29 +211,32 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   let mouseMoveRafId: number | null = null;
   let lastSentMouseMove: TouchPoint | null = null;
 
-  createEffect(() => {
-    const maxColumns = getMaxColumns();
-    const nextDraft = clampColumns(columnsDraft(), maxColumns);
-    const nextApplied = clampColumns(appliedColumns(), maxColumns);
-    let changed = false;
+  const syncViewportMobile = () => {
+    setIsViewportMobile(window.innerWidth <= VIEWPORT_MOBILE_BREAKPOINT);
+  };
 
-    if (nextDraft !== columnsDraft()) {
-      setColumnsDraft(nextDraft);
-      changed = true;
+  const syncPanelWidth = (width?: number) => {
+    const nextWidth = width ?? panelRef?.getBoundingClientRect().width ?? windowSize().width ?? initialPanelWidth;
+    if (nextWidth > 0) {
+      setPanelWidth(nextWidth);
     }
-
-    if (nextApplied !== appliedColumns()) {
-      setAppliedColumns(nextApplied);
-      scheduleResolutionRefresh();
-      changed = true;
-    }
-
-    if (changed) {
-      flushSettings();
-    }
-  });
+  };
 
   const isSameNumber = (a: number, b: number, epsilon: number = 0.0001) => Math.abs(a - b) < epsilon;
+
+  function currentWheelSettings(): RemoteWheelSettings {
+    return normalizeRemoteWheelSettings({
+      enabled: wheelEnabled(),
+      natural: wheelNatural(),
+      brakeEnabled: wheelBrakeEnabled(),
+      stepPx: wheelStepPx(),
+      coalesceMs: wheelCoalesceMs(),
+      amp: wheelAmp(),
+      durBaseMs: wheelDurBaseMs(),
+      releaseDelayMs: wheelReleaseDelayMs(),
+      brakeReversePx: wheelBrakeReversePx(),
+    });
+  }
 
   const getConnectionState = (udid: string): ConnectionViewState => {
     return connectionStates[udid] || createDisconnectedViewState();
@@ -224,9 +250,44 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       windowSize: windowSize(),
       resolution: appliedResolution(),
       frameRate: appliedFrameRate(),
-      columns: appliedColumns()
+      columns: columnPreference(),
+      wheel: currentWheelSettings(),
     });
   };
+
+  createEffect(() => {
+    saveSettings({ wheel: currentWheelSettings() });
+  });
+
+  createEffect(() => {
+    if (usesSidebarLayout()) {
+      setWheelSettingsOpen(false);
+      return;
+    }
+    setMobileSidebarOpen(false);
+  });
+
+  createEffect((previousColumns?: number) => {
+    const nextColumns = appliedColumns();
+    if (previousColumns !== undefined && previousColumns !== nextColumns) {
+      scheduleResolutionRefresh();
+    }
+    return nextColumns;
+  });
+
+  createEffect(() => {
+    if (!wheelSettingsOpen()) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (wheelSettingsRef?.contains(target)) return;
+      setWheelSettingsOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    onCleanup(() => document.removeEventListener('pointerdown', handlePointerDown));
+  });
 
   const bindStreamToVideo = (udid: string) => {
     const video = videoRefByUdid.get(udid);
@@ -320,7 +381,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (windowInitialized() && windowSize().width > 0) {
       return windowSize().width;
     }
-    return isFullscreen() || isMobile() ? window.innerWidth : window.innerWidth * 0.9;
+    return isFullscreen() || isViewportMobile() ? window.innerWidth : window.innerWidth * 0.9;
   };
 
   const calculateOptimalResolution = (device: Device, maxScale: number = appliedResolution(), columnCount: number = appliedColumns()): number => {
@@ -435,11 +496,12 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   };
 
   const commitColumns = () => {
-    const next = clampColumns(columnsDraft());
-    if (next !== appliedColumns()) {
+    const next = previewColumns();
+    if (next !== columnsDraft()) {
       setColumnsDraft(next);
-      setAppliedColumns(next);
-      scheduleResolutionRefresh();
+    }
+    if (next !== columnPreference()) {
+      setColumnPreference(next);
     }
     flushSettings();
   };
@@ -527,7 +589,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 拖动处理
   const handleDragStart = (e: MouseEvent) => {
-    if (isFullscreen()) return;
+    if (isFullscreen() || isViewportMobile()) return;
     e.preventDefault();
     const pos = windowPos();
     dragOffset = { x: e.clientX - pos.x, y: e.clientY - pos.y };
@@ -566,7 +628,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 页面调整大小时，优先推面板位置，再缩小面板尺寸
   createEffect(() => {
     const handleWindowResize = () => {
-      if (isFullscreen() || isMobile() || !windowInitialized()) return;
+      if (isFullscreen() || isViewportMobile() || !windowInitialized()) return;
       
       const pos = windowPos();
       const size = windowSize();
@@ -624,7 +686,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 调整大小处理
   const handleResizeStart = (e: MouseEvent) => {
-    if (isFullscreen()) return;
+    if (isFullscreen() || isViewportMobile()) return;
     e.preventDefault();
     e.stopPropagation();
     const size = windowSize();
@@ -659,6 +721,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 获取其他被勾选的设备（排除当前操作的设备）
   const getOtherCheckedDevices = (currentUdid: string): string[] => {
     return [...checkedDevices()].filter(udid => udid !== currentUdid);
+  };
+
+  const resolveWheelTargets = (sourceUdid: string): string[] => {
+    const checked = checkedDevices();
+    if (!checked.size || !checked.has(sourceUdid)) {
+      return [sourceUdid];
+    }
+    return [sourceUdid, ...getOtherCheckedDevices(sourceUdid)];
   };
 
   // 将设备按可用控制通道拆分，避免同一个动作重复发送
@@ -754,6 +824,35 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
     lastSentMouseMove = null;
   };
+
+  const wheelBatcher = createRemoteWheelBatcher((payload) => {
+    const [sourceUdid, ...mirrorUdids] = payload.targets ?? [];
+    if (sourceUdid) {
+      const service = getService(sourceUdid);
+      if (service && getConnectionState(sourceUdid).state === 'connected') {
+        service.sendWheelCommand({
+          x: payload.nx,
+          y: payload.ny,
+          deltaY: payload.deltaY,
+          rotateQuarter: payload.rotateQuarter,
+          settings: payload.settings,
+        });
+      }
+    }
+
+    if (mirrorUdids.length > 0 && props.webSocketService) {
+      props.webSocketService.sendWheelCommandMultipleNormalized(
+        mirrorUdids,
+        payload.nx,
+        payload.ny,
+        {
+          deltaY: payload.deltaY,
+          rotateQuarter: payload.rotateQuarter,
+          ...payload.settings,
+        }
+      );
+    }
+  });
 
   const touchSession = new MultiTouchSessionManager(
     {
@@ -855,6 +954,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 断开单个设备
   const disconnectDevice = async (udid: string) => {
+    wheelBatcher.clear();
     const service = getService(udid);
     if (!service) {
       resetTouchStateForDevice(udid);
@@ -880,6 +980,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const disconnectAllDevices = async () => {
     if (isDisconnectingAll) return;
     isDisconnectingAll = true;
+    wheelBatcher.clear();
 
     try {
       const activeUdids = cachedDevices()
@@ -967,6 +1068,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (event.button !== 0) return;
     if (touchSession.hasActiveTouches() || isMouseTouching) return;
     event.preventDefault();
+    wheelBatcher.clear();
 
     const videoRef = videoRefByUdid.get(udid);
     if (!videoRef) return;
@@ -1048,6 +1150,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (isMouseTouching) return;
     if (activeTouchDevice && activeTouchDevice !== udid) return;
     event.preventDefault();
+    wheelBatcher.clear();
 
     const videoRef = videoRefByUdid.get(udid);
     if (!videoRef) return;
@@ -1098,6 +1201,45 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (!touchSession.hasActiveTouches()) {
       clearActiveTouchLock();
     }
+  };
+
+  const handleDeviceWheel = (udid: string, event: WheelEvent) => {
+    if (!getConnectionState(udid).hasStream) return;
+
+    const videoRef = videoRefByUdid.get(udid);
+    if (!videoRef) return;
+
+    const settings = currentWheelSettings();
+    const deltaY = normalizeWheelDeltaY(
+      event.deltaY,
+      event.deltaMode,
+      event.currentTarget instanceof HTMLVideoElement ? event.currentTarget.clientHeight : videoRef.clientHeight,
+    );
+
+    if (!canHandleRemoteWheel({
+      enabled: settings.enabled,
+      pointerActive: isMouseTouching || touchSession.hasActiveTouches(),
+      deltaY,
+    })) {
+      return;
+    }
+
+    const coords = convertToDeviceCoordinates(event, videoRef);
+    if (!coords) return;
+
+    const targets = resolveWheelTargets(udid);
+    wheelBatcher.schedule({
+      targets,
+      nx: coords.x,
+      ny: coords.y,
+      deltaY,
+      rotateQuarter: 0,
+      settings,
+      mergeKey: `${udid}|${targets.join(',')}`,
+    });
+
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   // 工具栏操作 - 发送到所有被勾选设备
@@ -1200,6 +1342,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   // 关闭面板
   const handleClose = () => {
     setVisibleDevices(new Set());
+    setMobileSidebarOpen(false);
+    setWheelSettingsOpen(false);
+    wheelBatcher.clear();
     flushSettings();
     cleanupTouchState();
     disconnectAllDevices();
@@ -1233,6 +1378,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         setupIntersectionObserver();
       }, 100);
     } else if (!isOpen && hasInitialized) {
+      setMobileSidebarOpen(false);
+      wheelBatcher.clear();
       flushSettings();
       cleanupTouchState();
       disconnectAllDevices();
@@ -1241,6 +1388,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       setCachedDevices([]);
       setCheckedDevices(new Set<string>());
       setVisibleDevices(new Set<string>());
+      setMobileSidebarOpen(false);
+      setWheelSettingsOpen(false);
       setConnectionStates(reconcile({}));
       videoRefByUdid.clear();
       if (intersectionObserver) {
@@ -1252,6 +1401,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 确保触控状态正确清理的函数
   const cleanupTouchState = (udid?: string) => {
+    wheelBatcher.clear();
     if ((!udid || mouseActiveDevice === udid) && isMouseTouching && mouseActiveDevice) {
       flushQueuedMouseMove();
       sendTouchAction(mouseActiveDevice, 'up', lastMouseTouchPosition, undefined, mouseMirrorDevices);
@@ -1280,6 +1430,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       cancelAnimationFrame(scheduledResolutionRefreshId);
       scheduledResolutionRefreshId = null;
     }
+    wheelBatcher.clear();
+    setMobileSidebarOpen(false);
     // 确保发送 touch.up
     cleanupTouchState();
     disconnectAllDevices();
@@ -1432,35 +1584,245 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   };
 
   onMount(() => {
+    syncViewportMobile();
+    window.addEventListener('resize', syncViewportMobile);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
   });
 
   onCleanup(() => {
+    panelResizeObserver?.disconnect();
+    panelResizeObserver = null;
+    window.removeEventListener('resize', syncViewportMobile);
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
   });
 
+  const renderWheelSettingsContent = () => (
+    <>
+      <div class={styles.wheelSettingsToggles}>
+        <label class={styles.wheelToggleItem}>
+          <input
+            type="checkbox"
+            class="themed-checkbox"
+            checked={wheelEnabled()}
+            onInput={(e) => setWheelEnabled(e.currentTarget.checked)}
+          />
+          <span>启用滚轮滚动</span>
+        </label>
+        <label class={styles.wheelToggleItem}>
+          <input
+            type="checkbox"
+            class="themed-checkbox"
+            checked={wheelNatural()}
+            onInput={(e) => setWheelNatural(e.currentTarget.checked)}
+          />
+          <span>自然滚动方向</span>
+        </label>
+        <label class={styles.wheelToggleItem}>
+          <input
+            type="checkbox"
+            class="themed-checkbox"
+            checked={wheelBrakeEnabled()}
+            onInput={(e) => setWheelBrakeEnabled(e.currentTarget.checked)}
+          />
+          <span>滚动刹车</span>
+        </label>
+      </div>
+
+      <div class={styles.wheelSettingsFields}>
+        <div class={styles.wheelField}>
+          <span class={styles.wheelFieldLabel}>滚动步长</span>
+          <div class={styles.wheelFieldRow}>
+            <input
+              type="range"
+              min="5"
+              max="240"
+              step="1"
+              value={wheelStepPx()}
+              onInput={(e) => setWheelStepPx(parseRemoteWheelSetting('stepPx', e.currentTarget.value))}
+            />
+            <span>{Math.round(wheelStepPx())}px</span>
+          </div>
+        </div>
+
+        <div class={styles.wheelField}>
+          <span class={styles.wheelFieldLabel}>合并窗口</span>
+          <div class={styles.wheelFieldRow}>
+            <input
+              type="range"
+              min="0"
+              max="200"
+              step="5"
+              value={wheelCoalesceMs()}
+              onInput={(e) => setWheelCoalesceMs(parseRemoteWheelSetting('coalesceMs', e.currentTarget.value))}
+            />
+            <span>{Math.round(wheelCoalesceMs())}ms</span>
+          </div>
+        </div>
+
+        <div class={styles.wheelField}>
+          <span class={styles.wheelFieldLabel}>滚动加速</span>
+          <div class={styles.wheelFieldRow}>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={wheelAmp()}
+              onInput={(e) => setWheelAmp(parseRemoteWheelSetting('amp', e.currentTarget.value))}
+            />
+            <span>{wheelAmp().toFixed(2)}</span>
+          </div>
+        </div>
+
+        <div class={styles.wheelField}>
+          <span class={styles.wheelFieldLabel}>基础时长</span>
+          <div class={styles.wheelFieldRow}>
+            <input
+              type="range"
+              min="20"
+              max="800"
+              step="5"
+              value={wheelDurBaseMs()}
+              onInput={(e) => setWheelDurBaseMs(parseRemoteWheelSetting('durBaseMs', e.currentTarget.value))}
+            />
+            <span>{Math.round(wheelDurBaseMs())}ms</span>
+          </div>
+        </div>
+
+        <div class={styles.wheelField}>
+          <span class={styles.wheelFieldLabel}>抬起前延迟</span>
+          <div class={styles.wheelFieldRow}>
+            <input
+              type="range"
+              min="0"
+              max="500"
+              step="10"
+              value={wheelReleaseDelayMs()}
+              onInput={(e) => setWheelReleaseDelayMs(parseRemoteWheelSetting('releaseDelayMs', e.currentTarget.value))}
+            />
+            <span>{Math.round(wheelReleaseDelayMs())}ms</span>
+          </div>
+        </div>
+
+        <div class={styles.wheelField}>
+          <span class={styles.wheelFieldLabel}>刹车回头像素</span>
+          <div class={styles.wheelFieldRow}>
+            <input
+              type="range"
+              min="2"
+              max="20"
+              step="1"
+              disabled={!wheelBrakeEnabled()}
+              value={wheelBrakeReversePx()}
+              onInput={(e) => setWheelBrakeReversePx(parseRemoteWheelSetting('brakeReversePx', e.currentTarget.value))}
+            />
+            <span>{Math.round(wheelBrakeReversePx())}px</span>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const renderMobileSidebar = () => (
+    <>
+      <div
+        class={`${styles.mobileSidebarBackdrop} ${mobileSidebarOpen() ? styles.mobileSidebarBackdropOpen : ''}`}
+        onClick={() => setMobileSidebarOpen(false)}
+      />
+      <div
+        class={`${styles.mobileSidebar} ${mobileSidebarOpen() ? styles.mobileSidebarOpen : ''}`}
+        aria-hidden={!mobileSidebarOpen()}
+      >
+        <div class={styles.mobileSidebarContent}>
+          <div class={styles.wheelField}>
+            <span class={styles.wheelFieldLabel}>分辨率</span>
+            <div class={styles.wheelFieldRow}>
+              <input
+                type="range"
+                min="0.1"
+                max="1.0"
+                step="0.05"
+                value={resolutionDraft()}
+                onInput={(e) => setResolutionDraft(parseFloat(e.currentTarget.value))}
+                onChange={commitResolution}
+              />
+              <span>{resolutionDraft().toFixed(2)}x</span>
+            </div>
+          </div>
+
+          <div class={styles.wheelField}>
+            <span class={styles.wheelFieldLabel}>FPS</span>
+            <div class={styles.wheelFieldRow}>
+              <input
+                type="range"
+                min="1"
+                max="30"
+                step="1"
+                value={frameRateDraft()}
+                onInput={(e) => setFrameRateDraft(parseInt(e.currentTarget.value, 10))}
+                onChange={commitFrameRate}
+              />
+              <span>{frameRateDraft()}</span>
+            </div>
+          </div>
+
+          <div class={styles.wheelField}>
+            <span class={styles.wheelFieldLabel}>列数</span>
+            <div class={styles.wheelFieldRow}>
+              <input
+                type="range"
+                min="2"
+                max={String(getLayoutMaxColumns())}
+                step="1"
+                value={previewColumns()}
+                onInput={(e) => setColumnsDraft(clampColumns(parseInt(e.currentTarget.value, 10), getLayoutMaxColumns()))}
+                onChange={commitColumns}
+              />
+              <span>{previewColumns()}</span>
+            </div>
+          </div>
+
+          <div class={styles.mobileSidebarSection}>
+            <label class={styles.mobileSidebarSectionLabel}>滚轮设置</label>
+            <div class={styles.mobileSidebarWheelPanel}>
+              {renderWheelSettingsContent()}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <Show when={props.isOpen}>
       <div 
-        class={`${styles.modalOverlay} ${styles.noBackdrop} ${(isFullscreen() || isMobile()) ? styles.fullscreen : ''}`} 
+        class={`${styles.modalOverlay} ${styles.noBackdrop} ${(isFullscreen() || isViewportMobile()) ? styles.fullscreen : ''}`} 
       >
         <div 
           ref={(el) => { 
-            panelRef = el; 
+            panelRef = el;
+            syncPanelWidth(el.getBoundingClientRect().width);
+            panelResizeObserver?.disconnect();
+            panelResizeObserver = new ResizeObserver((entries) => {
+              const entry = entries[0];
+              syncPanelWidth(entry?.contentRect.width ?? el.getBoundingClientRect().width);
+            });
+            panelResizeObserver.observe(el);
             // 初始化位置（仅桌面端）
-            if (el && !windowInitialized() && !isFullscreen() && !isMobile()) {
+            if (!windowInitialized() && !isFullscreen() && !isViewportMobile()) {
               requestAnimationFrame(() => {
                 const rect = el.getBoundingClientRect();
                 setWindowPos({ x: rect.left, y: rect.top });
                 setWindowSize({ width: rect.width, height: rect.height });
+                syncPanelWidth(rect.width);
                 setWindowInitialized(true);
               });
             }
           }}
-          class={`${styles.batchRemoteModal} ${(isFullscreen() || isMobile()) ? styles.fullscreen : ''} ${isDragging() ? styles.dragging : ''}`} 
-          style={!isFullscreen() && !isMobile() && windowInitialized() ? {
+          class={`${styles.batchRemoteModal} ${usesSidebarLayout() ? styles.sidebarLayout : ''} ${(isFullscreen() || isViewportMobile()) ? styles.fullscreen : ''} ${isDragging() ? styles.dragging : ''}`} 
+          style={!isFullscreen() && !isViewportMobile() && windowInitialized() ? {
             position: 'fixed',
             left: `${windowPos().x}px`,
             top: `${windowPos().y}px`,
@@ -1474,178 +1836,229 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           <div 
             class={styles.modalHeader} 
             onMouseDown={handleDragStart}
-            style={{ cursor: (isFullscreen() || isMobile()) ? 'default' : 'move' }}
+            style={{ cursor: (isFullscreen() || isViewportMobile()) ? 'default' : 'move' }}
           >
-            <h3>批量实时控制</h3>
+            <div class={styles.headerTitleGroup}>
+              <Show when={usesSidebarLayout()}>
+                <button
+                  type="button"
+                  class={styles.mobileSidebarTrigger}
+                  onClick={() => setMobileSidebarOpen(!mobileSidebarOpen())}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  title="切换侧边栏"
+                  aria-label="切换侧边栏"
+                >
+                  <div class={`${styles.hamburger} ${mobileSidebarOpen() ? styles.hamburgerOpen : ''}`}>
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                </button>
+              </Show>
+              <h3>批量实时控制</h3>
+            </div>
             <div class={styles.headerButtons}>
               <button 
-                class={`${styles.headerButton} ${styles.fullscreenToggle}`} 
+                class={styles.fullscreenToggle}
                 onClick={toggleFullscreen}
                 onMouseDown={(e) => e.stopPropagation()}
                 title={isFullscreen() ? '退出全页面' : '全页面'}
+                aria-label={isFullscreen() ? '退出全页面' : '全页面'}
               >
-                {isFullscreen() ? '退出全屏' : '全页面'}
+                <Show
+                  when={isFullscreen()}
+                  fallback={<CgMaximizeAlt size={16} />}
+                >
+                  <CgMinimizeAlt size={16} />
+                </Show>
               </button>
               <button class={styles.closeButton} onClick={handleClose} onMouseDown={(e) => e.stopPropagation()} title="关闭">
                 <IconXmark size={16} />
               </button>
             </div>
           </div>
-
-          {/* 工具栏 */}
-          <div class={styles.toolbar}>
-            <div class={styles.toolbarLeft}>
-              <button class={styles.toolButton} onClick={handleHomeButton} title="主屏幕" disabled={checkedDevices().size === 0}>
-                <IconHouse size={14} />
-              </button>
-              <button class={styles.toolButton} onClick={handleVolumeDown} title="音量-" disabled={checkedDevices().size === 0}>
-                <IconVolumeDecrease size={14} />
-              </button>
-              <button class={styles.toolButton} onClick={handleVolumeUp} title="音量+" disabled={checkedDevices().size === 0}>
-                <IconVolumeIncrease size={14} />
-              </button>
-              <button class={styles.toolButton} onClick={handleLockScreen} title="锁屏" disabled={checkedDevices().size === 0}>
-                <IconLock size={14} />
-              </button>
-              <button class={styles.toolButton} onClick={handlePaste} title="粘贴" disabled={checkedDevices().size === 0}>
-                <IconPaste size={14} /> 粘贴
-              </button>
-              
-              <label class={styles.selectAllLabel}>
-                <input 
-                  type="checkbox" 
-                  class="themed-checkbox"
-                  checked={isAllSelected()} 
-                  onChange={toggleSelectAll}
-                />
-                全选同步操作
-              </label>
-            </div>
-          </div>
-
-          {/* 参数控制栏 */}
-          <div class={styles.controlBar}>
-            <div class={styles.sliderGroup}>
-              <label>分辨率</label>
-              <input 
-                type="range" 
-                min="0.1" 
-                max="1.0" 
-                step="0.05"
-                value={resolutionDraft()}
-                onInput={(e) => setResolutionDraft(parseFloat(e.currentTarget.value))}
-                onChange={commitResolution}
-              />
-              <span>{resolutionDraft().toFixed(2)}x</span>
-            </div>
-            
-            <div class={styles.sliderGroup}>
-              <label>FPS</label>
-              <input 
-                type="range" 
-                min="1" 
-                max="30" 
-                step="1"
-                value={frameRateDraft()}
-                onInput={(e) => setFrameRateDraft(parseInt(e.currentTarget.value, 10))}
-                onChange={commitFrameRate}
-              />
-              <span>{frameRateDraft()}</span>
-            </div>
-            
-            <div class={styles.sliderGroup}>
-              <label>列数</label>
-              <input 
-                type="range" 
-                min="2" 
-                max={String(getMaxColumns())}
-                step="1"
-                value={columnsDraft()}
-                onInput={(e) => setColumnsDraft(clampColumns(parseInt(e.currentTarget.value, 10)))}
-                onChange={commitColumns}
-              />
-              <span>{columnsDraft()}</span>
-            </div>
-          </div>
-
-          {/* 设备网格 */}
-          <div 
-            ref={(el) => { gridRef = el; }}
-            class={styles.deviceGrid}
-            style={{ '--columns': columnsDraft() }}
-          >
-            <For each={cachedDevices()}>
-              {(device) => {
-                const viewState = () => connectionStates[device.udid];
-                const isChecked = () => checkedDevices().has(device.udid);
-                const isConnected = () => viewState()?.state === 'connected';
-                const hasStream = () => !!viewState()?.hasStream;
+          <div class={styles.bodyArea}>
+            {/* 工具栏 */}
+            <div class={styles.toolbar}>
+              <div class={styles.toolbarLeft}>
+                <button class={styles.toolButton} onClick={handleHomeButton} title="主屏幕" disabled={checkedDevices().size === 0}>
+                  <IconHouse size={14} />
+                </button>
+                <button class={styles.toolButton} onClick={handleVolumeDown} title="音量-" disabled={checkedDevices().size === 0}>
+                  <IconVolumeDecrease size={14} />
+                </button>
+                <button class={styles.toolButton} onClick={handleVolumeUp} title="音量+" disabled={checkedDevices().size === 0}>
+                  <IconVolumeIncrease size={14} />
+                </button>
+                <button class={styles.toolButton} onClick={handleLockScreen} title="锁屏" disabled={checkedDevices().size === 0}>
+                  <IconLock size={14} />
+                </button>
+                <button class={styles.toolButton} onClick={handlePaste} title="粘贴" disabled={checkedDevices().size === 0}>
+                  <IconPaste size={14} /> 粘贴
+                </button>
                 
-                return (
-                  <div 
-                    ref={(el) => setCardRef(device.udid, el)}
-                    class={`${styles.deviceCard} ${isChecked() ? styles.checked : ''}`}
+                <label class={styles.selectAllLabel}>
+                  <input 
+                    type="checkbox" 
+                    class="themed-checkbox"
+                    checked={isAllSelected()} 
+                    onChange={toggleSelectAll}
+                  />
+                  全选同步操作
+                </label>
+              </div>
+            </div>
+
+            <Show when={!usesSidebarLayout()}>
+              <div class={styles.controlBar}>
+                <div class={styles.sliderGroup}>
+                  <label>分辨率</label>
+                  <input 
+                    type="range" 
+                    min="0.1" 
+                    max="1.0" 
+                    step="0.05"
+                    value={resolutionDraft()}
+                    onInput={(e) => setResolutionDraft(parseFloat(e.currentTarget.value))}
+                    onChange={commitResolution}
+                  />
+                  <span>{resolutionDraft().toFixed(2)}x</span>
+                </div>
+                
+                <div class={styles.sliderGroup}>
+                  <label>FPS</label>
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="30" 
+                    step="1"
+                    value={frameRateDraft()}
+                    onInput={(e) => setFrameRateDraft(parseInt(e.currentTarget.value, 10))}
+                    onChange={commitFrameRate}
+                  />
+                  <span>{frameRateDraft()}</span>
+                </div>
+                
+                <div class={styles.sliderGroup}>
+                  <label>列数</label>
+                  <input 
+                    type="range" 
+                    min="2" 
+                    max={String(getLayoutMaxColumns())}
+                    step="1"
+                    value={previewColumns()}
+                    onInput={(e) => setColumnsDraft(clampColumns(parseInt(e.currentTarget.value, 10), getLayoutMaxColumns()))}
+                    onChange={commitColumns}
+                  />
+                  <span>{previewColumns()}</span>
+                </div>
+
+                <div class={styles.wheelSettingsSection} ref={(el) => { wheelSettingsRef = el; }}>
+                  <button
+                    type="button"
+                    class={styles.wheelSettingsToggle}
+                    title="滚轮设置"
+                    aria-label="滚轮设置"
+                    onClick={() => setWheelSettingsOpen(!wheelSettingsOpen())}
                   >
-                    {/* 设备头部 */}
-                    <div class={styles.deviceHeader}>
-                      <span class={styles.deviceName}>{getDeviceName(device)}</span>
-                      <div class={styles.deviceControls}>
-                        <input 
-                          type="checkbox" 
-                          class="themed-checkbox"
-                          checked={isChecked()} 
-                          onChange={() => toggleDeviceCheck(device.udid)}
-                        />
-                        <span class={`${styles.statusDot} ${isConnected() ? styles.connected : ''}`} />
+                    <IconGear size={14} />
+                  </button>
+
+                  <Show when={wheelSettingsOpen()}>
+                    <div class={styles.wheelSettingsPopover}>
+                      <div class={styles.wheelSettingsPanel}>
+                        {renderWheelSettingsContent()}
                       </div>
                     </div>
-                    
-                    {/* 视频区域 */}
-                    <div class={styles.videoContainer}>
-                      <Show 
-                        when={hasStream()} 
-                        fallback={
-                          <div class={styles.videoPlaceholder}>
-                            <Show when={viewState()?.state === 'connecting'}>
-                              <span>连接中...</span>
-                            </Show>
-                            <Show when={viewState()?.state === 'disconnected'}>
-                              <button 
-                                class={styles.connectButton}
-                                onClick={() => void handleConnectButton(device)}
-                              >
-                                连接
-                              </button>
-                            </Show>
-                          </div>
-                        }
-                      >
-                        <video
-                          ref={(el) => setVideoRef(device.udid, el)}
-                          class={styles.deviceVideo}
-                          autoplay
-                          playsinline
-                          muted
-                          onMouseDown={(e) => handleDeviceMouseDown(device.udid, e)}
-                          onMouseMove={(e) => handleDeviceMouseMove(device.udid, e)}
-                          onMouseUp={(e) => handleDeviceMouseUp(device.udid, e)}
-                          onMouseLeave={() => handleDeviceMouseLeave(device.udid)}
-                          onContextMenu={(e) => handleDeviceContextMenu(device.udid, e)}
-                          onTouchStart={(e) => handleDeviceTouchStart(device.udid, e)}
-                          onTouchMove={(e) => handleDeviceTouchMove(device.udid, e)}
-                          onTouchEnd={(e) => handleDeviceTouchEnd(device.udid, e)}
-                          onTouchCancel={(e) => handleDeviceTouchEnd(device.udid, e)}
-                        />
-                      </Show>
+                  </Show>
+                </div>
+              </div>
+            </Show>
+
+            <Show when={usesSidebarLayout()}>
+              {renderMobileSidebar()}
+            </Show>
+
+            {/* 设备网格 */}
+            <div 
+              ref={(el) => { gridRef = el; }}
+              class={styles.deviceGrid}
+              style={{ '--columns': `${previewColumns()}` }}
+            >
+              <For each={cachedDevices()}>
+                {(device) => {
+                  const viewState = () => connectionStates[device.udid];
+                  const isChecked = () => checkedDevices().has(device.udid);
+                  const isConnected = () => viewState()?.state === 'connected';
+                  const hasStream = () => !!viewState()?.hasStream;
+                  
+                  return (
+                    <div 
+                      ref={(el) => setCardRef(device.udid, el)}
+                      class={`${styles.deviceCard} ${isChecked() ? styles.checked : ''}`}
+                    >
+                      {/* 设备头部 */}
+                      <div class={styles.deviceHeader}>
+                        <span class={styles.deviceName}>{getDeviceName(device)}</span>
+                        <div class={styles.deviceControls}>
+                          <input 
+                            type="checkbox" 
+                            class="themed-checkbox"
+                            checked={isChecked()} 
+                            onChange={() => toggleDeviceCheck(device.udid)}
+                          />
+                          <span class={`${styles.statusDot} ${isConnected() ? styles.connected : ''}`} />
+                        </div>
+                      </div>
+                      
+                      {/* 视频区域 */}
+                      <div class={styles.videoContainer}>
+                        <Show 
+                          when={hasStream()} 
+                          fallback={
+                            <div class={styles.videoPlaceholder}>
+                              <Show when={viewState()?.state === 'connecting'}>
+                                <span>连接中...</span>
+                              </Show>
+                              <Show when={viewState()?.state === 'disconnected'}>
+                                <button 
+                                  class={styles.connectButton}
+                                  onClick={() => void handleConnectButton(device)}
+                                >
+                                  连接
+                                </button>
+                              </Show>
+                            </div>
+                          }
+                        >
+                          <video
+                            ref={(el) => setVideoRef(device.udid, el)}
+                            class={styles.deviceVideo}
+                            autoplay
+                            playsinline
+                            muted
+                            onMouseDown={(e) => handleDeviceMouseDown(device.udid, e)}
+                            onMouseMove={(e) => handleDeviceMouseMove(device.udid, e)}
+                            onMouseUp={(e) => handleDeviceMouseUp(device.udid, e)}
+                            onMouseLeave={() => handleDeviceMouseLeave(device.udid)}
+                            onContextMenu={(e) => handleDeviceContextMenu(device.udid, e)}
+                            onWheel={(e) => handleDeviceWheel(device.udid, e)}
+                            onTouchStart={(e) => handleDeviceTouchStart(device.udid, e)}
+                            onTouchMove={(e) => handleDeviceTouchMove(device.udid, e)}
+                            onTouchEnd={(e) => handleDeviceTouchEnd(device.udid, e)}
+                            onTouchCancel={(e) => handleDeviceTouchEnd(device.udid, e)}
+                          />
+                        </Show>
+                      </div>
                     </div>
-                  </div>
-                );
-              }}
-            </For>
+                  );
+                }}
+              </For>
+            </div>
           </div>
 
           {/* 调整大小手柄 */}
-          <Show when={!isFullscreen() && !isMobile()}>
+          <Show when={!isFullscreen() && !isViewportMobile()}>
             <div 
               class={styles.resizeHandle}
               onMouseDown={handleResizeStart}
@@ -1656,7 +2069,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         {/* 粘贴模态框 */}
         <Show when={showPasteModal()}>
           <div 
-            class={`${styles.pasteModalOverlay} ${(isFullscreen() || isMobile()) ? styles.fullscreen : ''}`} 
+            class={`${styles.pasteModalOverlay} ${(isFullscreen() || isViewportMobile()) ? styles.fullscreen : ''}`} 
             onClick={() => setShowPasteModal(false)}
           >
             <div class={styles.pasteModal} onClick={(e) => e.stopPropagation()}>

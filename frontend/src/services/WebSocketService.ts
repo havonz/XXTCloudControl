@@ -1,5 +1,6 @@
 import { AuthService } from './AuthService';
 import { debugLog } from '../utils/debugLogger';
+import type { RemoteWheelSettings } from '../utils/remoteWheel';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -8,6 +9,11 @@ export interface Device {
   system?: any;
   [key: string]: any;
 }
+
+type RemoteWheelCommandPayload = RemoteWheelSettings & {
+  deltaY: number;
+  rotateQuarter: number;
+};
 
 // Pending file list request callback type
 type FileListCallback = (files: Array<{name: string; type: 'file' | 'directory'; size?: number}>) => void;
@@ -1443,7 +1449,7 @@ export class WebSocketService {
     return this.sendTouchCommand(deviceUdids, 'touch/up', x, y, finger);
   }
 
-  private groupDevicesByTouchCoordinates(
+  private groupDevicesByNormalizedCoordinates(
     deviceUdids: string[],
     nx: number,
     ny: number
@@ -1476,6 +1482,14 @@ export class WebSocketService {
     return Array.from(grouped.values());
   }
 
+  private groupDevicesByTouchCoordinates(
+    deviceUdids: string[],
+    nx: number,
+    ny: number
+  ): Array<{ devices: string[]; x: number; y: number }> {
+    return this.groupDevicesByNormalizedCoordinates(deviceUdids, nx, ny);
+  }
+
   // 触控按下（多设备 - 使用归一化坐标）
   async touchDownMultipleNormalized(deviceUdids: string[], nx: number, ny: number, finger?: number): Promise<void> {
     const grouped = this.groupDevicesByTouchCoordinates(deviceUdids, nx, ny);
@@ -1492,6 +1506,49 @@ export class WebSocketService {
   async touchUpMultipleNormalized(deviceUdids: string[], finger?: number): Promise<void> {
     if (deviceUdids.length === 0) return;
     await this.sendTouchCommand(deviceUdids, 'touch/up', 0, 0, finger);
+  }
+
+  async sendWheelCommandMultipleNormalized(
+    deviceUdids: string[],
+    nx: number,
+    ny: number,
+    payload: RemoteWheelCommandPayload
+  ): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
+      console.error('WebSocket未连接或未认证');
+      return;
+    }
+
+    if (deviceUdids.length === 0) {
+      return;
+    }
+
+    const grouped = this.groupDevicesByNormalizedCoordinates(deviceUdids, nx, ny);
+    if (grouped.length === 0) {
+      return;
+    }
+
+    try {
+      for (const group of grouped) {
+        const message = AuthService.getInstance().createControlMessage(
+          this.password,
+          'control/command',
+          {
+            devices: group.devices,
+            type: 'touch/wheel-async',
+            body: {
+              x: group.x,
+              y: group.y,
+              ...payload,
+            }
+          }
+        );
+
+        this.send(message);
+      }
+    } catch (error) {
+      console.error('发送滚轮命令失败:', error);
+    }
   }
 
   // 发送按键命令（支持多设备）

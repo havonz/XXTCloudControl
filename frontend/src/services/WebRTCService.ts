@@ -6,6 +6,7 @@
 import type { WebSocketService } from './WebSocketService';
 import { AuthService } from './AuthService';
 import { debugLog, debugWarn } from '../utils/debugLogger';
+import type { RemoteWheelSettings } from '../utils/remoteWheel';
 
 export interface WebRTCStartOptions {
   resolution?: number; // 0.25 - 1.0, default 0.6
@@ -553,6 +554,30 @@ export class WebRTCService {
       const command = {
         type: 'clipboard_request',
         operation
+      };
+      this.dataChannel.send(JSON.stringify(command));
+    }
+  }
+
+  /**
+   * 通过 DataChannel 发送滚轮命令
+   */
+  sendWheelCommand(payload: {
+    x: number;
+    y: number;
+    deltaY: number;
+    rotateQuarter: number;
+    settings: RemoteWheelSettings;
+  }) {
+    if (this.dataChannel?.readyState === 'open') {
+      const command = {
+        type: 'wheel',
+        x: Number(payload.x.toFixed(4)),
+        y: Number(payload.y.toFixed(4)),
+        norm: true,
+        deltaY: payload.deltaY,
+        rotateQuarter: payload.rotateQuarter,
+        ...payload.settings,
       };
       this.dataChannel.send(JSON.stringify(command));
     }

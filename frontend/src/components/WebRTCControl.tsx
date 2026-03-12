@@ -1,12 +1,24 @@
 import { createSignal, onCleanup, createEffect, Show, onMount, For, createMemo } from 'solid-js';
 import { createBackdropClose } from '../hooks/useBackdropClose';
-import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconCopy, IconPaperPlane, IconLinkSlash, IconLink, IconMobileScreen, IconUser, IconUsers } from '../icons';
+import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconCopy, IconPaperPlane, IconLinkSlash, IconLink, IconMobileScreen, IconUser, IconUsers, IconGear } from '../icons';
 import styles from './WebRTCControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
 import type { WebSocketService } from '../services/WebSocketService';
 import { MultiTouchSessionManager, type TouchPoint } from '../utils/multiTouchSession';
 import { debugLog, debugWarn } from '../utils/debugLogger';
+import {
+  REMOTE_WHEEL_DEFAULTS,
+  canHandleRemoteWheel,
+  createRemoteWheelBatcher,
+  normalizeRemoteWheelSettings,
+  normalizeWheelDeltaY,
+  parseRemoteWheelBoolean,
+  parseRemoteWheelSetting,
+  parseSingleRemoteWheelEnabled,
+  type RemoteWheelSettingKey,
+  type RemoteWheelSettings,
+} from '../utils/remoteWheel';
 
 export interface WebRTCControlProps {
   isOpen: boolean;
@@ -14,6 +26,45 @@ export interface WebRTCControlProps {
   selectedDevices: () => Device[];
   webSocketService: WebSocketService | null;
   password: string;
+}
+
+const RC_WHEEL_ENABLED_KEY = 'xxt_remote_ws_wheel_enabled';
+const RC_WHEEL_NATURAL_KEY = 'xxt_remote_ws_wheel_natural';
+const RC_WHEEL_STEP_KEY = 'xxt_remote_ws_wheel_step_px';
+const RC_WHEEL_COALESCE_KEY = 'xxt_remote_ws_wheel_coalesce_ms';
+const RC_WHEEL_AMP_KEY = 'xxt_remote_ws_wheel_amp';
+const RC_WHEEL_DUR_BASE_KEY = 'xxt_remote_ws_wheel_dur_base_ms';
+const RC_WHEEL_RELEASE_DELAY_KEY = 'xxt_remote_ws_wheel_release_delay_ms';
+const RC_WHEEL_BRAKE_ENABLED_KEY = 'xxt_remote_ws_wheel_brake_enabled';
+const RC_WHEEL_BRAKE_REVERSE_PX_KEY = 'xxt_remote_ws_wheel_brake_reverse_px';
+
+function loadSavedWheelBoolean(key: string, fallback: boolean): boolean {
+  try {
+    return parseRemoteWheelBoolean(localStorage.getItem(key), fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function loadSavedSingleRemoteWheelEnabled(): boolean {
+  try {
+    return parseSingleRemoteWheelEnabled(localStorage.getItem(RC_WHEEL_ENABLED_KEY));
+  } catch {
+    return parseSingleRemoteWheelEnabled(null);
+  }
+}
+
+function loadSavedWheelNumber(key: string, type: RemoteWheelSettingKey): number {
+  try {
+    return parseRemoteWheelSetting(type, localStorage.getItem(key));
+  } catch {
+    return REMOTE_WHEEL_DEFAULTS[type];
+  }
+}
+
+function rotationToQuarter(rotation: number): number {
+  const quarter = Math.round(rotation / 90);
+  return ((quarter % 4) + 4) % 4;
 }
 
 export default function WebRTCControl(props: WebRTCControlProps) {
@@ -39,6 +90,16 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   
   // 移动端侧边栏状态
   const [mobileSettingsOpen, setMobileSettingsOpen] = createSignal(false);
+  const [wheelSettingsOpen, setWheelSettingsOpen] = createSignal(false);
+  const [wheelEnabled, setWheelEnabled] = createSignal<boolean>(loadSavedSingleRemoteWheelEnabled());
+  const [wheelNatural, setWheelNatural] = createSignal<boolean>(loadSavedWheelBoolean(RC_WHEEL_NATURAL_KEY, REMOTE_WHEEL_DEFAULTS.natural));
+  const [wheelBrakeEnabled, setWheelBrakeEnabled] = createSignal<boolean>(loadSavedWheelBoolean(RC_WHEEL_BRAKE_ENABLED_KEY, REMOTE_WHEEL_DEFAULTS.brakeEnabled));
+  const [wheelStepPx, setWheelStepPx] = createSignal<number>(loadSavedWheelNumber(RC_WHEEL_STEP_KEY, 'stepPx'));
+  const [wheelCoalesceMs, setWheelCoalesceMs] = createSignal<number>(loadSavedWheelNumber(RC_WHEEL_COALESCE_KEY, 'coalesceMs'));
+  const [wheelAmp, setWheelAmp] = createSignal<number>(loadSavedWheelNumber(RC_WHEEL_AMP_KEY, 'amp'));
+  const [wheelDurBaseMs, setWheelDurBaseMs] = createSignal<number>(loadSavedWheelNumber(RC_WHEEL_DUR_BASE_KEY, 'durBaseMs'));
+  const [wheelReleaseDelayMs, setWheelReleaseDelayMs] = createSignal<number>(loadSavedWheelNumber(RC_WHEEL_RELEASE_DELAY_KEY, 'releaseDelayMs'));
+  const [wheelBrakeReversePx, setWheelBrakeReversePx] = createSignal<number>(loadSavedWheelNumber(RC_WHEEL_BRAKE_REVERSE_PX_KEY, 'brakeReversePx'));
   
   const mainBackdropClose = createBackdropClose(() => handleClose());
   const clipboardBackdropClose = createBackdropClose(() => setClipboardModalOpen(false));
@@ -175,6 +236,31 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   let lastTimestamp = 0;
   let lastAppliedResolution = 0;
   let lastAppliedFrameRate = 0;
+  const wheelBatcher = createRemoteWheelBatcher((payload) => {
+    if (webrtcService) {
+      webrtcService.sendWheelCommand({
+        x: payload.nx,
+        y: payload.ny,
+        deltaY: payload.deltaY,
+        rotateQuarter: payload.rotateQuarter,
+        settings: payload.settings,
+      });
+    }
+
+    const targetDevices = getTargetDevices();
+    if (targetDevices.length > 0 && props.webSocketService) {
+      props.webSocketService.sendWheelCommandMultipleNormalized(
+        targetDevices,
+        payload.nx,
+        payload.ny,
+        {
+          deltaY: payload.deltaY,
+          rotateQuarter: payload.rotateQuarter,
+          ...payload.settings,
+        }
+      );
+    }
+  });
 
   const updateCachedVideoRect = () => {
     if (videoRef) {
@@ -303,6 +389,18 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
   };
 
+  const currentWheelSettings = (): RemoteWheelSettings => normalizeRemoteWheelSettings({
+    enabled: wheelEnabled(),
+    natural: wheelNatural(),
+    brakeEnabled: wheelBrakeEnabled(),
+    stepPx: wheelStepPx(),
+    coalesceMs: wheelCoalesceMs(),
+    amp: wheelAmp(),
+    durBaseMs: wheelDurBaseMs(),
+    releaseDelayMs: wheelReleaseDelayMs(),
+    brakeReversePx: wheelBrakeReversePx(),
+  });
+
   const buildTouchKey = (touch: Touch) => `touch:${touch.identifier}`;
 
   // 是否正在流式传输
@@ -385,6 +483,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   // 停止 WebRTC 连接
   const stopStream = async () => {
     cleanupTouchState();
+    wheelBatcher.clear();
     if (webrtcService) {
       await webrtcService.stopStream();
       webrtcService = null;
@@ -498,6 +597,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     if (deviceUdid === selectedControlDevice()) return;
     
+    wheelBatcher.clear();
     debugLog('webrtc', `切换WebRTC控制设备: ${selectedControlDevice()} -> ${deviceUdid}`);
     setSelectedControlDevice(deviceUdid);
   };
@@ -604,6 +704,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     lastMouseTouchPosition = { x: 0, y: 0 };
     mouseTouchTargetDevices = [];
     activeTouchTargetDevices = [];
+    wheelBatcher.clear();
     resetMouseMoveState();
     touchSession.reset();
     clearCachedVideoRect();
@@ -614,6 +715,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (shouldIgnoreMouseEvent(event)) return;
     if (touchSession.hasActiveTouches() || isMouseTouching) return;
     event.preventDefault();
+    wheelBatcher.clear();
     resetMouseMoveState();
     updateCachedVideoRect();
 
@@ -697,6 +799,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (isMouseTouching) return;
     event.preventDefault();
     lastTouchTimestamp = Date.now();
+    wheelBatcher.clear();
     updateCachedVideoRect();
     
     // 移除其他元素的焦点
@@ -766,6 +869,43 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (targetDevices.length > 0 && props.webSocketService) {
       props.webSocketService.pressHomeButtonMultiple(targetDevices);
     }
+  };
+
+  const handleWheel = (event: WheelEvent) => {
+    if (connectionState() !== 'connected') return;
+
+    const settings = currentWheelSettings();
+    const deltaY = normalizeWheelDeltaY(
+      event.deltaY,
+      event.deltaMode,
+      (event.currentTarget as HTMLElement | null)?.clientHeight || videoContainerRef?.clientHeight || 0
+    );
+
+    if (!canHandleRemoteWheel({
+      enabled: settings.enabled,
+      pointerActive: isMouseTouching || touchSession.hasActiveTouches(),
+      deltaY,
+    })) {
+      return;
+    }
+
+    clearCachedVideoRect();
+    const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
+    if (!coords) return;
+
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+    event.stopPropagation();
+
+    wheelBatcher.schedule({
+      mergeKey: `${selectedControlDevice()}:${rotationToQuarter(currentRotation())}:${syncControl() ? 'sync' : 'single'}`,
+      nx: coords.x,
+      ny: coords.y,
+      deltaY,
+      rotateQuarter: rotationToQuarter(currentRotation()),
+      settings,
+    });
   };
 
   // 处理关闭
@@ -1215,6 +1355,16 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     setCurrentRotation(degrees);
   };
 
+  createEffect(() => { try { localStorage.setItem(RC_WHEEL_ENABLED_KEY, String(wheelEnabled())); } catch {} });
+  createEffect(() => { try { localStorage.setItem(RC_WHEEL_NATURAL_KEY, String(wheelNatural())); } catch {} });
+  createEffect(() => { try { localStorage.setItem(RC_WHEEL_BRAKE_ENABLED_KEY, String(wheelBrakeEnabled())); } catch {} });
+  createEffect(() => { try { localStorage.setItem(RC_WHEEL_STEP_KEY, String(wheelStepPx())); } catch {} });
+  createEffect(() => { try { localStorage.setItem(RC_WHEEL_COALESCE_KEY, String(wheelCoalesceMs())); } catch {} });
+  createEffect(() => { try { localStorage.setItem(RC_WHEEL_AMP_KEY, String(wheelAmp())); } catch {} });
+  createEffect(() => { try { localStorage.setItem(RC_WHEEL_DUR_BASE_KEY, String(wheelDurBaseMs())); } catch {} });
+  createEffect(() => { try { localStorage.setItem(RC_WHEEL_RELEASE_DELAY_KEY, String(wheelReleaseDelayMs())); } catch {} });
+  createEffect(() => { try { localStorage.setItem(RC_WHEEL_BRAKE_REVERSE_PX_KEY, String(wheelBrakeReversePx())); } catch {} });
+
   // 当组件打开时，默认选择第一个设备
   const handleOpen = () => {
     if (props.selectedDevices().length > 0) {
@@ -1231,6 +1381,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       stopStream();
       setSelectedControlDevice('');
       setSyncControl(false);
+      setWheelSettingsOpen(false);
     }
   });
 
@@ -1350,6 +1501,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   // 确保触控状态正确清理的函数
   const cleanupTouchState = () => {
+    wheelBatcher.clear();
     if (isMouseTouching) {
       flushQueuedMouseMove();
       sendTouchAction('up', lastMouseTouchPosition, undefined, mouseTouchTargetDevices);
@@ -1524,6 +1676,146 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 </div>
               </div>
 
+              <div class={styles.wheelSettingsSection}>
+                <div class={styles.wheelSettingsHeader}>
+                  <label class={styles.syncControlLabel}>滚轮设置</label>
+                  <button
+                    class={styles.wheelSettingsToggle}
+                    type="button"
+                    onClick={() => setWheelSettingsOpen(!wheelSettingsOpen())}
+                  >
+                    <IconGear size={12} />
+                    {wheelSettingsOpen() ? '收起' : '展开'}
+                  </button>
+                </div>
+                <Show when={wheelSettingsOpen()}>
+                  <div class={styles.wheelSettingsPanel}>
+                    <div class={styles.wheelSettingsToggles}>
+                      <label class={styles.wheelToggleItem}>
+                        <input
+                          type="checkbox"
+                          class="themed-checkbox"
+                          checked={wheelEnabled()}
+                          onInput={(e) => setWheelEnabled(e.currentTarget.checked)}
+                        />
+                        <span>启用滚轮滚动</span>
+                      </label>
+                      <label class={styles.wheelToggleItem}>
+                        <input
+                          type="checkbox"
+                          class="themed-checkbox"
+                          checked={wheelNatural()}
+                          onInput={(e) => setWheelNatural(e.currentTarget.checked)}
+                        />
+                        <span>自然滚动方向</span>
+                      </label>
+                      <label class={styles.wheelToggleItem}>
+                        <input
+                          type="checkbox"
+                          class="themed-checkbox"
+                          checked={wheelBrakeEnabled()}
+                          onInput={(e) => setWheelBrakeEnabled(e.currentTarget.checked)}
+                        />
+                        <span>滚动刹车</span>
+                      </label>
+                    </div>
+
+                    <div class={styles.wheelSettingsFields}>
+                      <div class={styles.wheelField}>
+                        <span class={styles.wheelFieldLabel}>滚动步长</span>
+                        <div class={styles.wheelFieldRow}>
+                          <input
+                            type="range"
+                            min="5"
+                            max="240"
+                            step="1"
+                            value={wheelStepPx()}
+                            onInput={(e) => setWheelStepPx(parseRemoteWheelSetting('stepPx', e.currentTarget.value))}
+                          />
+                          <span>{Math.round(wheelStepPx())}px</span>
+                        </div>
+                      </div>
+
+                      <div class={styles.wheelField}>
+                        <span class={styles.wheelFieldLabel}>合并窗口</span>
+                        <div class={styles.wheelFieldRow}>
+                          <input
+                            type="range"
+                            min="0"
+                            max="200"
+                            step="5"
+                            value={wheelCoalesceMs()}
+                            onInput={(e) => setWheelCoalesceMs(parseRemoteWheelSetting('coalesceMs', e.currentTarget.value))}
+                          />
+                          <span>{Math.round(wheelCoalesceMs())}ms</span>
+                        </div>
+                      </div>
+
+                      <div class={styles.wheelField}>
+                        <span class={styles.wheelFieldLabel}>滚动加速</span>
+                        <div class={styles.wheelFieldRow}>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={wheelAmp()}
+                            onInput={(e) => setWheelAmp(parseRemoteWheelSetting('amp', e.currentTarget.value))}
+                          />
+                          <span>{wheelAmp().toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      <div class={styles.wheelField}>
+                        <span class={styles.wheelFieldLabel}>基础时长</span>
+                        <div class={styles.wheelFieldRow}>
+                          <input
+                            type="range"
+                            min="20"
+                            max="800"
+                            step="5"
+                            value={wheelDurBaseMs()}
+                            onInput={(e) => setWheelDurBaseMs(parseRemoteWheelSetting('durBaseMs', e.currentTarget.value))}
+                          />
+                          <span>{Math.round(wheelDurBaseMs())}ms</span>
+                        </div>
+                      </div>
+
+                      <div class={styles.wheelField}>
+                        <span class={styles.wheelFieldLabel}>抬起前延迟</span>
+                        <div class={styles.wheelFieldRow}>
+                          <input
+                            type="range"
+                            min="0"
+                            max="500"
+                            step="10"
+                            value={wheelReleaseDelayMs()}
+                            onInput={(e) => setWheelReleaseDelayMs(parseRemoteWheelSetting('releaseDelayMs', e.currentTarget.value))}
+                          />
+                          <span>{Math.round(wheelReleaseDelayMs())}ms</span>
+                        </div>
+                      </div>
+
+                      <div class={styles.wheelField}>
+                        <span class={styles.wheelFieldLabel}>刹车回头像素</span>
+                        <div class={styles.wheelFieldRow}>
+                          <input
+                            type="range"
+                            min="2"
+                            max="20"
+                            step="1"
+                            disabled={!wheelBrakeEnabled()}
+                            value={wheelBrakeReversePx()}
+                            onInput={(e) => setWheelBrakeReversePx(parseRemoteWheelSetting('brakeReversePx', e.currentTarget.value))}
+                          />
+                          <span>{Math.round(wheelBrakeReversePx())}px</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+
               <div class={styles.actionButtons}>
                 <Show when={connectionState() === 'disconnected'}>
                   <button
@@ -1581,6 +1873,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   onMouseUp={handleMouseUp}
                   onMouseLeave={handleMouseLeave}
                   onContextMenu={handleContextMenu}
+                  onWheel={handleWheel}
                   onTouchStart={handleTouchStart}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
@@ -1600,7 +1893,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 {/* 统计信息栏 */}
                 <div class={styles.statsBar}>
                   <div class={styles.touchHintInline}>
-                    🖱️ 左键: 触摸 | 右键: Home
+                    🖱️ 左键: 触摸 | 右键: Home | 滚轮: 滚动
                     {syncControl() && <span class={styles.syncActiveHint}> (同步中)</span>}
                   </div>
                   <div class={styles.statsGroup}>
