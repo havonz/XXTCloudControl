@@ -1366,7 +1366,13 @@ export class WebSocketService {
   }
 
   // 发送触控命令（支持多设备）
-  async sendTouchCommand(deviceUdids: string[], touchType: 'touch/down' | 'touch/move' | 'touch/up', x: number, y: number): Promise<void> {
+  async sendTouchCommand(
+    deviceUdids: string[],
+    touchType: 'touch/down' | 'touch/move' | 'touch/up',
+    x: number,
+    y: number,
+    finger?: number
+  ): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
       console.error('WebSocket未连接或未认证');
       return;
@@ -1378,16 +1384,25 @@ export class WebSocketService {
     }
 
     try {
+      const body: {
+        x: number;
+        y: number;
+        finger?: number;
+      } = {
+        x: x,
+        y: y
+      };
+      if (Number.isInteger(finger)) {
+        body.finger = finger;
+      }
+
       const message = AuthService.getInstance().createControlMessage(
         this.password,
         'control/command',
         {
           devices: deviceUdids,
           type: touchType,
-          body: {
-            x: x,
-            y: y
-          }
+          body
         }
       );
       
@@ -1399,33 +1414,33 @@ export class WebSocketService {
   }
 
   // 触控按下（单设备）
-  async touchDown(deviceUdid: string, x: number, y: number): Promise<void> {
-    return this.sendTouchCommand([deviceUdid], 'touch/down', x, y);
+  async touchDown(deviceUdid: string, x: number, y: number, finger?: number): Promise<void> {
+    return this.sendTouchCommand([deviceUdid], 'touch/down', x, y, finger);
   }
 
   // 触控移动（单设备）
-  async touchMove(deviceUdid: string, x: number, y: number): Promise<void> {
-    return this.sendTouchCommand([deviceUdid], 'touch/move', x, y);
+  async touchMove(deviceUdid: string, x: number, y: number, finger?: number): Promise<void> {
+    return this.sendTouchCommand([deviceUdid], 'touch/move', x, y, finger);
   }
 
   // 触控抬起（单设备）
-  async touchUp(deviceUdid: string, x: number, y: number): Promise<void> {
-    return this.sendTouchCommand([deviceUdid], 'touch/up', x, y);
+  async touchUp(deviceUdid: string, x: number, y: number, finger?: number): Promise<void> {
+    return this.sendTouchCommand([deviceUdid], 'touch/up', x, y, finger);
   }
 
   // 触控按下（多设备）
-  async touchDownMultiple(deviceUdids: string[], x: number, y: number): Promise<void> {
-    return this.sendTouchCommand(deviceUdids, 'touch/down', x, y);
+  async touchDownMultiple(deviceUdids: string[], x: number, y: number, finger?: number): Promise<void> {
+    return this.sendTouchCommand(deviceUdids, 'touch/down', x, y, finger);
   }
 
   // 触控移动（多设备）
-  async touchMoveMultiple(deviceUdids: string[], x: number, y: number): Promise<void> {
-    return this.sendTouchCommand(deviceUdids, 'touch/move', x, y);
+  async touchMoveMultiple(deviceUdids: string[], x: number, y: number, finger?: number): Promise<void> {
+    return this.sendTouchCommand(deviceUdids, 'touch/move', x, y, finger);
   }
 
   // 触控抬起（多设备）
-  async touchUpMultiple(deviceUdids: string[], x: number, y: number): Promise<void> {
-    return this.sendTouchCommand(deviceUdids, 'touch/up', x, y);
+  async touchUpMultiple(deviceUdids: string[], x: number, y: number, finger?: number): Promise<void> {
+    return this.sendTouchCommand(deviceUdids, 'touch/up', x, y, finger);
   }
 
   private groupDevicesByTouchCoordinates(
@@ -1462,21 +1477,21 @@ export class WebSocketService {
   }
 
   // 触控按下（多设备 - 使用归一化坐标）
-  async touchDownMultipleNormalized(deviceUdids: string[], nx: number, ny: number): Promise<void> {
+  async touchDownMultipleNormalized(deviceUdids: string[], nx: number, ny: number, finger?: number): Promise<void> {
     const grouped = this.groupDevicesByTouchCoordinates(deviceUdids, nx, ny);
-    await Promise.all(grouped.map(group => this.sendTouchCommand(group.devices, 'touch/down', group.x, group.y)));
+    await Promise.all(grouped.map(group => this.sendTouchCommand(group.devices, 'touch/down', group.x, group.y, finger)));
   }
 
   // 触控移动（多设备 - 使用归一化坐标）
-  async touchMoveMultipleNormalized(deviceUdids: string[], nx: number, ny: number): Promise<void> {
+  async touchMoveMultipleNormalized(deviceUdids: string[], nx: number, ny: number, finger?: number): Promise<void> {
     const grouped = this.groupDevicesByTouchCoordinates(deviceUdids, nx, ny);
-    await Promise.all(grouped.map(group => this.sendTouchCommand(group.devices, 'touch/move', group.x, group.y)));
+    await Promise.all(grouped.map(group => this.sendTouchCommand(group.devices, 'touch/move', group.x, group.y, finger)));
   }
 
   // 触控抬起（多设备 - 使用归一化坐标）
-  async touchUpMultipleNormalized(deviceUdids: string[]): Promise<void> {
+  async touchUpMultipleNormalized(deviceUdids: string[], finger?: number): Promise<void> {
     if (deviceUdids.length === 0) return;
-    await this.sendTouchCommand(deviceUdids, 'touch/up', 0, 0);
+    await this.sendTouchCommand(deviceUdids, 'touch/up', 0, 0, finger);
   }
 
   // 发送按键命令（支持多设备）

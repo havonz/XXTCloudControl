@@ -495,14 +495,23 @@ export class WebRTCService {
    * @param x 相对宽度比例 (0.0 - 1.0)
    * @param y 相对高度比例 (0.0 - 1.0)
    */
-  sendTouchCommand(action: 'down' | 'move' | 'up', x: number, y: number) {
+  sendTouchCommand(action: 'down' | 'move' | 'up', x: number, y: number, fingerId?: number) {
     if (this.dataChannel?.readyState === 'open') {
-      const command = {
+      const command: {
+        type: 'touch';
+        action: 'down' | 'move' | 'up';
+        x: number;
+        y: number;
+        fingerId?: number;
+      } = {
         type: 'touch',
         action,
         x: Number(x.toFixed(4)),
         y: Number(y.toFixed(4))
       };
+      if (Number.isInteger(fingerId)) {
+        command.fingerId = fingerId;
+      }
       this.dataChannel.send(JSON.stringify(command));
     }
   }

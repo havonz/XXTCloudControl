@@ -806,11 +806,18 @@ curl -L -o out.bin \
     "type": "touch/down|touch/move|touch/up",
     "body": {
       "x": 100,
-      "y": 200
+      "y": 200,
+      "finger": 28
     }
   }
 }
 ```
+
+说明：
+
+- `finger` 为可选字段，范围 `0 ~ 29`。
+- 不传 `finger` 时，设备端仍按旧单指协议处理，保持兼容。
+- 多点触控通过多条 `touch/down|touch/move|touch/up` 消息配合稳定的 `finger` 值表达；同一根手指从按下到抬起必须使用同一个 `finger`。
 
 #### 按键命令
 ```json

@@ -5,6 +5,7 @@ import styles from './BatchRemoteControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
 import type { WebSocketService } from '../services/WebSocketService';
+import { MultiTouchSessionManager, type TouchPoint } from '../utils/multiTouchSession';
 import { debugLog, debugWarn } from '../utils/debugLogger';
 
 export interface BatchRemoteControlProps {
@@ -171,18 +172,21 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const bindFrameByUdid = new Map<string, number>();
   
   // 触控状态
-  const [activeDevice, setActiveDevice] = createSignal<string | null>(null);
-  const [isTouching, setIsTouching] = createSignal(false);
-  let lastTouchPosition = { x: 0, y: 0 };
+  let mouseActiveDevice: string | null = null;
+  let isMouseTouching = false;
+  let lastMouseTouchPosition: TouchPoint = { x: 0, y: 0 };
+  let mouseMirrorDevices: string[] = [];
+  let activeTouchDevice: string | null = null;
+  let activeTouchMirrorDevices: string[] = [];
   // 粘贴文本模态框
   const [showPasteModal, setShowPasteModal] = createSignal(false);
   const [pasteText, setPasteText] = createSignal('');
   
   // Move throttling 相关变量
   const MOVE_EPSILON = 0.0015;
-  let pendingMove: { x: number; y: number } | null = null;
-  let moveRafId: number | null = null;
-  let lastSentMove: { x: number; y: number } | null = null;
+  let pendingMouseMove: TouchPoint | null = null;
+  let mouseMoveRafId: number | null = null;
+  let lastSentMouseMove: TouchPoint | null = null;
 
   createEffect(() => {
     const maxColumns = getMaxColumns();
@@ -673,6 +677,117 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     return { viaWebRTC, viaWebSocket };
   };
 
+  const clearActiveTouchLock = () => {
+    activeTouchDevice = null;
+    activeTouchMirrorDevices = [];
+  };
+
+  const buildTouchKey = (touch: Touch) => `touch:${touch.identifier}`;
+
+  const sendTouchAction = (
+    udid: string,
+    action: 'down' | 'move' | 'up',
+    coords: TouchPoint,
+    fingerId?: number,
+    otherDevices: string[] = []
+  ) => {
+    const service = getService(udid);
+    if (service) {
+      service.sendTouchCommand(action, coords.x, coords.y, fingerId);
+    }
+
+    if (otherDevices.length > 0 && props.webSocketService) {
+      if (action === 'down') {
+        props.webSocketService.touchDownMultipleNormalized(otherDevices, coords.x, coords.y, fingerId);
+      } else if (action === 'move') {
+        props.webSocketService.touchMoveMultipleNormalized(otherDevices, coords.x, coords.y, fingerId);
+      } else {
+        props.webSocketService.touchUpMultipleNormalized(otherDevices, fingerId);
+      }
+    }
+  };
+
+  const sendMouseMove = (coords: TouchPoint) => {
+    if (!mouseActiveDevice) return;
+    sendTouchAction(mouseActiveDevice, 'move', coords, undefined, mouseMirrorDevices);
+  };
+
+  const shouldSkipMouseMove = (coords: TouchPoint) => {
+    if (!lastSentMouseMove) return false;
+    const dx = coords.x - lastSentMouseMove.x;
+    const dy = coords.y - lastSentMouseMove.y;
+    return (dx * dx + dy * dy) < MOVE_EPSILON * MOVE_EPSILON;
+  };
+
+  const scheduleMouseMoveSend = (coords: TouchPoint) => {
+    pendingMouseMove = coords;
+    if (mouseMoveRafId !== null) return;
+    mouseMoveRafId = requestAnimationFrame(() => {
+      mouseMoveRafId = null;
+      if (!pendingMouseMove) return;
+      const next = pendingMouseMove;
+      pendingMouseMove = null;
+      if (shouldSkipMouseMove(next)) return;
+      sendMouseMove(next);
+      lastSentMouseMove = next;
+    });
+  };
+
+  const flushQueuedMouseMove = () => {
+    if (mouseMoveRafId !== null) {
+      cancelAnimationFrame(mouseMoveRafId);
+      mouseMoveRafId = null;
+    }
+    if (!pendingMouseMove) return;
+    const next = pendingMouseMove;
+    pendingMouseMove = null;
+    if (shouldSkipMouseMove(next)) return;
+    sendMouseMove(next);
+    lastSentMouseMove = next;
+  };
+
+  const resetMouseMoveState = () => {
+    pendingMouseMove = null;
+    if (mouseMoveRafId !== null) {
+      cancelAnimationFrame(mouseMoveRafId);
+      mouseMoveRafId = null;
+    }
+    lastSentMouseMove = null;
+  };
+
+  const touchSession = new MultiTouchSessionManager(
+    {
+      onTouchStart: (session) => {
+        if (!activeTouchDevice) return;
+        sendTouchAction(activeTouchDevice, 'down', session.point, session.fingerId, activeTouchMirrorDevices);
+      },
+      onTouchMove: (session) => {
+        if (!activeTouchDevice) return;
+        sendTouchAction(activeTouchDevice, 'move', session.point, session.fingerId, activeTouchMirrorDevices);
+      },
+      onTouchEnd: (session) => {
+        if (!activeTouchDevice) return;
+        sendTouchAction(activeTouchDevice, 'up', session.point, session.fingerId, activeTouchMirrorDevices);
+      }
+    },
+    { moveEpsilon: MOVE_EPSILON }
+  );
+
+  const resetTouchStateForDevice = (udid?: string) => {
+    if (!udid || mouseActiveDevice === udid) {
+      isMouseTouching = false;
+      mouseActiveDevice = null;
+      mouseMirrorDevices = [];
+      lastMouseTouchPosition = { x: 0, y: 0 };
+      resetMouseMoveState();
+    }
+
+    if (!udid || activeTouchDevice === udid) {
+      touchSession.reset();
+      clearActiveTouchLock();
+    }
+  };
+
   // 连接单个设备
   const connectDevice = async (device: Device) => {
     const wsService = currentWebSocketService();
@@ -700,10 +815,12 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           scheduleResolutionRefresh();
         },
         onDisconnected: () => {
+          resetTouchStateForDevice(device.udid);
           clearDeviceRuntime(device.udid, service);
         },
         onError: (error) => {
           console.error(`[BatchRemote] Device ${device.udid} error:`, error);
+          resetTouchStateForDevice(device.udid);
           clearDeviceRuntime(device.udid, service);
         },
         onTrack: (stream) => {
@@ -740,9 +857,12 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const disconnectDevice = async (udid: string) => {
     const service = getService(udid);
     if (!service) {
+      resetTouchStateForDevice(udid);
       clearDeviceRuntime(udid);
       return;
     }
+
+    cleanupTouchState(udid);
 
     try {
       await service.stopStream();
@@ -842,71 +962,10 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     return { x: clickX, y: clickY };
   };
 
-  // 发送移动命令
-  const sendMove = (coords: { x: number; y: number }) => {
-    const active = activeDevice();
-    if (!active) return;
-
-    const service = getService(active);
-    if (service) {
-      service.sendTouchCommand('move', coords.x, coords.y);
-    }
-    
-    // 只有当操作的设备是选中状态时，才同步到其他选中设备
-    if (checkedDevices().has(active)) {
-      const otherDevices = getOtherCheckedDevices(active);
-      if (otherDevices.length > 0 && props.webSocketService) {
-        props.webSocketService.touchMoveMultipleNormalized(otherDevices, coords.x, coords.y);
-      }
-    }
-  };
-
-  const shouldSkipMove = (coords: { x: number; y: number }) => {
-    if (!lastSentMove) return false;
-    const dx = coords.x - lastSentMove.x;
-    const dy = coords.y - lastSentMove.y;
-    return (dx * dx + dy * dy) < MOVE_EPSILON * MOVE_EPSILON;
-  };
-
-  const scheduleMoveSend = (coords: { x: number; y: number }) => {
-    pendingMove = coords;
-    if (moveRafId !== null) return;
-    moveRafId = requestAnimationFrame(() => {
-      moveRafId = null;
-      if (!pendingMove) return;
-      const next = pendingMove;
-      pendingMove = null;
-      if (shouldSkipMove(next)) return;
-      sendMove(next);
-      lastSentMove = next;
-    });
-  };
-
-  const flushQueuedMove = () => {
-    if (moveRafId !== null) {
-      cancelAnimationFrame(moveRafId);
-      moveRafId = null;
-    }
-    if (!pendingMove) return;
-    const next = pendingMove;
-    pendingMove = null;
-    if (shouldSkipMove(next)) return;
-    sendMove(next);
-    lastSentMove = next;
-  };
-
-  const resetMoveState = () => {
-    pendingMove = null;
-    if (moveRafId !== null) {
-      cancelAnimationFrame(moveRafId);
-      moveRafId = null;
-    }
-    lastSentMove = null;
-  };
-
   // 触控事件处理
   const handleDeviceMouseDown = (udid: string, event: MouseEvent) => {
     if (event.button !== 0) return;
+    if (touchSession.hasActiveTouches() || isMouseTouching) return;
     event.preventDefault();
 
     const videoRef = videoRefByUdid.get(udid);
@@ -915,28 +974,16 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const coords = convertToDeviceCoordinates(event, videoRef);
     if (!coords) return;
 
-    resetMoveState();
-    setActiveDevice(udid);
-    setIsTouching(true);
-    lastTouchPosition = coords;
-
-    // 发送到当前设备 (via DataChannel)
-    const service = getService(udid);
-    if (service) {
-      service.sendTouchCommand('down', coords.x, coords.y);
-    }
-
-    // 只有当操作的设备是选中状态时，才同步到其他选中设备
-    if (checkedDevices().has(udid)) {
-      const otherDevices = getOtherCheckedDevices(udid);
-      if (otherDevices.length > 0 && props.webSocketService) {
-        props.webSocketService.touchDownMultipleNormalized(otherDevices, coords.x, coords.y);
-      }
-    }
+    resetMouseMoveState();
+    mouseActiveDevice = udid;
+    isMouseTouching = true;
+    lastMouseTouchPosition = coords;
+    mouseMirrorDevices = checkedDevices().has(udid) ? getOtherCheckedDevices(udid) : [];
+    sendTouchAction(udid, 'down', coords, undefined, mouseMirrorDevices);
   };
 
   const handleDeviceMouseMove = (udid: string, event: MouseEvent) => {
-    if (!isTouching() || activeDevice() !== udid) return;
+    if (!isMouseTouching || mouseActiveDevice !== udid) return;
     event.preventDefault();
 
     const videoRef = videoRefByUdid.get(udid);
@@ -945,59 +992,35 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const coords = convertToDeviceCoordinates(event, videoRef);
     if (!coords) return;
 
-    lastTouchPosition = coords;
-    scheduleMoveSend(coords);
+    lastMouseTouchPosition = coords;
+    scheduleMouseMoveSend(coords);
   };
 
   const handleDeviceMouseUp = (udid: string, event: MouseEvent) => {
-    if (!isTouching() || activeDevice() !== udid) return;
+    if (!isMouseTouching || mouseActiveDevice !== udid) return;
     event.preventDefault();
     
-    flushQueuedMove();
+    flushQueuedMouseMove();
 
     const videoRef = videoRefByUdid.get(udid);
     const coords = videoRef ? convertToDeviceCoordinates(event, videoRef) : null;
-    const finalCoords = coords || lastTouchPosition;
+    const finalCoords = coords || lastMouseTouchPosition;
 
-    // 发送到当前设备
-    const service = getService(udid);
-    if (service) {
-      service.sendTouchCommand('up', finalCoords.x, finalCoords.y);
-    }
-
-    // 只有当操作的设备是选中状态时，才同步到其他选中设备（延迟100ms）
-    if (checkedDevices().has(udid)) {
-      const otherDevices = getOtherCheckedDevices(udid);
-      if (otherDevices.length > 0 && props.webSocketService) {
-        setTimeout(() => props.webSocketService?.touchUpMultipleNormalized(otherDevices), 100);
-      }
-    }
-
-    setIsTouching(false);
-    setActiveDevice(null);
-    resetMoveState();
+    sendTouchAction(udid, 'up', finalCoords, undefined, mouseMirrorDevices);
+    isMouseTouching = false;
+    mouseActiveDevice = null;
+    mouseMirrorDevices = [];
+    resetMouseMoveState();
   };
 
   const handleDeviceMouseLeave = (udid: string) => {
-    if (isTouching() && activeDevice() === udid) {
-      flushQueuedMove();
-
-      const service = getService(udid);
-      if (service) {
-        service.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
-      }
-      
-      // 只有当操作的设备是选中状态时，才同步（延迟100ms）
-      if (checkedDevices().has(udid)) {
-        const otherDevices = getOtherCheckedDevices(udid);
-        if (otherDevices.length > 0 && props.webSocketService) {
-          setTimeout(() => props.webSocketService?.touchUpMultipleNormalized(otherDevices), 100);
-        }
-      }
-
-      setIsTouching(false);
-      setActiveDevice(null);
-      resetMoveState();
+    if (isMouseTouching && mouseActiveDevice === udid) {
+      flushQueuedMouseMove();
+      sendTouchAction(udid, 'up', lastMouseTouchPosition, undefined, mouseMirrorDevices);
+      isMouseTouching = false;
+      mouseActiveDevice = null;
+      mouseMirrorDevices = [];
+      resetMouseMoveState();
     }
   };
 
@@ -1022,75 +1045,59 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 触摸事件处理 (移动端)
   const handleDeviceTouchStart = (udid: string, event: TouchEvent) => {
+    if (isMouseTouching) return;
+    if (activeTouchDevice && activeTouchDevice !== udid) return;
     event.preventDefault();
 
     const videoRef = videoRefByUdid.get(udid);
     if (!videoRef) return;
 
-    const touch = event.touches[0];
-    if (!touch) return;
+    const changedTouches = Array.from(event.changedTouches || []);
+    for (const touch of changedTouches) {
+      const coords = convertToDeviceCoordinates(touch, videoRef);
+      if (!coords) continue;
 
-    const coords = convertToDeviceCoordinates(touch, videoRef);
-    if (!coords) return;
+      if (!activeTouchDevice) {
+        activeTouchDevice = udid;
+        activeTouchMirrorDevices = checkedDevices().has(udid) ? getOtherCheckedDevices(udid) : [];
+      }
 
-    resetMoveState();
-    setActiveDevice(udid);
-    setIsTouching(true);
-    lastTouchPosition = coords;
-
-    const service = getService(udid);
-    if (service) {
-      service.sendTouchCommand('down', coords.x, coords.y);
-    }
-
-    // 只有当操作的设备是选中状态时，才同步
-    if (checkedDevices().has(udid)) {
-      const otherDevices = getOtherCheckedDevices(udid);
-      if (otherDevices.length > 0 && props.webSocketService) {
-        props.webSocketService.touchDownMultipleNormalized(otherDevices, coords.x, coords.y);
+      const session = touchSession.beginTouch(buildTouchKey(touch), coords);
+      if (!session && !touchSession.hasActiveTouches()) {
+        clearActiveTouchLock();
       }
     }
   };
 
   const handleDeviceTouchMove = (udid: string, event: TouchEvent) => {
     event.preventDefault();
-    if (!isTouching() || activeDevice() !== udid) return;
+    if (!touchSession.hasActiveTouches() || activeTouchDevice !== udid) return;
 
     const videoRef = videoRefByUdid.get(udid);
     if (!videoRef) return;
 
-    const touch = event.touches[0];
-    if (!touch) return;
-
-    const coords = convertToDeviceCoordinates(touch, videoRef);
-    if (!coords) return;
-
-    lastTouchPosition = coords;
-    scheduleMoveSend(coords);
+    const changedTouches = Array.from(event.changedTouches || []);
+    for (const touch of changedTouches) {
+      const coords = convertToDeviceCoordinates(touch, videoRef);
+      if (!coords) continue;
+      touchSession.updateTouch(buildTouchKey(touch), coords);
+    }
   };
 
   const handleDeviceTouchEnd = (udid: string, event: TouchEvent) => {
     event.preventDefault();
-    if (!isTouching() || activeDevice() !== udid) return;
+    if (activeTouchDevice !== udid) return;
 
-    flushQueuedMove();
-
-    const service = getService(udid);
-    if (service) {
-      service.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
+    const videoRef = videoRefByUdid.get(udid);
+    const changedTouches = Array.from(event.changedTouches || []);
+    for (const touch of changedTouches) {
+      const coords = videoRef ? convertToDeviceCoordinates(touch, videoRef) : null;
+      touchSession.endTouch(buildTouchKey(touch), coords ?? undefined);
     }
 
-    // 只有当操作的设备是选中状态时，才同步（延迟100ms）
-    if (checkedDevices().has(udid)) {
-      const otherDevices = getOtherCheckedDevices(udid);
-      if (otherDevices.length > 0 && props.webSocketService) {
-        setTimeout(() => props.webSocketService?.touchUpMultipleNormalized(otherDevices), 100);
-      }
+    if (!touchSession.hasActiveTouches()) {
+      clearActiveTouchLock();
     }
-
-    setIsTouching(false);
-    setActiveDevice(null);
-    resetMoveState();
   };
 
   // 工具栏操作 - 发送到所有被勾选设备
@@ -1194,6 +1201,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const handleClose = () => {
     setVisibleDevices(new Set());
     flushSettings();
+    cleanupTouchState();
     disconnectAllDevices();
     props.onClose();
   };
@@ -1226,6 +1234,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       }, 100);
     } else if (!isOpen && hasInitialized) {
       flushSettings();
+      cleanupTouchState();
       disconnectAllDevices();
       // 面板关闭时重置标记和缓存
       hasInitialized = false;
@@ -1242,28 +1251,19 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   });
 
   // 确保触控状态正确清理的函数
-  const cleanupTouchState = () => {
-    if (isTouching()) {
-      const active = activeDevice();
-      if (active) {
-        // 发送 touch.up 到当前活动设备
-        const service = getService(active);
-        if (service) {
-          service.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
-        }
-        
-        // 如果当前设备是选中状态，同步到其他选中设备（延迟100ms）
-        if (checkedDevices().has(active)) {
-          const otherDevices = getOtherCheckedDevices(active);
-          if (otherDevices.length > 0 && props.webSocketService) {
-            setTimeout(() => props.webSocketService?.touchUpMultipleNormalized(otherDevices), 100);
-          }
-        }
-      }
-      
-      setIsTouching(false);
-      setActiveDevice(null);
-      resetMoveState();
+  const cleanupTouchState = (udid?: string) => {
+    if ((!udid || mouseActiveDevice === udid) && isMouseTouching && mouseActiveDevice) {
+      flushQueuedMouseMove();
+      sendTouchAction(mouseActiveDevice, 'up', lastMouseTouchPosition, undefined, mouseMirrorDevices);
+      isMouseTouching = false;
+      mouseActiveDevice = null;
+      mouseMirrorDevices = [];
+      resetMouseMoveState();
+    }
+
+    if ((!udid || activeTouchDevice === udid) && activeTouchDevice && touchSession.hasActiveTouches()) {
+      touchSession.releaseAll();
+      clearActiveTouchLock();
     }
   };
 

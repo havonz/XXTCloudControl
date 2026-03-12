@@ -5,6 +5,7 @@ import styles from './WebRTCControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
 import type { WebSocketService } from '../services/WebSocketService';
+import { MultiTouchSessionManager, type TouchPoint } from '../utils/multiTouchSession';
 import { debugLog, debugWarn } from '../utils/debugLogger';
 
 export interface WebRTCControlProps {
@@ -46,8 +47,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const [clipboardLoading, setClipboardLoading] = createSignal(false);
 
   // 触摸状态跟踪
-  const [isTouching, setIsTouching] = createSignal(false);
-  let lastTouchPosition = { x: 0, y: 0 }; // 记录最后触摸位置
+  let isMouseTouching = false;
+  let lastMouseTouchPosition: TouchPoint = { x: 0, y: 0 };
+  let mouseTouchTargetDevices: string[] = [];
+  let activeTouchTargetDevices: string[] = [];
   const TOUCH_MOUSE_GUARD_MS = 800;
   let lastTouchTimestamp = 0;
   const shouldIgnoreMouseEvent = (event: MouseEvent) => {
@@ -57,66 +60,95 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     return Date.now() - lastTouchTimestamp < TOUCH_MOUSE_GUARD_MS;
   };
   const MOVE_EPSILON = 0.0015;
-  let pendingMove: { x: number; y: number } | null = null;
-  let moveRafId: number | null = null;
-  let lastSentMove: { x: number; y: number } | null = null;
+  let pendingMouseMove: TouchPoint | null = null;
+  let mouseMoveRafId: number | null = null;
+  let lastSentMouseMove: TouchPoint | null = null;
   const LAG_THRESHOLD_MS = 180;
   const LAG_RECOVER_MS = 80;
   const CATCHUP_PLAYBACK_RATE = 1.15;
   let isCatchupActive = false;
 
-  const sendMove = (coords: { x: number; y: number }) => {
+  const sendTouchAction = (
+    action: 'down' | 'move' | 'up',
+    coords: TouchPoint,
+    fingerId?: number,
+    targetDevices: string[] = []
+  ) => {
     if (webrtcService) {
-      webrtcService.sendTouchCommand('move', coords.x, coords.y);
+      webrtcService.sendTouchCommand(action, coords.x, coords.y, fingerId);
     }
-    const targetDevices = getTargetDevices();
     if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.touchMoveMultipleNormalized(targetDevices, coords.x, coords.y);
+      if (action === 'down') {
+        props.webSocketService.touchDownMultipleNormalized(targetDevices, coords.x, coords.y, fingerId);
+      } else if (action === 'move') {
+        props.webSocketService.touchMoveMultipleNormalized(targetDevices, coords.x, coords.y, fingerId);
+      } else {
+        props.webSocketService.touchUpMultipleNormalized(targetDevices, fingerId);
+      }
     }
   };
 
-  const shouldSkipMove = (coords: { x: number; y: number }) => {
-    if (!lastSentMove) return false;
-    const dx = coords.x - lastSentMove.x;
-    const dy = coords.y - lastSentMove.y;
+  const sendMouseMove = (coords: TouchPoint) => {
+    sendTouchAction('move', coords, undefined, mouseTouchTargetDevices);
+  };
+
+  const shouldSkipMouseMove = (coords: TouchPoint) => {
+    if (!lastSentMouseMove) return false;
+    const dx = coords.x - lastSentMouseMove.x;
+    const dy = coords.y - lastSentMouseMove.y;
     return (dx * dx + dy * dy) < MOVE_EPSILON * MOVE_EPSILON;
   };
 
-  const scheduleMoveSend = (coords: { x: number; y: number }) => {
-    pendingMove = coords;
-    if (moveRafId !== null) return;
-    moveRafId = requestAnimationFrame(() => {
-      moveRafId = null;
-      if (!pendingMove) return;
-      const next = pendingMove;
-      pendingMove = null;
-      if (shouldSkipMove(next)) return;
-      sendMove(next);
-      lastSentMove = next;
+  const scheduleMouseMoveSend = (coords: TouchPoint) => {
+    pendingMouseMove = coords;
+    if (mouseMoveRafId !== null) return;
+    mouseMoveRafId = requestAnimationFrame(() => {
+      mouseMoveRafId = null;
+      if (!pendingMouseMove) return;
+      const next = pendingMouseMove;
+      pendingMouseMove = null;
+      if (shouldSkipMouseMove(next)) return;
+      sendMouseMove(next);
+      lastSentMouseMove = next;
     });
   };
 
-  const flushQueuedMove = () => {
-    if (moveRafId !== null) {
-      cancelAnimationFrame(moveRafId);
-      moveRafId = null;
+  const flushQueuedMouseMove = () => {
+    if (mouseMoveRafId !== null) {
+      cancelAnimationFrame(mouseMoveRafId);
+      mouseMoveRafId = null;
     }
-    if (!pendingMove) return;
-    const next = pendingMove;
-    pendingMove = null;
-    if (shouldSkipMove(next)) return;
-    sendMove(next);
-    lastSentMove = next;
+    if (!pendingMouseMove) return;
+    const next = pendingMouseMove;
+    pendingMouseMove = null;
+    if (shouldSkipMouseMove(next)) return;
+    sendMouseMove(next);
+    lastSentMouseMove = next;
   };
 
-  const resetMoveState = () => {
-    pendingMove = null;
-    if (moveRafId !== null) {
-      cancelAnimationFrame(moveRafId);
-      moveRafId = null;
+  const resetMouseMoveState = () => {
+    pendingMouseMove = null;
+    if (mouseMoveRafId !== null) {
+      cancelAnimationFrame(mouseMoveRafId);
+      mouseMoveRafId = null;
     }
-    lastSentMove = null;
+    lastSentMouseMove = null;
   };
+
+  const touchSession = new MultiTouchSessionManager(
+    {
+      onTouchStart: (session) => {
+        sendTouchAction('down', session.point, session.fingerId, activeTouchTargetDevices);
+      },
+      onTouchMove: (session) => {
+        sendTouchAction('move', session.point, session.fingerId, activeTouchTargetDevices);
+      },
+      onTouchEnd: (session) => {
+        sendTouchAction('up', session.point, session.fingerId, activeTouchTargetDevices);
+      }
+    },
+    { moveEpsilon: MOVE_EPSILON }
+  );
 
   const updatePlaybackRateForLag = (lagMs: number) => {
     if (!videoRef || !Number.isFinite(lagMs)) return;
@@ -271,6 +303,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
   };
 
+  const buildTouchKey = (touch: Touch) => `touch:${touch.identifier}`;
+
   // 是否正在流式传输
   const isStreaming = () => connectionState() !== 'disconnected';
 
@@ -300,10 +334,12 @@ export default function WebRTCControl(props: WebRTCControlProps) {
           onDisconnected: () => {
             setConnectionState('disconnected');
             stopStatsMonitoring();
+            resetLocalInputState();
           },
           onError: (error) => {
             console.error('WebRTC error:', error);
             setConnectionState('disconnected');
+            resetLocalInputState();
           },
           onTrack: (stream) => {
             debugLog('webrtc', '[WebRTC] Setting remote stream signal');
@@ -348,6 +384,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   // 停止 WebRTC 连接
   const stopStream = async () => {
+    cleanupTouchState();
     if (webrtcService) {
       await webrtcService.stopStream();
       webrtcService = null;
@@ -562,11 +599,22 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
   };
 
+  const resetLocalInputState = () => {
+    isMouseTouching = false;
+    lastMouseTouchPosition = { x: 0, y: 0 };
+    mouseTouchTargetDevices = [];
+    activeTouchTargetDevices = [];
+    resetMouseMoveState();
+    touchSession.reset();
+    clearCachedVideoRect();
+  };
+
   const handleMouseDown = (event: MouseEvent) => {
     if (event.button !== 0) return;
     if (shouldIgnoreMouseEvent(event)) return;
+    if (touchSession.hasActiveTouches() || isMouseTouching) return;
     event.preventDefault();
-    resetMoveState();
+    resetMouseMoveState();
     updateCachedVideoRect();
 
     // 移除其他元素的焦点，以便键盘事件可以被捕获
@@ -580,106 +628,75 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       return;
     }
 
-    // 记录触摸位置
-    lastTouchPosition = coords;
-
-    // 1. 始终控制当前设备（通过 WebRTC DataChannel）
-    if (webrtcService) {
-      webrtcService.sendTouchCommand('down', coords.x, coords.y);
-    }
-
-    // 2. 如果开启同步控制，控制其他设备（通过 WebSocket）
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.touchDownMultipleNormalized(targetDevices, coords.x, coords.y);
-    }
-    
-    setIsTouching(true);
+    mouseTouchTargetDevices = [...getTargetDevices()];
+    lastMouseTouchPosition = coords;
+    sendTouchAction('down', coords, undefined, mouseTouchTargetDevices);
+    isMouseTouching = true;
   };
 
   const handleMouseMove = (event: MouseEvent) => {
     if (event.buttons !== 1) return;
     if (shouldIgnoreMouseEvent(event)) return;
+    if (!isMouseTouching) return;
     event.preventDefault();
 
     const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
     
     // 如果离开了视频区域且正在触摸，发送 touch up（使用最后位置）
     if (!coords) {
-      if (isTouching()) {
-        flushQueuedMove();
-        if (webrtcService) {
-          webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
-        }
-        const targetDevices = getTargetDevices();
-        if (targetDevices.length > 0 && props.webSocketService) {
-          props.webSocketService.touchUpMultipleNormalized(targetDevices);
-        }
-        setIsTouching(false);
-        resetMoveState();
-      }
+      flushQueuedMouseMove();
+      sendTouchAction('up', lastMouseTouchPosition, undefined, mouseTouchTargetDevices);
+      isMouseTouching = false;
+      mouseTouchTargetDevices = [];
+      resetMouseMoveState();
       clearCachedVideoRect();
       return;
     }
 
     // 记录触摸位置
-    lastTouchPosition = coords;
+    lastMouseTouchPosition = coords;
 
-    scheduleMoveSend(coords);
+    scheduleMouseMoveSend(coords);
   };
 
   const handleMouseUp = (event: MouseEvent) => {
     if (shouldIgnoreMouseEvent(event)) return;
     event.preventDefault();
     
-    if (!isTouching()) {
+    if (!isMouseTouching) {
       clearCachedVideoRect();
       return;
     }
 
-    flushQueuedMove();
+    flushQueuedMouseMove();
     const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
-    const finalCoords = coords ?? lastTouchPosition;
+    const finalCoords = coords ?? lastMouseTouchPosition;
 
-    // 1. 始终控制当前设备（通过 WebRTC DataChannel）
-    if (webrtcService) {
-      webrtcService.sendTouchCommand('up', finalCoords.x, finalCoords.y);
-    }
-
-    // 2. 如果开启同步控制，控制其他设备（通过 WebSocket）
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.touchUpMultipleNormalized(targetDevices);
-    }
-    
-    setIsTouching(false);
-    resetMoveState();
+    sendTouchAction('up', finalCoords, undefined, mouseTouchTargetDevices);
+    isMouseTouching = false;
+    mouseTouchTargetDevices = [];
+    resetMouseMoveState();
     clearCachedVideoRect();
   };
   
   // 鼠标离开视频区域时处理
   const handleMouseLeave = (event: MouseEvent) => {
     if (shouldIgnoreMouseEvent(event)) return;
-    if (isTouching()) {
-      flushQueuedMove();
-      if (webrtcService) {
-        webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
-      }
-      const targetDevices = getTargetDevices();
-      if (targetDevices.length > 0 && props.webSocketService) {
-        props.webSocketService.touchUpMultipleNormalized(targetDevices);
-      }
-      setIsTouching(false);
-      resetMoveState();
+    if (isMouseTouching) {
+      flushQueuedMouseMove();
+      sendTouchAction('up', lastMouseTouchPosition, undefined, mouseTouchTargetDevices);
+      isMouseTouching = false;
+      mouseTouchTargetDevices = [];
+      resetMouseMoveState();
       clearCachedVideoRect();
     }
   };
 
   // 移动端触摸事件处理
   const handleTouchStart = (event: TouchEvent) => {
+    if (isMouseTouching) return;
     event.preventDefault();
     lastTouchTimestamp = Date.now();
-    resetMoveState();
     updateCachedVideoRect();
     
     // 移除其他元素的焦点
@@ -687,72 +704,53 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       document.activeElement.blur();
     }
 
-    const touch = event.touches[0];
-    if (!touch) {
+    const changedTouches = Array.from(event.changedTouches || []);
+    for (const touch of changedTouches) {
+      const coords = convertToDeviceCoordinates(touch.clientX, touch.clientY);
+      if (!coords) continue;
+
+      if (!touchSession.hasActiveTouches()) {
+        activeTouchTargetDevices = [...getTargetDevices()];
+      }
+
+      const session = touchSession.beginTouch(buildTouchKey(touch), coords);
+      if (!session && !touchSession.hasActiveTouches()) {
+        activeTouchTargetDevices = [];
+      }
+    }
+
+    if (!touchSession.hasActiveTouches()) {
       clearCachedVideoRect();
-      return;
     }
-
-    const coords = convertToDeviceCoordinates(touch.clientX, touch.clientY);
-    if (!coords) {
-      clearCachedVideoRect();
-      return;
-    }
-
-    lastTouchPosition = coords;
-
-    // 1. 始终控制当前设备（通过 WebRTC DataChannel）
-    if (webrtcService) {
-      webrtcService.sendTouchCommand('down', coords.x, coords.y);
-    }
-
-    // 2. 如果开启同步控制，控制其他设备（通过 WebSocket）
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.touchDownMultipleNormalized(targetDevices, coords.x, coords.y);
-    }
-    
-    setIsTouching(true);
   };
 
   const handleTouchMove = (event: TouchEvent) => {
+    if (isMouseTouching) return;
     event.preventDefault();
     lastTouchTimestamp = Date.now();
 
-    const touch = event.touches[0];
-    if (!touch) return;
-
-    const coords = convertToDeviceCoordinates(touch.clientX, touch.clientY);
-    if (!coords) return;
-
-    lastTouchPosition = coords;
-    scheduleMoveSend(coords);
+    const changedTouches = Array.from(event.changedTouches || []);
+    for (const touch of changedTouches) {
+      const coords = convertToDeviceCoordinates(touch.clientX, touch.clientY);
+      if (!coords) continue;
+      touchSession.updateTouch(buildTouchKey(touch), coords);
+    }
   };
 
   const handleTouchEnd = (event: TouchEvent) => {
     event.preventDefault();
     lastTouchTimestamp = Date.now();
-    
-    if (!isTouching()) {
+
+    const changedTouches = Array.from(event.changedTouches || []);
+    for (const touch of changedTouches) {
+      const coords = convertToDeviceCoordinates(touch.clientX, touch.clientY);
+      touchSession.endTouch(buildTouchKey(touch), coords ?? undefined);
+    }
+
+    if (!touchSession.hasActiveTouches()) {
+      activeTouchTargetDevices = [];
       clearCachedVideoRect();
-      return;
     }
-
-    flushQueuedMove();
-    // 1. 始终控制当前设备（通过 WebRTC DataChannel）
-    if (webrtcService) {
-      webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
-    }
-
-    // 2. 如果开启同步控制，控制其他设备（通过 WebSocket）
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.touchUpMultipleNormalized(targetDevices);
-    }
-    
-    setIsTouching(false);
-    resetMoveState();
-    clearCachedVideoRect();
   };
 
   const handleContextMenu = (event: MouseEvent) => {
@@ -1352,18 +1350,19 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   // 确保触控状态正确清理的函数
   const cleanupTouchState = () => {
-    if (isTouching()) {
-      flushQueuedMove();
-      if (webrtcService) {
-        webrtcService.sendTouchCommand('up', lastTouchPosition.x, lastTouchPosition.y);
-      }
-      const targetDevices = getTargetDevices();
-      if (targetDevices.length > 0 && props.webSocketService) {
-        props.webSocketService.touchUpMultipleNormalized(targetDevices);
-      }
-      setIsTouching(false);
-      resetMoveState();
+    if (isMouseTouching) {
+      flushQueuedMouseMove();
+      sendTouchAction('up', lastMouseTouchPosition, undefined, mouseTouchTargetDevices);
+      isMouseTouching = false;
+      mouseTouchTargetDevices = [];
+      resetMouseMoveState();
     }
+
+    if (touchSession.hasActiveTouches()) {
+      touchSession.releaseAll();
+      activeTouchTargetDevices = [];
+    }
+
     clearCachedVideoRect();
   };
 
