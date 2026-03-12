@@ -777,6 +777,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     scheduleIntersectionRefresh();
     flushSettings();
   };
+
+  const isHeaderControlTarget = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return false;
+    return !!target.closest('button');
+  };
   // 获取当前选中的设备列表 (被勾选的)
   const getCheckedDevicesList = (): string[] => {
     return [...checkedDevices()];
@@ -1398,9 +1403,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 全屏切换
   const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen());
+    setIsFullscreen((current) => !current);
     scheduleResolutionRefresh();
     flushSettings();
+  };
+
+  const handleHeaderDoubleClick = (e: MouseEvent) => {
+    if (isViewportMobile() || isHeaderControlTarget(e.target)) return;
+    toggleFullscreen();
   };
 
   // 关闭面板
@@ -1906,6 +1916,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           <div 
             class={styles.modalHeader} 
             onMouseDown={handleDragStart}
+            onDblClick={handleHeaderDoubleClick}
             style={{ cursor: (isFullscreen() || isViewportMobile()) ? 'default' : 'move' }}
           >
             <div class={styles.headerTitleGroup}>
