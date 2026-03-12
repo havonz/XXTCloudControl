@@ -35,6 +35,7 @@
   background: var(--panel);
   border-radius: 12px;
   border: 2px solid var(--border);
+  box-shadow: var(--batch-remote-shadow);
   display: flex;
   flex-direction: column;
   width: 95vw;
@@ -50,6 +51,7 @@
   max-width: 100vw;
   max-height: 100dvh;
   border-radius: 0;
+  box-shadow: none;
 }
 
 .batchRemoteModal.dragging {
@@ -443,7 +445,7 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--panel);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--batch-remote-shadow);
 }
 
 .mobileSidebarBackdrop {

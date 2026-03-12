@@ -523,7 +523,7 @@
   border-radius: 8px;
   padding: 8px;
   z-index: 100;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--batch-remote-shadow);
   display: flex;
   flex-direction: column;
   gap: 4px;
