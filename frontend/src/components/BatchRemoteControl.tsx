@@ -140,6 +140,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const isCompactPanel = createMemo(() => !isViewportMobile() && !isFullscreen() && panelWidth() < COMPACT_PANEL_BREAKPOINT);
   const usesSidebarLayout = createMemo(() => isViewportMobile() || isCompactPanel());
   const getLayoutMaxColumns = () => (usesSidebarLayout() ? MOBILE_MAX_COLUMNS : DESKTOP_MAX_COLUMNS);
+  const deviceByUdid = createMemo(() => new Map(cachedDevices().map((device) => [device.udid, device])));
 
   const saveSettings = (settings: Partial<BatchRemoteSettings>) => {
     try {
@@ -160,6 +161,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   let resizeStart = { x: 0, y: 0, width: 0, height: 0 };
   let panelRef: HTMLDivElement | null = null;
   let panelResizeObserver: ResizeObserver | null = null;
+  let panelUpdateRafId: number | null = null;
+  let pendingWindowPos: { x: number; y: number } | null = null;
+  let pendingWindowSize: { width: number; height: number } | null = null;
   
   const initialResolution = savedSettings?.resolution ?? 0.2;
   const initialFrameRate = savedSettings?.frameRate ?? 10;
@@ -180,6 +184,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   let intersectionObserver: IntersectionObserver | null = null;
   let isDisconnectingAll = false;
   let scheduledResolutionRefreshId: number | null = null;
+  let scheduledIntersectionRefreshId: number | null = null;
+  let suppressIntersectionEffects = false;
   const bindFrameByUdid = new Map<string, number>();
   
   // 触控状态
@@ -217,12 +223,48 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   const syncPanelWidth = (width?: number) => {
     const nextWidth = width ?? panelRef?.getBoundingClientRect().width ?? windowSize().width ?? initialPanelWidth;
-    if (nextWidth > 0) {
+    if (nextWidth > 0 && Math.abs(nextWidth - panelWidth()) >= 0.5) {
       setPanelWidth(nextWidth);
     }
   };
 
   const isSameNumber = (a: number, b: number, epsilon: number = 0.0001) => Math.abs(a - b) < epsilon;
+
+  const flushQueuedPanelUpdate = () => {
+    if (panelUpdateRafId !== null) {
+      cancelAnimationFrame(panelUpdateRafId);
+      panelUpdateRafId = null;
+    }
+    if (pendingWindowPos) {
+      setWindowPos(pendingWindowPos);
+      pendingWindowPos = null;
+    }
+    if (pendingWindowSize) {
+      setWindowSize(pendingWindowSize);
+      pendingWindowSize = null;
+    }
+  };
+
+  const schedulePanelUpdate = (next: { position?: { x: number; y: number }; size?: { width: number; height: number } }) => {
+    if (next.position) {
+      pendingWindowPos = next.position;
+    }
+    if (next.size) {
+      pendingWindowSize = next.size;
+    }
+    if (panelUpdateRafId !== null) return;
+    panelUpdateRafId = requestAnimationFrame(() => {
+      panelUpdateRafId = null;
+      if (pendingWindowPos) {
+        setWindowPos(pendingWindowPos);
+        pendingWindowPos = null;
+      }
+      if (pendingWindowSize) {
+        setWindowSize(pendingWindowSize);
+        pendingWindowSize = null;
+      }
+    });
+  };
 
   function currentWheelSettings(): RemoteWheelSettings {
     return normalizeRemoteWheelSettings({
@@ -506,6 +548,15 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     flushSettings();
   };
 
+  const scheduleIntersectionRefresh = () => {
+    if (scheduledIntersectionRefreshId !== null) return;
+    scheduledIntersectionRefreshId = requestAnimationFrame(() => {
+      scheduledIntersectionRefreshId = null;
+      if (!currentIsOpen() || !gridRef) return;
+      setupIntersectionObserver();
+    });
+  };
+
   const handleConnectButton = async (device: Device) => {
     await connectDevice(device);
   };
@@ -515,46 +566,54 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (intersectionObserver) {
       intersectionObserver.disconnect();
     }
+    if (!gridRef) return;
     
     intersectionObserver = new IntersectionObserver(
       (entries) => {
+        if (suppressIntersectionEffects) return;
+
+        const nextVisible = new Set(visibleDevices());
+        const becameVisible: string[] = [];
+        const becameHidden: string[] = [];
+        let hasChanges = false;
+
         entries.forEach(entry => {
           const udid = entry.target.getAttribute('data-udid');
           if (!udid) return;
           
-          const wasVisible = visibleDevices().has(udid);
+          const wasVisible = nextVisible.has(udid);
           const isVisible = entry.isIntersecting;
           
           if (isVisible !== wasVisible) {
-            // 更新可见性状态
-            setVisibleDevices(prev => {
-              const newSet = new Set(prev);
-              if (isVisible) {
-                newSet.add(udid);
-              } else {
-                newSet.delete(udid);
-              }
-              return newSet;
-            });
-            
-            // 根据可见性断开/重连 WebRTC
             if (isVisible) {
-              // 变为可见 - 重新连接
-              const device = cachedDevices().find(d => d.udid === udid);
-              if (device) {
-                const currentState = getConnectionState(udid);
-                if (!getService(udid) || currentState.state === 'disconnected') {
-                  debugLog('batch_remote', `[BatchRemote] Device ${udid} visible, reconnecting...`);
-                  connectDevice(device);
-                }
-              }
+              nextVisible.add(udid);
+              becameVisible.push(udid);
             } else {
-              // 变为不可见 - 断开连接
-              if (getService(udid) && getConnectionState(udid).state === 'connected') {
-                debugLog('batch_remote', `[BatchRemote] Device ${udid} hidden, disconnecting...`);
-                disconnectDevice(udid);
-              }
+              nextVisible.delete(udid);
+              becameHidden.push(udid);
             }
+            hasChanges = true;
+          }
+        });
+
+        if (!hasChanges) return;
+
+        setVisibleDevices(nextVisible);
+
+        becameVisible.forEach((udid) => {
+          const device = deviceByUdid().get(udid);
+          if (!device) return;
+          const currentState = getConnectionState(udid);
+          if (!getService(udid) || currentState.state === 'disconnected') {
+            debugLog('batch_remote', `[BatchRemote] Device ${udid} visible, reconnecting...`);
+            connectDevice(device);
+          }
+        });
+
+        becameHidden.forEach((udid) => {
+          if (getService(udid) && getConnectionState(udid).state === 'connected') {
+            debugLog('batch_remote', `[BatchRemote] Device ${udid} hidden, disconnecting...`);
+            disconnectDevice(udid);
           }
         });
       },
@@ -615,10 +674,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const rawX = e.clientX - dragOffset.x;
     const rawY = e.clientY - dragOffset.y;
     const { x, y } = constrainPosition(rawX, rawY, size.width, size.height);
-    setWindowPos({ x, y });
+    schedulePanelUpdate({ position: { x, y } });
   };
 
   const handleDragEnd = () => {
+    flushQueuedPanelUpdate();
     setIsDragging(false);
     document.removeEventListener('mousemove', handleDragMove);
     document.removeEventListener('mouseup', handleDragEnd);
@@ -691,6 +751,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     e.stopPropagation();
     const size = windowSize();
     resizeStart = { x: e.clientX, y: e.clientY, width: size.width, height: size.height };
+    suppressIntersectionEffects = true;
     setIsResizing(true);
     
     document.addEventListener('mousemove', handleResizeMove);
@@ -703,14 +764,17 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const deltaY = e.clientY - resizeStart.y;
     const newWidth = Math.max(400, resizeStart.width + deltaX);
     const newHeight = Math.max(300, resizeStart.height + deltaY);
-    setWindowSize({ width: newWidth, height: newHeight });
+    schedulePanelUpdate({ size: { width: newWidth, height: newHeight } });
   };
 
   const handleResizeEnd = () => {
+    flushQueuedPanelUpdate();
+    suppressIntersectionEffects = false;
     setIsResizing(false);
     document.removeEventListener('mousemove', handleResizeMove);
     document.removeEventListener('mouseup', handleResizeEnd);
     scheduleResolutionRefresh();
+    scheduleIntersectionRefresh();
     flushSettings();
   };
   // 获取当前选中的设备列表 (被勾选的)
@@ -1392,6 +1456,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       setWheelSettingsOpen(false);
       setConnectionStates(reconcile({}));
       videoRefByUdid.clear();
+      suppressIntersectionEffects = false;
       if (intersectionObserver) {
         intersectionObserver.disconnect();
         intersectionObserver = null;
@@ -1426,9 +1491,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
     bindFrameByUdid.forEach((rafId) => cancelAnimationFrame(rafId));
     bindFrameByUdid.clear();
+    flushQueuedPanelUpdate();
     if (scheduledResolutionRefreshId !== null) {
       cancelAnimationFrame(scheduledResolutionRefreshId);
       scheduledResolutionRefreshId = null;
+    }
+    if (scheduledIntersectionRefreshId !== null) {
+      cancelAnimationFrame(scheduledIntersectionRefreshId);
+      scheduledIntersectionRefreshId = null;
     }
     wheelBatcher.clear();
     setMobileSidebarOpen(false);
