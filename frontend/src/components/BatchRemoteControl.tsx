@@ -426,15 +426,24 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     return isFullscreen() || isViewportMobile() ? window.innerWidth : window.innerWidth * 0.9;
   };
 
-  const calculateOptimalResolution = (device: Device, maxScale: number = appliedResolution(), columnCount: number = appliedColumns()): number => {
-    let nativeW = device.width || 1170;
-    let nativeH = device.height || 2532;
-
-    if (nativeW > nativeH) {
-      const tmp = nativeW;
-      nativeW = nativeH;
-      nativeH = tmp;
+  const readPositiveNumber = (...values: unknown[]): number | null => {
+    for (const value of values) {
+      const parsed = typeof value === 'number' ? value : Number(value);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
     }
+    return null;
+  };
+
+  const getDeviceNativeSize = (device: Device) => {
+    const nativeW = readPositiveNumber(device.system?.scrw, device.scrw, device.width) ?? 1170;
+    const nativeH = readPositiveNumber(device.system?.scrh, device.scrh, device.height) ?? 2532;
+    return { nativeW, nativeH };
+  };
+
+  const calculateOptimalResolution = (device: Device, maxScale: number = appliedResolution(), columnCount: number = appliedColumns()): number => {
+    let { nativeW, nativeH } = getDeviceNativeSize(device);
 
     const GRID_GAP = 12;
     const GRID_PADDING = 16;
