@@ -566,10 +566,6 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     });
   };
 
-  const handleConnectButton = async (device: Device) => {
-    await connectDevice(device);
-  };
-  
   // 初始化 IntersectionObserver
   const setupIntersectionObserver = () => {
     if (intersectionObserver) {
@@ -1124,11 +1120,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       offsetY = 0;
     }
 
-    const clientX = 'clientX' in event ? event.clientX : (event as Touch).clientX;
-    const clientY = 'clientY' in event ? event.clientY : (event as Touch).clientY;
-    
-    const clickPosX = clientX - rect.left;
-    const clickPosY = clientY - rect.top;
+    const clickPosX = event.clientX - rect.left;
+    const clickPosY = event.clientY - rect.top;
 
     if (clickPosX < offsetX || clickPosX > offsetX + displayWidth ||
         clickPosY < offsetY || clickPosY > offsetY + displayHeight) {
@@ -2063,7 +2056,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                               <Show when={viewState()?.state === 'disconnected'}>
                                 <button 
                                   class={styles.connectButton}
-                                  onClick={() => void handleConnectButton(device)}
+                                  onClick={() => void connectDevice(device)}
                                 >
                                   连接
                                 </button>

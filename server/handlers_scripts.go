@@ -122,14 +122,6 @@ func buildScriptStartFetchRequestMap(fetchRequests []pendingScriptFetchRequest) 
 	return remainingFetchRequests
 }
 
-func cloneScriptStartState(state scriptStartState) scriptStartState {
-	return scriptStartState{
-		Active:     state.Active,
-		Cancelable: state.Cancelable,
-		Phase:      state.Phase,
-	}
-}
-
 func broadcastScriptStartState(deviceID string, state scriptStartState) {
 	controllerList := snapshotControllerConns()
 	if len(controllerList) == 0 {
@@ -194,7 +186,7 @@ func createScriptStartSession(
 	session.generation = scriptStartSessions.seq
 	scriptStartSessions.entries[deviceID] = session
 	generation := session.generation
-	state := cloneScriptStartState(session.state)
+	state := session.state
 	scriptStartSessions.Unlock()
 
 	broadcastScriptStartState(deviceID, state)
@@ -236,7 +228,7 @@ func updateScriptStartSessionPhase(deviceID string, generation uint64, phase str
 	}
 	current.state.Phase = phase
 	current.state.Cancelable = cancelable
-	state := cloneScriptStartState(current.state)
+	state := current.state
 	scriptStartSessions.Unlock()
 
 	broadcastScriptStartState(deviceID, state)
@@ -253,7 +245,7 @@ func snapshotScriptStartStates(deviceIDs []string) map[string]scriptStartState {
 			if session == nil || !session.state.Active {
 				continue
 			}
-			states[deviceID] = cloneScriptStartState(session.state)
+			states[deviceID] = session.state
 		}
 		return states
 	}
@@ -263,7 +255,7 @@ func snapshotScriptStartStates(deviceIDs []string) map[string]scriptStartState {
 		if session == nil || !session.state.Active {
 			continue
 		}
-		states[deviceID] = cloneScriptStartState(session.state)
+		states[deviceID] = session.state
 	}
 	return states
 }
@@ -446,7 +438,7 @@ func resolveAndCompletePendingFetch(
 	}
 
 	entry.state.Phase = scriptStartPhaseStarting
-	state := cloneScriptStartState(entry.state)
+	state := entry.state
 	ready = &readyScriptStart{
 		runPayload:         append([]byte(nil), entry.runPayload...),
 		runPayloadPrepared: entry.runPayloadPrepared,
