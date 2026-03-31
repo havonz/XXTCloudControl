@@ -24,11 +24,6 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
   let pendingLogBuffer = '';
   let flushFrameId: number | null = null;
 
-  const normalizeLog = (chunk: string) => {
-    if (!chunk) return '';
-    return chunk.endsWith('\n') ? chunk : `${chunk}\n`;
-  };
-
   const scrollToBottom = () => {
     if (!logAreaRef) {
       return;
@@ -154,7 +149,7 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
 
     const unsubscribe = props.webSocketService.watchDeviceLog(udid, (chunk) => {
       if (!paused()) {
-        appendLog(normalizeLog(chunk));
+        appendLog(chunk.endsWith('\n') ? chunk : `${chunk}\n`);
       }
       setStatus(paused() ? '已暂停' : '已连接');
     });
@@ -174,10 +169,6 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
     scrollToBottom();
   });
 
-  const handleClose = () => {
-    props.onClose();
-  };
-
   const handleTogglePause = () => {
     setPaused((prev) => {
       const next = !prev;
@@ -186,19 +177,15 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
     });
   };
 
-  const handleClear = () => {
-    resetLogState();
-  };
-
   return (
     <Show when={props.isOpen}>
-      <div class={styles.overlay} onClick={handleClose}>
+      <div class={styles.overlay} onClick={props.onClose}>
         <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
           <div class={styles.header}>
             <h2>实时日志 - {props.device?.system?.name || '未知设备'}</h2>
             <div class={styles.headerRight}>
               <div class={styles.status}>{status()}</div>
-              <button class={styles.closeButton} onClick={handleClose}>
+              <button class={styles.closeButton} onClick={props.onClose}>
                 <IconXmark size={18} />
               </button>
             </div>
@@ -209,7 +196,7 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
               <button class={styles.button} onClick={handleTogglePause}>
                 {paused() ? '继续' : '暂停'}
               </button>
-              <button class={styles.button} onClick={handleClear}>清空</button>
+              <button class={styles.button} onClick={resetLogState}>清空</button>
               <div class={styles.flexSpacer} />
               <label class={styles.autoScrollLabel}>
                 <input

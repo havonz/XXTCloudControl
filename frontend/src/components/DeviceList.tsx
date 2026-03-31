@@ -253,6 +253,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const getDisplayLog = (device: Device): string => {
     return lastLogs[device.udid] ?? device.system?.log ?? '';
   };
+  const formatLogPreview = (log: string, maxLen = 50): string => {
+    if (!log) return '无日志';
+    return log.length > maxLen ? `${log.substring(0, maxLen)}...` : log;
+  };
   
   // Device context menu state
   const [contextMenuDevice, setContextMenuDevice] = createSignal<Device | null>(null);
@@ -1962,17 +1966,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         
                         <Show when={visibleColumns().includes('log')}>
                           <div class={styles.tableCell}>
-                            {(() => {
-                              const log = getDisplayLog(device);
-                              return (
-                                <div
-                                  class={styles.lastLog}
-                                  title={log || '无日志'}
-                                >
-                                  {log ? (log.length > 50 ? `${log.substring(0, 50)}...` : log) : '无日志'}
-                                </div>
-                              );
-                            })()}
+                            <div
+                              class={styles.lastLog}
+                              title={getDisplayLog(device) || '无日志'}
+                            >
+                              {formatLogPreview(getDisplayLog(device))}
+                            </div>
                           </div>
                         </Show>
                       </div>

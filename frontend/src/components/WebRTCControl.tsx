@@ -15,7 +15,6 @@ import {
   normalizeWheelDeltaY,
   parseRemoteWheelBoolean,
   parseRemoteWheelSetting,
-  parseSingleRemoteWheelEnabled,
   type RemoteWheelSettingKey,
   type RemoteWheelSettings,
 } from '../utils/remoteWheel';
@@ -43,14 +42,6 @@ function loadSavedWheelBoolean(key: string, fallback: boolean): boolean {
     return parseRemoteWheelBoolean(localStorage.getItem(key), fallback);
   } catch {
     return fallback;
-  }
-}
-
-function loadSavedSingleRemoteWheelEnabled(): boolean {
-  try {
-    return parseSingleRemoteWheelEnabled(localStorage.getItem(RC_WHEEL_ENABLED_KEY));
-  } catch {
-    return parseSingleRemoteWheelEnabled(null);
   }
 }
 
@@ -91,7 +82,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   // 移动端侧边栏状态
   const [mobileSettingsOpen, setMobileSettingsOpen] = createSignal(false);
   const [wheelSettingsOpen, setWheelSettingsOpen] = createSignal(false);
-  const [wheelEnabled, setWheelEnabled] = createSignal<boolean>(loadSavedSingleRemoteWheelEnabled());
+  const [wheelEnabled, setWheelEnabled] = createSignal<boolean>(loadSavedWheelBoolean(RC_WHEEL_ENABLED_KEY, true));
   const [wheelNatural, setWheelNatural] = createSignal<boolean>(loadSavedWheelBoolean(RC_WHEEL_NATURAL_KEY, REMOTE_WHEEL_DEFAULTS.natural));
   const [wheelBrakeEnabled, setWheelBrakeEnabled] = createSignal<boolean>(loadSavedWheelBoolean(RC_WHEEL_BRAKE_ENABLED_KEY, REMOTE_WHEEL_DEFAULTS.brakeEnabled));
   const [wheelStepPx, setWheelStepPx] = createSignal<number>(loadSavedWheelNumber(RC_WHEEL_STEP_KEY, 'stepPx'));
@@ -1355,15 +1346,18 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     setCurrentRotation(degrees);
   };
 
-  createEffect(() => { try { localStorage.setItem(RC_WHEEL_ENABLED_KEY, String(wheelEnabled())); } catch {} });
-  createEffect(() => { try { localStorage.setItem(RC_WHEEL_NATURAL_KEY, String(wheelNatural())); } catch {} });
-  createEffect(() => { try { localStorage.setItem(RC_WHEEL_BRAKE_ENABLED_KEY, String(wheelBrakeEnabled())); } catch {} });
-  createEffect(() => { try { localStorage.setItem(RC_WHEEL_STEP_KEY, String(wheelStepPx())); } catch {} });
-  createEffect(() => { try { localStorage.setItem(RC_WHEEL_COALESCE_KEY, String(wheelCoalesceMs())); } catch {} });
-  createEffect(() => { try { localStorage.setItem(RC_WHEEL_AMP_KEY, String(wheelAmp())); } catch {} });
-  createEffect(() => { try { localStorage.setItem(RC_WHEEL_DUR_BASE_KEY, String(wheelDurBaseMs())); } catch {} });
-  createEffect(() => { try { localStorage.setItem(RC_WHEEL_RELEASE_DELAY_KEY, String(wheelReleaseDelayMs())); } catch {} });
-  createEffect(() => { try { localStorage.setItem(RC_WHEEL_BRAKE_REVERSE_PX_KEY, String(wheelBrakeReversePx())); } catch {} });
+  const persistWheelSetting = (key: string, getter: () => unknown) => {
+    createEffect(() => { try { localStorage.setItem(key, String(getter())); } catch {} });
+  };
+  persistWheelSetting(RC_WHEEL_ENABLED_KEY, wheelEnabled);
+  persistWheelSetting(RC_WHEEL_NATURAL_KEY, wheelNatural);
+  persistWheelSetting(RC_WHEEL_BRAKE_ENABLED_KEY, wheelBrakeEnabled);
+  persistWheelSetting(RC_WHEEL_STEP_KEY, wheelStepPx);
+  persistWheelSetting(RC_WHEEL_COALESCE_KEY, wheelCoalesceMs);
+  persistWheelSetting(RC_WHEEL_AMP_KEY, wheelAmp);
+  persistWheelSetting(RC_WHEEL_DUR_BASE_KEY, wheelDurBaseMs);
+  persistWheelSetting(RC_WHEEL_RELEASE_DELAY_KEY, wheelReleaseDelayMs);
+  persistWheelSetting(RC_WHEEL_BRAKE_REVERSE_PX_KEY, wheelBrakeReversePx);
 
   // 当组件打开时，默认选择第一个设备
   const handleOpen = () => {

@@ -383,16 +383,15 @@ func startScriptOnDevice(
 	}()
 }
 
-func completePendingScriptStart(
+// resolveAndCompletePendingFetch locates a pending fetch request in the session
+// (by requestID directly, or by targetPath reverse-lookup) and marks it complete.
+func resolveAndCompletePendingFetch(
 	deviceID string,
 	requestID string,
+	targetPath string,
 	success bool,
 	errMsg string,
 ) (ready *readyScriptStart, cancelMsg string, handled bool) {
-	if deviceID == "" || requestID == "" {
-		return nil, "", false
-	}
-
 	scriptStartSessions.Lock()
 	entry := scriptStartSessions.entries[deviceID]
 	if entry == nil {
@@ -400,10 +399,28 @@ func completePendingScriptStart(
 		return nil, "", false
 	}
 
-	targetPath, exists := entry.remainingFetchRequests[requestID]
-	if !exists {
-		scriptStartSessions.Unlock()
-		return nil, "", false
+	// Resolve the requestID: either given directly or looked up via targetPath.
+	resolvedID := requestID
+	resolvedPath := ""
+	if resolvedID != "" {
+		var exists bool
+		resolvedPath, exists = entry.remainingFetchRequests[resolvedID]
+		if !exists {
+			scriptStartSessions.Unlock()
+			return nil, "", false
+		}
+	} else {
+		for id, pendingPath := range entry.remainingFetchRequests {
+			if pendingPath == targetPath {
+				resolvedID = id
+				resolvedPath = pendingPath
+				break
+			}
+		}
+		if resolvedID == "" {
+			scriptStartSessions.Unlock()
+			return nil, "", false
+		}
 	}
 
 	if !success {
@@ -416,13 +433,13 @@ func completePendingScriptStart(
 		if errMsg == "" {
 			errMsg = "未知错误"
 		}
-		if targetPath != "" {
-			return nil, fmt.Sprintf("%s (%s)", errMsg, targetPath), true
+		if resolvedPath != "" {
+			return nil, fmt.Sprintf("%s (%s)", errMsg, resolvedPath), true
 		}
 		return nil, errMsg, true
 	}
 
-	delete(entry.remainingFetchRequests, requestID)
+	delete(entry.remainingFetchRequests, resolvedID)
 	if len(entry.remainingFetchRequests) > 0 {
 		scriptStartSessions.Unlock()
 		return nil, "", true
@@ -443,6 +460,18 @@ func completePendingScriptStart(
 	return ready, "", true
 }
 
+func completePendingScriptStart(
+	deviceID string,
+	requestID string,
+	success bool,
+	errMsg string,
+) (ready *readyScriptStart, cancelMsg string, handled bool) {
+	if deviceID == "" || requestID == "" {
+		return nil, "", false
+	}
+	return resolveAndCompletePendingFetch(deviceID, requestID, "", success, errMsg)
+}
+
 func completePendingScriptStartByTargetPath(
 	deviceID string,
 	targetPath string,
@@ -452,58 +481,7 @@ func completePendingScriptStartByTargetPath(
 	if deviceID == "" || targetPath == "" {
 		return nil, "", false
 	}
-
-	scriptStartSessions.Lock()
-	entry := scriptStartSessions.entries[deviceID]
-	if entry == nil {
-		scriptStartSessions.Unlock()
-		return nil, "", false
-	}
-
-	matchedRequestID := ""
-	for requestID, pendingPath := range entry.remainingFetchRequests {
-		if pendingPath == targetPath {
-			matchedRequestID = requestID
-			break
-		}
-	}
-	if matchedRequestID == "" {
-		scriptStartSessions.Unlock()
-		return nil, "", false
-	}
-
-	if !success {
-		delete(scriptStartSessions.entries, deviceID)
-		scriptStartSessions.Unlock()
-
-		broadcastScriptStartState(deviceID, scriptStartState{})
-
-		errMsg = strings.TrimSpace(errMsg)
-		if errMsg == "" {
-			errMsg = "未知错误"
-		}
-		return nil, fmt.Sprintf("%s (%s)", errMsg, targetPath), true
-	}
-
-	delete(entry.remainingFetchRequests, matchedRequestID)
-	if len(entry.remainingFetchRequests) > 0 {
-		scriptStartSessions.Unlock()
-		return nil, "", true
-	}
-
-	entry.state.Phase = scriptStartPhaseStarting
-	state := cloneScriptStartState(entry.state)
-	ready = &readyScriptStart{
-		runPayload:         append([]byte(nil), entry.runPayload...),
-		runPayloadPrepared: entry.runPayloadPrepared,
-		runName:            entry.runName,
-		generation:         entry.generation,
-	}
-	scriptStartSessions.Unlock()
-
-	broadcastScriptStartState(deviceID, state)
-
-	return ready, "", true
+	return resolveAndCompletePendingFetch(deviceID, "", targetPath, success, errMsg)
 }
 
 func clearPendingScriptStart(deviceID string) {

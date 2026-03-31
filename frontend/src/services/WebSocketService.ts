@@ -1675,23 +1675,15 @@ export class WebSocketService {
     return Array.from(grouped.values());
   }
 
-  private groupDevicesByTouchCoordinates(
-    deviceUdids: string[],
-    nx: number,
-    ny: number
-  ): Array<{ devices: string[]; x: number; y: number }> {
-    return this.groupDevicesByNormalizedCoordinates(deviceUdids, nx, ny);
-  }
-
   // 触控按下（多设备 - 使用归一化坐标）
   async touchDownMultipleNormalized(deviceUdids: string[], nx: number, ny: number, finger?: number): Promise<void> {
-    const grouped = this.groupDevicesByTouchCoordinates(deviceUdids, nx, ny);
+    const grouped = this.groupDevicesByNormalizedCoordinates(deviceUdids, nx, ny);
     await Promise.all(grouped.map(group => this.sendTouchCommand(group.devices, 'touch/down', group.x, group.y, finger)));
   }
 
   // 触控移动（多设备 - 使用归一化坐标）
   async touchMoveMultipleNormalized(deviceUdids: string[], nx: number, ny: number, finger?: number): Promise<void> {
-    const grouped = this.groupDevicesByTouchCoordinates(deviceUdids, nx, ny);
+    const grouped = this.groupDevicesByNormalizedCoordinates(deviceUdids, nx, ny);
     await Promise.all(grouped.map(group => this.sendTouchCommand(group.devices, 'touch/move', group.x, group.y, finger)));
   }
 

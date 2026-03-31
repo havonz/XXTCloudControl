@@ -76,10 +76,6 @@ export function parseRemoteWheelBoolean(value: unknown, fallback: boolean): bool
   return fallback;
 }
 
-export function parseSingleRemoteWheelEnabled(value: unknown): boolean {
-  return parseRemoteWheelBoolean(value, true);
-}
-
 export function parseRemoteWheelSetting(
   key: RemoteWheelSettingKey,
   value: unknown,
