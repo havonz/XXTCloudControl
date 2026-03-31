@@ -1321,73 +1321,24 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   };
 
   // 工具栏操作 - 发送到所有被勾选设备
-  const handleHomeButton = () => {
-    const checked = getCheckedDevicesList();
-
-    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
-
-    for (const udid of viaWebRTC) {
-      const service = getService(udid);
-      if (service) {
-        service.sendKeyCommand('homebutton', 'press');
-      }
-    }
-
-    if (props.webSocketService && viaWebSocket.length > 0) {
-      props.webSocketService.pressHomeButtonMultiple(viaWebSocket);
-    }
-  };
-
-  const handleVolumeUp = () => {
+  const sendKeyPressToCheckedDevices = (webrtcKey: string, wsKey: string) => {
     const checked = getCheckedDevicesList();
     const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
 
     for (const udid of viaWebRTC) {
-      const service = getService(udid);
-      if (service) {
-        service.sendKeyCommand('volumeup', 'press');
-      }
+      getService(udid)?.sendKeyCommand(webrtcKey, 'press');
     }
-    
+
     if (props.webSocketService && viaWebSocket.length > 0) {
-      props.webSocketService.keyDownMultiple(viaWebSocket, 'VOLUMEUP');
-      setTimeout(() => props.webSocketService?.keyUpMultiple(viaWebSocket, 'VOLUMEUP'), 50);
+      props.webSocketService.keyDownMultiple(viaWebSocket, wsKey);
+      setTimeout(() => props.webSocketService?.keyUpMultiple(viaWebSocket, wsKey), 50);
     }
   };
 
-  const handleVolumeDown = () => {
-    const checked = getCheckedDevicesList();
-    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
-
-    for (const udid of viaWebRTC) {
-      const service = getService(udid);
-      if (service) {
-        service.sendKeyCommand('volumedown', 'press');
-      }
-    }
-    
-    if (props.webSocketService && viaWebSocket.length > 0) {
-      props.webSocketService.keyDownMultiple(viaWebSocket, 'VOLUMEDOWN');
-      setTimeout(() => props.webSocketService?.keyUpMultiple(viaWebSocket, 'VOLUMEDOWN'), 50);
-    }
-  };
-
-  const handleLockScreen = () => {
-    const checked = getCheckedDevicesList();
-    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
-
-    for (const udid of viaWebRTC) {
-      const service = getService(udid);
-      if (service) {
-        service.sendKeyCommand('lock', 'press');
-      }
-    }
-    
-    if (props.webSocketService && viaWebSocket.length > 0) {
-      props.webSocketService.keyDownMultiple(viaWebSocket, 'LOCK');
-      setTimeout(() => props.webSocketService?.keyUpMultiple(viaWebSocket, 'LOCK'), 50);
-    }
-  };
+  const handleHomeButton = () => sendKeyPressToCheckedDevices('homebutton', 'HOMEBUTTON');
+  const handleVolumeUp = () => sendKeyPressToCheckedDevices('volumeup', 'VOLUMEUP');
+  const handleVolumeDown = () => sendKeyPressToCheckedDevices('volumedown', 'VOLUMEDOWN');
+  const handleLockScreen = () => sendKeyPressToCheckedDevices('lock', 'LOCK');
 
   const handlePaste = () => {
     setShowPasteModal(true);
@@ -1461,7 +1412,6 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         setupIntersectionObserver();
       }, 100);
     } else if (!isOpen && hasInitialized) {
-      setMobileSidebarOpen(false);
       wheelBatcher.clear();
       flushSettings();
       cleanupTouchState();
