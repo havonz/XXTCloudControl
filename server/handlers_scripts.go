@@ -1054,15 +1054,158 @@ func snapshotDeviceConns(deviceIDs []string) map[string]*SafeConn {
 	return conns
 }
 
+// scriptSendRequest is the shared request type for send and send-and-start handlers.
+type scriptSendRequest struct {
+	Devices        []string `json:"devices"`
+	Name           string   `json:"name"`
+	SelectedGroups []string `json:"selectedGroups"`
+	ServerBaseUrl  string   `json:"serverBaseUrl"`
+}
+
+// buildMergedMainJSON merges a group config into a main.json template,
+// returning the base64-encoded result. Pure function with no shared state.
+func buildMergedMainJSON(template map[string]interface{}, groupConfig map[string]interface{}) (string, bool) {
+	if template == nil || groupConfig == nil {
+		return "", false
+	}
+
+	mergedObj := make(map[string]interface{}, len(template))
+	for k, v := range template {
+		mergedObj[k] = v
+	}
+
+	configObj := make(map[string]interface{}, len(groupConfig))
+	if existingConfig, ok := template["Config"].(map[string]interface{}); ok {
+		for k, v := range existingConfig {
+			configObj[k] = v
+		}
+	}
+	for k, v := range groupConfig {
+		configObj[k] = v
+	}
+	mergedObj["Config"] = configObj
+
+	newJSON, err := json.Marshal(mergedObj)
+	if err != nil {
+		return "", false
+	}
+	return base64.StdEncoding.EncodeToString(newJSON), true
+}
+
+// scriptFileSender caches per-send payloads and handles main.json config merging.
+type scriptFileSender struct {
+	files             []scriptFileData
+	deviceConfigIndex map[string]map[string]interface{}
+
+	basePutPayloadCache   map[string][]byte
+	mergedPutPayloadCache map[string][]byte
+	groupConfigKeyCache   map[uintptr]string
+	groupConfigKeySeq     int
+	mainJSONTemplates     map[string]map[string]interface{}
+	mainJSONParsed        map[string]bool
+}
+
+func newScriptFileSender(files []scriptFileData, configIndex map[string]map[string]interface{}) *scriptFileSender {
+	return &scriptFileSender{
+		files:                 files,
+		deviceConfigIndex:     configIndex,
+		basePutPayloadCache:   make(map[string][]byte, len(files)),
+		mergedPutPayloadCache: make(map[string][]byte),
+		groupConfigKeyCache:   make(map[uintptr]string),
+		mainJSONTemplates:     make(map[string]map[string]interface{}),
+		mainJSONParsed:        make(map[string]bool),
+	}
+}
+
+func (s *scriptFileSender) groupConfigKey(groupConfig map[string]interface{}) string {
+	if groupConfig == nil {
+		return ""
+	}
+	ptr := reflect.ValueOf(groupConfig).Pointer()
+	if key, ok := s.groupConfigKeyCache[ptr]; ok {
+		return key
+	}
+	s.groupConfigKeySeq++
+	key := strconv.Itoa(s.groupConfigKeySeq)
+	s.groupConfigKeyCache[ptr] = key
+	return key
+}
+
+func (s *scriptFileSender) parseMainJSONTemplate(pathKey string, encoded string) map[string]interface{} {
+	if s.mainJSONParsed[pathKey] {
+		return s.mainJSONTemplates[pathKey]
+	}
+	s.mainJSONParsed[pathKey] = true
+
+	rawJSON, decodeErr := base64.StdEncoding.DecodeString(encoded)
+	if decodeErr != nil {
+		return nil
+	}
+	var mainObj map[string]interface{}
+	if err := json.Unmarshal(rawJSON, &mainObj); err != nil {
+		return nil
+	}
+	s.mainJSONTemplates[pathKey] = mainObj
+	return mainObj
+}
+
+// sendSmallFile sends a single small file (f.Data != "") to conn, applying config merge if needed.
+func (s *scriptFileSender) sendSmallFile(conn *SafeConn, f scriptFileData, groupConfig map[string]interface{}, configKey string) {
+	if !f.IsMainJSON || groupConfig == nil {
+		payload, ok := s.basePutPayloadCache[f.Path]
+		if !ok {
+			encoded, buildErr := buildFilePutPayload(f.Path, f.Data)
+			if buildErr != nil {
+				return
+			}
+			payload = encoded
+			s.basePutPayloadCache[f.Path] = payload
+		}
+		writeTextMessageAsync(conn, payload)
+		return
+	}
+
+	cacheKey := ""
+	if configKey != "" {
+		cacheKey = f.NormalizedPath + "|" + configKey
+		if cachedPayload, ok := s.mergedPutPayloadCache[cacheKey]; ok {
+			writeTextMessageAsync(conn, cachedPayload)
+			return
+		}
+	}
+
+	finalData := f.Data
+	template := s.parseMainJSONTemplate(f.NormalizedPath, f.Data)
+	if mergedData, ok := buildMergedMainJSON(template, groupConfig); ok {
+		finalData = mergedData
+	}
+
+	payload, buildErr := buildFilePutPayload(f.Path, finalData)
+	if buildErr != nil {
+		return
+	}
+	if cacheKey != "" {
+		s.mergedPutPayloadCache[cacheKey] = payload
+	}
+	writeTextMessageAsync(conn, payload)
+}
+
+// sendSmallFilesToConn sends all small files to a specific device connection.
+func (s *scriptFileSender) sendSmallFilesToConn(conn *SafeConn, udid string) {
+	groupConfig := s.deviceConfigIndex[udid]
+	configKey := s.groupConfigKey(groupConfig)
+	for _, f := range s.files {
+		if f.Data == "" {
+			continue
+		}
+		s.sendSmallFile(conn, f, groupConfig, configKey)
+	}
+}
+
 // scriptsSendHandler handles POST /api/scripts/send
 // Like scriptsSendAndStartHandler but only sends files, does not run the script
 func scriptsSendHandler(c *gin.Context) {
-	var req struct {
-		Devices        []string `json:"devices"`
-		Name           string   `json:"name"`
-		SelectedGroups []string `json:"selectedGroups"`
-		ServerBaseUrl  string   `json:"serverBaseUrl"`
-	}
+	var req scriptSendRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -1115,167 +1258,61 @@ func scriptsSendHandler(c *gin.Context) {
 	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 
-	deviceConfigIndex := buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups)
-	groupConfigKeyCache := make(map[uintptr]string)
-	groupConfigKeySeq := 0
-	getGroupConfigKey := func(groupConfig map[string]interface{}) string {
-		if groupConfig == nil {
-			return ""
-		}
-		ptr := reflect.ValueOf(groupConfig).Pointer()
-		if key, ok := groupConfigKeyCache[ptr]; ok {
-			return key
-		}
-		groupConfigKeySeq++
-		key := strconv.Itoa(groupConfigKeySeq)
-		groupConfigKeyCache[ptr] = key
-		return key
-	}
-
-	mainJSONTemplates := make(map[string]map[string]interface{})
-	mainJSONParsed := make(map[string]bool)
-
-	parseMainJSONTemplate := func(pathKey string, encoded string) map[string]interface{} {
-		if mainJSONParsed[pathKey] {
-			return mainJSONTemplates[pathKey]
-		}
-		mainJSONParsed[pathKey] = true
-
-		rawJSON, decodeErr := base64.StdEncoding.DecodeString(encoded)
-		if decodeErr != nil {
-			return nil
-		}
-		var mainObj map[string]interface{}
-		if err := json.Unmarshal(rawJSON, &mainObj); err != nil {
-			return nil
-		}
-		mainJSONTemplates[pathKey] = mainObj
-		return mainObj
-	}
-
-	buildMergedMainJSONData := func(template map[string]interface{}, groupConfig map[string]interface{}) (string, bool) {
-		if template == nil || groupConfig == nil {
-			return "", false
-		}
-
-		mergedObj := make(map[string]interface{}, len(template))
-		for k, v := range template {
-			mergedObj[k] = v
-		}
-
-		configObj := make(map[string]interface{}, len(groupConfig))
-		if existingConfig, ok := template["Config"].(map[string]interface{}); ok {
-			for k, v := range existingConfig {
-				configObj[k] = v
-			}
-		}
-		for k, v := range groupConfig {
-			configObj[k] = v
-		}
-		mergedObj["Config"] = configObj
-
-		newJSON, err := json.Marshal(mergedObj)
-		if err != nil {
-			return "", false
-		}
-		return base64.StdEncoding.EncodeToString(newJSON), true
-	}
+	sender := newScriptFileSender(filesToSend, buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups))
 
 	deviceConns := snapshotDeviceConns(req.Devices)
-	basePutPayloadCache := make(map[string][]byte, len(filesToSend))
-	mergedPutPayloadCache := make(map[string][]byte)
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
-			groupConfig := deviceConfigIndex[udid]
-			groupConfigKey := getGroupConfigKey(groupConfig)
-
 			broadcastDeviceMessage(udid, fmt.Sprintf("上传脚本 (%d小文件, %d大文件)", smallFilesCount, largeFilesCount))
+
+			sender.sendSmallFilesToConn(conn, udid)
 
 			for _, f := range filesToSend {
 				if f.Data != "" {
-					// Most file/put payloads are identical across devices, cache encoded JSON bytes.
-					if !f.IsMainJSON || groupConfig == nil {
-						payload, ok := basePutPayloadCache[f.Path]
-						if !ok {
-							encoded, buildErr := buildFilePutPayload(f.Path, f.Data)
-							if buildErr != nil {
-								continue
-							}
-							payload = encoded
-							basePutPayloadCache[f.Path] = payload
-						}
-						writeTextMessageAsync(conn, payload)
-						continue
-					}
-
-					cacheKey := ""
-					if groupConfigKey != "" {
-						cacheKey = f.NormalizedPath + "|" + groupConfigKey
-						if cachedPayload, ok := mergedPutPayloadCache[cacheKey]; ok {
-							writeTextMessageAsync(conn, cachedPayload)
-							continue
-						}
-					}
-
-					finalData := f.Data
-					template := parseMainJSONTemplate(f.NormalizedPath, f.Data)
-					if mergedData, ok := buildMergedMainJSONData(template, groupConfig); ok {
-						finalData = mergedData
-					}
-
-					payload, buildErr := buildFilePutPayload(f.Path, finalData)
-					if buildErr != nil {
-						continue
-					}
-					if cacheKey != "" {
-						mergedPutPayloadCache[cacheKey] = payload
-					}
-					writeTextMessageAsync(conn, payload)
-				} else {
-					broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
-
-					md5Info, ok := largeFileMD5[f.SourcePath]
-					if !ok || md5Info.err != nil {
-						broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
-						continue
-					}
-					md5Hash := md5Info.hash
-
-					token := uuid.New().String()
-					transferTokensMu.Lock()
-					transferTokens[token] = &TransferToken{
-						Type:       "download",
-						FilePath:   f.SourcePath,
-						TargetPath: f.Path,
-						DeviceSN:   udid,
-						ExpiresAt:  time.Now().Add(5 * time.Minute),
-						OneTime:    true,
-						TotalBytes: f.Size,
-						MD5:        md5Hash,
-					}
-					transferTokensMu.Unlock()
-
-					downloadURL := fmt.Sprintf("%s/api/transfer/download/%s", transferBaseURL, token)
-
-					fetchMsg := Message{
-						Type: "transfer/fetch",
-						Body: gin.H{
-							"url":        downloadURL,
-							"targetPath": f.Path,
-							"md5":        md5Hash,
-							"totalBytes": f.Size,
-							"timeout":    300,
-						},
-					}
-					fetchPayload, marshalErr := json.Marshal(fetchMsg)
-					if marshalErr != nil {
-						continue
-					}
-					writeTextMessageAsync(conn, fetchPayload)
+					continue
 				}
+				broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
+
+				md5Info, ok := largeFileMD5[f.SourcePath]
+				if !ok || md5Info.err != nil {
+					broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
+					continue
+				}
+				md5Hash := md5Info.hash
+
+				token := uuid.New().String()
+				transferTokensMu.Lock()
+				transferTokens[token] = &TransferToken{
+					Type:       "download",
+					FilePath:   f.SourcePath,
+					TargetPath: f.Path,
+					DeviceSN:   udid,
+					ExpiresAt:  time.Now().Add(5 * time.Minute),
+					OneTime:    true,
+					TotalBytes: f.Size,
+					MD5:        md5Hash,
+				}
+				transferTokensMu.Unlock()
+
+				downloadURL := fmt.Sprintf("%s/api/transfer/download/%s", transferBaseURL, token)
+
+				fetchMsg := Message{
+					Type: "transfer/fetch",
+					Body: gin.H{
+						"url":        downloadURL,
+						"targetPath": f.Path,
+						"md5":        md5Hash,
+						"totalBytes": f.Size,
+						"timeout":    300,
+					},
+				}
+				fetchPayload, marshalErr := json.Marshal(fetchMsg)
+				if marshalErr != nil {
+					continue
+				}
+				writeTextMessageAsync(conn, fetchPayload)
 			}
 
-			// Broadcast completion message (no script start)
 			broadcastDeviceMessage(udid, "脚本已上传")
 		}
 	}
@@ -1285,12 +1322,7 @@ func scriptsSendHandler(c *gin.Context) {
 
 // scriptsSendAndStartHandler handles POST /api/scripts/send-and-start
 func scriptsSendAndStartHandler(c *gin.Context) {
-	var req struct {
-		Devices        []string `json:"devices"`
-		Name           string   `json:"name"`
-		SelectedGroups []string `json:"selectedGroups"`
-		ServerBaseUrl  string   `json:"serverBaseUrl"`
-	}
+	var req scriptSendRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -1357,71 +1389,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	largeFileMD5 := calculateLargeFileMD5(filesToSend)
 	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 
-	deviceConfigIndex := buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups)
-	groupConfigKeyCache := make(map[uintptr]string)
-	groupConfigKeySeq := 0
-	getGroupConfigKey := func(groupConfig map[string]interface{}) string {
-		if groupConfig == nil {
-			return ""
-		}
-		ptr := reflect.ValueOf(groupConfig).Pointer()
-		if key, ok := groupConfigKeyCache[ptr]; ok {
-			return key
-		}
-		groupConfigKeySeq++
-		key := strconv.Itoa(groupConfigKeySeq)
-		groupConfigKeyCache[ptr] = key
-		return key
-	}
-
-	mainJSONTemplates := make(map[string]map[string]interface{})
-	mainJSONParsed := make(map[string]bool)
-
-	parseMainJSONTemplate := func(pathKey string, encoded string) map[string]interface{} {
-		if mainJSONParsed[pathKey] {
-			return mainJSONTemplates[pathKey]
-		}
-		mainJSONParsed[pathKey] = true
-
-		rawJSON, decodeErr := base64.StdEncoding.DecodeString(encoded)
-		if decodeErr != nil {
-			return nil
-		}
-		var mainObj map[string]interface{}
-		if err := json.Unmarshal(rawJSON, &mainObj); err != nil {
-			return nil
-		}
-		mainJSONTemplates[pathKey] = mainObj
-		return mainObj
-	}
-
-	buildMergedMainJSONData := func(template map[string]interface{}, groupConfig map[string]interface{}) (string, bool) {
-		if template == nil || groupConfig == nil {
-			return "", false
-		}
-
-		mergedObj := make(map[string]interface{}, len(template))
-		for k, v := range template {
-			mergedObj[k] = v
-		}
-
-		configObj := make(map[string]interface{}, len(groupConfig))
-		if existingConfig, ok := template["Config"].(map[string]interface{}); ok {
-			for k, v := range existingConfig {
-				configObj[k] = v
-			}
-		}
-		for k, v := range groupConfig {
-			configObj[k] = v
-		}
-		mergedObj["Config"] = configObj
-
-		newJSON, err := json.Marshal(mergedObj)
-		if err != nil {
-			return "", false
-		}
-		return base64.StdEncoding.EncodeToString(newJSON), true
-	}
+	sender := newScriptFileSender(filesToSend, buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups))
 
 	runName := scriptName
 	if isPiled {
@@ -1442,16 +1410,12 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 
 	deviceConns := snapshotDeviceConns(req.Devices)
-	basePutPayloadCache := make(map[string][]byte, len(filesToSend))
-	mergedPutPayloadCache := make(map[string][]byte)
 	type plannedLargeFetch struct {
 		file      scriptFileData
 		requestID string
 	}
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
-			groupConfig := deviceConfigIndex[udid]
-			groupConfigKey := getGroupConfigKey(groupConfig)
 			plannedLargeFetches := make([]plannedLargeFetch, 0, largeFilesCount)
 			for _, f := range filesToSend {
 				if f.Data == "" {
@@ -1475,55 +1439,10 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				continue
 			}
 
-			// 广播状态: 正在发送文件
 			broadcastDeviceMessage(udid, fmt.Sprintf("发送脚本 (%d小文件, %d大文件)", smallFilesCount, largeFilesCount))
 
-			// 先发送小文件，避免大文件过早完成导致脚本提前启动。
-			for _, f := range filesToSend {
-				if f.Data == "" {
-					continue
-				}
+			sender.sendSmallFilesToConn(conn, udid)
 
-				if !f.IsMainJSON || groupConfig == nil {
-					payload, ok := basePutPayloadCache[f.Path]
-					if !ok {
-						encoded, buildErr := buildFilePutPayload(f.Path, f.Data)
-						if buildErr != nil {
-							continue
-						}
-						payload = encoded
-						basePutPayloadCache[f.Path] = payload
-					}
-					writeTextMessageAsync(conn, payload)
-					continue
-				}
-
-				cacheKey := ""
-				if groupConfigKey != "" {
-					cacheKey = f.NormalizedPath + "|" + groupConfigKey
-					if cachedPayload, ok := mergedPutPayloadCache[cacheKey]; ok {
-						writeTextMessageAsync(conn, cachedPayload)
-						continue
-					}
-				}
-
-				finalData := f.Data
-				template := parseMainJSONTemplate(f.NormalizedPath, f.Data)
-				if mergedData, ok := buildMergedMainJSONData(template, groupConfig); ok {
-					finalData = mergedData
-				}
-
-				payload, buildErr := buildFilePutPayload(f.Path, finalData)
-				if buildErr != nil {
-					continue
-				}
-				if cacheKey != "" {
-					mergedPutPayloadCache[cacheKey] = payload
-				}
-				writeTextMessageAsync(conn, payload)
-			}
-
-			// 再发送大文件，避免 transfer/fetch/complete 在注册前到达。
 			for _, planned := range plannedLargeFetches {
 				f := planned.file
 
@@ -1588,7 +1507,6 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				continue
 			}
 
-			// 全部为小文件时，保持原有延迟启动行为。
 			broadcastDeviceMessage(udid, "启动脚本...")
 			updateScriptStartSessionPhase(udid, generation, scriptStartPhaseStarting, true)
 			startScriptOnDevice(udid, generation, runPayload, runPayloadPrepared, runName, ScriptStartDelay)

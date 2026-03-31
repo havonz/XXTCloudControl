@@ -899,6 +899,15 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     lastSentMouseMove = null;
   };
 
+  const endMouseTouch = (udid: string, finalCoords?: TouchPoint) => {
+    flushQueuedMouseMove();
+    sendTouchAction(udid, 'up', finalCoords || lastMouseTouchPosition, undefined, mouseMirrorDevices);
+    isMouseTouching = false;
+    mouseActiveDevice = null;
+    mouseMirrorDevices = [];
+    resetMouseMoveState();
+  };
+
   const wheelBatcher = createRemoteWheelBatcher((payload) => {
     const [sourceUdid, ...mirrorUdids] = payload.targets ?? [];
     if (sourceUdid) {
@@ -1172,28 +1181,15 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const handleDeviceMouseUp = (udid: string, event: MouseEvent) => {
     if (!isMouseTouching || mouseActiveDevice !== udid) return;
     event.preventDefault();
-    
-    flushQueuedMouseMove();
 
     const videoRef = videoRefByUdid.get(udid);
     const coords = videoRef ? convertToDeviceCoordinates(event, videoRef) : null;
-    const finalCoords = coords || lastMouseTouchPosition;
-
-    sendTouchAction(udid, 'up', finalCoords, undefined, mouseMirrorDevices);
-    isMouseTouching = false;
-    mouseActiveDevice = null;
-    mouseMirrorDevices = [];
-    resetMouseMoveState();
+    endMouseTouch(udid, coords || lastMouseTouchPosition);
   };
 
   const handleDeviceMouseLeave = (udid: string) => {
     if (isMouseTouching && mouseActiveDevice === udid) {
-      flushQueuedMouseMove();
-      sendTouchAction(udid, 'up', lastMouseTouchPosition, undefined, mouseMirrorDevices);
-      isMouseTouching = false;
-      mouseActiveDevice = null;
-      mouseMirrorDevices = [];
-      resetMouseMoveState();
+      endMouseTouch(udid);
     }
   };
 
@@ -1368,7 +1364,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 关闭面板
   const handleClose = () => {
-    setVisibleDevices(new Set());
+    setVisibleDevices(new Set<string>());
     setMobileSidebarOpen(false);
     setWheelSettingsOpen(false);
     wheelBatcher.clear();
@@ -1430,12 +1426,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const cleanupTouchState = (udid?: string) => {
     wheelBatcher.clear();
     if ((!udid || mouseActiveDevice === udid) && isMouseTouching && mouseActiveDevice) {
-      flushQueuedMouseMove();
-      sendTouchAction(mouseActiveDevice, 'up', lastMouseTouchPosition, undefined, mouseMirrorDevices);
-      isMouseTouching = false;
-      mouseActiveDevice = null;
-      mouseMirrorDevices = [];
-      resetMouseMoveState();
+      endMouseTouch(mouseActiveDevice);
     }
 
     if ((!udid || activeTouchDevice === udid) && activeTouchDevice && touchSession.hasActiveTouches()) {
@@ -1541,14 +1532,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     return null;
   };
 
+  const isTextInputTarget = (target: EventTarget | null): boolean => {
+    return target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLInputElement && ['text', 'password', 'number', 'email', 'search', 'tel', 'url'].includes(target.type));
+  };
+
   // 键盘事件处理
   const handleKeyDown = (e: KeyboardEvent) => {
-    // 检查是否在输入文本
-    const isTextInput = e.target instanceof HTMLTextAreaElement || 
-      (e.target instanceof HTMLInputElement && ['text', 'password', 'number', 'email', 'search', 'tel', 'url'].includes(e.target.type));
-
-    if (isTextInput) {
-      // 只有 Escape 键在这种情况下需要关闭模态框
+    if (isTextInputTarget(e.target)) {
       if (e.key === 'Escape' && showPasteModal()) {
         setShowPasteModal(false);
       }
@@ -1590,10 +1581,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   };
 
   const handleKeyUp = (e: KeyboardEvent) => {
-    const isTextInput = e.target instanceof HTMLTextAreaElement || 
-      (e.target instanceof HTMLInputElement && ['text', 'password', 'number', 'email', 'search', 'tel', 'url'].includes(e.target.type));
-    
-    if (isTextInput) return;
+    if (isTextInputTarget(e.target)) return;
     if (!props.isOpen || checkedDevices().size === 0) return;
 
     const deviceKey = getKeyFromCode(e.code);

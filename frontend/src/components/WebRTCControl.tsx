@@ -106,7 +106,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const TOUCH_MOUSE_GUARD_MS = 800;
   let lastTouchTimestamp = 0;
   const shouldIgnoreMouseEvent = (event: MouseEvent) => {
-    if (event.sourceCapabilities?.firesTouchEvents) {
+    const sourceCapabilities = (event as MouseEvent & {
+      sourceCapabilities?: { firesTouchEvents?: boolean } | null;
+    }).sourceCapabilities;
+    if (sourceCapabilities?.firesTouchEvents) {
       return true;
     }
     return Date.now() - lastTouchTimestamp < TOUCH_MOUSE_GUARD_MS;
@@ -185,6 +188,15 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       mouseMoveRafId = null;
     }
     lastSentMouseMove = null;
+  };
+
+  const endMouseTouch = (finalCoords?: TouchPoint) => {
+    flushQueuedMouseMove();
+    sendTouchAction('up', finalCoords || lastMouseTouchPosition, undefined, mouseTouchTargetDevices);
+    isMouseTouching = false;
+    mouseTouchTargetDevices = [];
+    resetMouseMoveState();
+    clearCachedVideoRect();
   };
 
   const touchSession = new MultiTouchSessionManager(
@@ -737,12 +749,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     // 如果离开了视频区域且正在触摸，发送 touch up（使用最后位置）
     if (!coords) {
-      flushQueuedMouseMove();
-      sendTouchAction('up', lastMouseTouchPosition, undefined, mouseTouchTargetDevices);
-      isMouseTouching = false;
-      mouseTouchTargetDevices = [];
-      resetMouseMoveState();
-      clearCachedVideoRect();
+      endMouseTouch();
       return;
     }
 
@@ -761,27 +768,15 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       return;
     }
 
-    flushQueuedMouseMove();
     const coords = convertToDeviceCoordinates(event.clientX, event.clientY);
-    const finalCoords = coords ?? lastMouseTouchPosition;
-
-    sendTouchAction('up', finalCoords, undefined, mouseTouchTargetDevices);
-    isMouseTouching = false;
-    mouseTouchTargetDevices = [];
-    resetMouseMoveState();
-    clearCachedVideoRect();
+    endMouseTouch(coords ?? lastMouseTouchPosition);
   };
   
   // 鼠标离开视频区域时处理
   const handleMouseLeave = (event: MouseEvent) => {
     if (shouldIgnoreMouseEvent(event)) return;
     if (isMouseTouching) {
-      flushQueuedMouseMove();
-      sendTouchAction('up', lastMouseTouchPosition, undefined, mouseTouchTargetDevices);
-      isMouseTouching = false;
-      mouseTouchTargetDevices = [];
-      resetMouseMoveState();
-      clearCachedVideoRect();
+      endMouseTouch();
     }
   };
 
@@ -1028,6 +1023,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     keyboardIndicatorTimeout = window.setTimeout(() => setKeyboardIndicator(''), 1000);
   };
 
+  // 判断当前焦点是否在文本输入控件上
+  const isTextInputTarget = (target: Element | null): boolean =>
+    target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || !!(target as HTMLElement)?.isContentEditable;
+
   // 处理键盘事件
   const handleKeyDown = (e: KeyboardEvent) => {
 
@@ -1036,8 +1035,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
     // 只在连接状态且焦点在视频区域时处理
     if (connectionState() !== 'connected') return;
-    const activeEl = document.activeElement;
-    if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || (activeEl as HTMLElement)?.isContentEditable) return;
+    if (isTextInputTarget(document.activeElement)) return;
 
     // 检测拷贝/剪切/粘贴快捷键
     if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
@@ -1094,8 +1092,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (clipboardModalOpen()) return;
     
     if (connectionState() !== 'connected') return;
-    const activeEl = document.activeElement;
-    if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || (activeEl as HTMLElement)?.isContentEditable) return;
+    if (isTextInputTarget(document.activeElement)) return;
     // 忽略拷贝粘贴快捷键的 key up 事件（已在 keydown 拦截）
     if ((e.metaKey || e.ctrlKey) && (e.code === 'KeyC' || e.code === 'KeyV')) return;
 
@@ -1497,11 +1494,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const cleanupTouchState = () => {
     wheelBatcher.clear();
     if (isMouseTouching) {
-      flushQueuedMouseMove();
-      sendTouchAction('up', lastMouseTouchPosition, undefined, mouseTouchTargetDevices);
-      isMouseTouching = false;
-      mouseTouchTargetDevices = [];
-      resetMouseMoveState();
+      endMouseTouch();
     }
 
     if (touchSession.hasActiveTouches()) {
