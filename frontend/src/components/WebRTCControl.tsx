@@ -5,8 +5,10 @@ import styles from './WebRTCControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
 import type { WebSocketService } from '../services/WebSocketService';
+import { getDeviceHttpPort } from '../utils/device';
 import { MultiTouchSessionManager, type TouchPoint } from '../utils/multiTouchSession';
 import { debugLog, debugWarn } from '../utils/debugLogger';
+import { getNormalizedVideoCoordinates } from '../utils/videoCoordinates';
 import {
   REMOTE_WHEEL_DEFAULTS,
   canHandleRemoteWheel,
@@ -271,6 +273,14 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
   };
 
+  const getCurrentVideoRect = () => {
+    if (!videoRef) return null;
+    if (!cachedVideoRect) {
+      cachedVideoRect = videoRef.getBoundingClientRect();
+    }
+    return cachedVideoRect;
+  };
+
   const clearCachedVideoRect = () => {
     cachedVideoRect = null;
   };
@@ -346,30 +356,6 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
     return clampedScale;
   });
-
-  const getDeviceHttpPort = (device: Device | null): number | undefined => {
-    if (!device) return undefined;
-    const candidates = [
-      device.system?.port,
-      device.system?.httpPort,
-      device.system?.http_port,
-      (device as any).port,
-      (device as any).httpPort,
-      (device as any).http_port
-    ];
-    for (const value of candidates) {
-      if (typeof value === 'number' && value > 0 && value <= 65535) {
-        return value;
-      }
-      if (typeof value === 'string') {
-        const parsed = Number(value);
-        if (Number.isFinite(parsed) && parsed > 0 && parsed <= 65535) {
-          return parsed;
-        }
-      }
-    }
-    return undefined;
-  };
 
   // 获取当前选中设备对象
   function getCurrentDevice() {
@@ -639,67 +625,16 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const convertToDeviceCoordinates = (clientX: number, clientY: number) => {
     if (!videoRef) return null;
 
-    const rect = cachedVideoRect ?? videoRef.getBoundingClientRect();
-    if (!cachedVideoRect) {
-      cachedVideoRect = rect;
-    }
-    const videoWidth = videoRef.videoWidth;
-    const videoHeight = videoRef.videoHeight;
-    const rotation = currentRotation();
+    const videoRect = getCurrentVideoRect();
+    if (!videoRect) return null;
 
-    if (!videoWidth || !videoHeight) return null;
-
-    // 计算视频的宽高比（原始视频）
-    const videoAspectRatio = videoWidth / videoHeight;
-    
-    // 对于90°/270°旋转，显示的宽高比是反过来的
-    const isRotated90or270 = rotation === 90 || rotation === 270;
-    const displayAspectRatio = isRotated90or270 ? 1 / videoAspectRatio : videoAspectRatio;
-    
-    // 计算视频在容器中的实际显示区域（考虑letterbox/pillarbox）
-    const containerAspectRatio = rect.width / rect.height;
-    
-    let displayWidth, displayHeight, offsetX, offsetY;
-    
-    if (displayAspectRatio > containerAspectRatio) {
-      // 视频比容器更宽，上下有黑边
-      displayWidth = rect.width;
-      displayHeight = rect.width / displayAspectRatio;
-      offsetX = 0;
-      offsetY = (rect.height - displayHeight) / 2;
-    } else {
-      // 视频比容器更高，左右有黑边
-      displayWidth = rect.height * displayAspectRatio;
-      displayHeight = rect.height;
-      offsetX = (rect.width - displayWidth) / 2;
-      offsetY = 0;
-    }
-    
-    // 计算点击位置相对于视频元素的位置
-    const clickPosX = clientX - rect.left;
-    const clickPosY = clientY - rect.top;
-    
-    // 检查是否在视频显示区域内
-    if (clickPosX < offsetX || clickPosX > offsetX + displayWidth ||
-        clickPosY < offsetY || clickPosY > offsetY + displayHeight) {
-      return null; // 点击在视频区域外
-    }
-    
-    // 计算在显示区域内的归一化坐标 (0-1)
-    const clickX = (clickPosX - offsetX) / displayWidth;
-    const clickY = (clickPosY - offsetY) / displayHeight;
-
-    // 根据旋转角度，将屏幕坐标转换为设备坐标
-    switch (rotation) {
-      case 90:
-        return { x: clickY, y: 1 - clickX };
-      case 180:
-        return { x: 1 - clickX, y: 1 - clickY };
-      case 270:
-        return { x: 1 - clickY, y: clickX };
-      default:
-        return { x: clickX, y: clickY };
-    }
+    return getNormalizedVideoCoordinates({
+      clientX,
+      clientY,
+      videoElement: videoRef,
+      videoRect,
+      rotation: currentRotation(),
+    });
   };
 
   const resetLocalInputState = () => {
@@ -844,17 +779,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   const handleContextMenu = (event: MouseEvent) => {
     event.preventDefault();
-    
-    // 1. 始终控制当前设备（通过 WebRTC DataChannel）
-    if (webrtcService) {
-      webrtcService.sendKeyCommand('homebutton', 'press');
-    }
 
-    // 2. 如果开启同步控制，控制其他设备（通过 WebSocket）
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.pressHomeButtonMultiple(targetDevices);
-    }
+    sendSynchronizedKeyPress('homebutton');
   };
 
   const handleWheel = (event: WheelEvent) => {
@@ -925,6 +851,40 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const getWsKeyCode = (key: string): string => {
     return wsKeyCodeMap[key] || key.toUpperCase();
   };
+
+  function sendKeyCommandToCurrentDevice(key: string, action: 'down' | 'up' | 'press'): void {
+    webrtcService?.sendKeyCommand(key, action);
+  }
+
+  function sendKeyCommandToTargetDevices(keyCode: string, action: 'down' | 'up'): void {
+    const targetDevices = getTargetDevices();
+    if (targetDevices.length === 0 || !props.webSocketService) {
+      return;
+    }
+
+    if (action === 'down') {
+      void props.webSocketService.keyDownMultiple(targetDevices, keyCode);
+      return;
+    }
+
+    void props.webSocketService.keyUpMultiple(targetDevices, keyCode);
+  }
+
+  function sendSynchronizedKeyCommand(key: string, action: 'down' | 'up'): void {
+    sendKeyCommandToCurrentDevice(key, action);
+    sendKeyCommandToTargetDevices(getWsKeyCode(key), action);
+  }
+
+  function sendSynchronizedKeyPress(key: string, wsKeyCode: string = getWsKeyCode(key)): void {
+    sendKeyCommandToCurrentDevice(key, 'press');
+
+    const targetDevices = getTargetDevices();
+    if (targetDevices.length === 0 || !props.webSocketService) {
+      return;
+    }
+
+    void props.webSocketService.pressKeyMultiple(targetDevices, wsKeyCode);
+  }
 
   // 特殊按键映射 - 使用 e.code (物理键码) 而不是 e.key (字符)
   // 这样 Shift+2 会发送 Shift 和 "2"，而不是发送 "@"
@@ -1042,18 +1002,14 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       e.preventDefault();
       // 发送 command up 事件以防止设备端按键卡住（因为弹出模态框会中断焦点）
       // 注意：c 的 down 事件还没发送（被上面拦截了），只有 command down 发了
-      if (webrtcService) {
-        webrtcService.sendKeyCommand('command', 'up');
-      }
+      sendKeyCommandToCurrentDevice('command', 'up');
       handleCopyFromDevice();
       return;
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'x') {
       e.preventDefault();
       // 发送 command up 事件以防止设备端按键卡住
-      if (webrtcService) {
-        webrtcService.sendKeyCommand('command', 'up');
-      }
+      sendKeyCommandToCurrentDevice('command', 'up');
       handleCutFromDevice();
       return;
     }
@@ -1061,9 +1017,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       e.preventDefault();
       // 发送 command up 事件以防止设备端按键卡住（因为弹出模态框会中断焦点）
       // 注意：v 的 down 事件还没发送（被上面拦截了），只有 command down 发了
-      if (webrtcService) {
-        webrtcService.sendKeyCommand('command', 'up');
-      }
+      sendKeyCommandToCurrentDevice('command', 'up');
       handlePasteToDevice();
       return;
     }
@@ -1075,16 +1029,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     e.preventDefault();
     showKeyboardIndicator(mappedKey);
 
-    // 1. 发送到当前设备 (via DataChannel)
-    if (webrtcService) {
-      webrtcService.sendKeyCommand(mappedKey, 'down');
-    }
-
-    // 2. 如果开启同步控制，发送到其他设备 (via WebSocket)
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.keyDownMultiple(targetDevices, getWsKeyCode(mappedKey));
-    }
+    sendSynchronizedKeyCommand(mappedKey, 'down');
   };
 
   const handleKeyUp = (e: KeyboardEvent) => {
@@ -1094,63 +1039,25 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (connectionState() !== 'connected') return;
     if (isTextInputTarget(document.activeElement)) return;
     // 忽略拷贝粘贴快捷键的 key up 事件（已在 keydown 拦截）
-    if ((e.metaKey || e.ctrlKey) && (e.code === 'KeyC' || e.code === 'KeyV')) return;
+    if ((e.metaKey || e.ctrlKey) && (e.code === 'KeyC' || e.code === 'KeyV' || e.code === 'KeyX')) return;
 
     // 使用 e.code 获取物理键码
     const mappedKey = getKeyFromCode(e.code);
     if (!mappedKey) return;
 
     e.preventDefault();
-    
-    // 1. 发送到当前设备 (via DataChannel)
-    if (webrtcService) {
-      webrtcService.sendKeyCommand(mappedKey, 'up');
-    }
 
-    // 2. 如果开启同步控制，发送到其他设备 (via WebSocket)
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.keyUpMultiple(targetDevices, getWsKeyCode(mappedKey));
-    }
+    sendSynchronizedKeyCommand(mappedKey, 'up');
   };
 
   // 设备按键处理
-  const handleHomeButton = () => {
-    // 1. 发送到当前设备 (via DataChannel)
-    if (webrtcService) webrtcService.sendKeyCommand('homebutton', 'press');
-    // 2. 如果开启同步控制，发送到其他设备 (via WebSocket)
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.pressHomeButtonMultiple(targetDevices);
-    }
-  };
+  const handleHomeButton = () => sendSynchronizedKeyPress('homebutton');
 
-  const handleVolumeUp = () => {
-    if (webrtcService) webrtcService.sendKeyCommand('volumeup', 'press');
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.keyDownMultiple(targetDevices, 'VOLUMEUP');
-      setTimeout(() => props.webSocketService?.keyUpMultiple(targetDevices, 'VOLUMEUP'), 50);
-    }
-  };
+  const handleVolumeUp = () => sendSynchronizedKeyPress('volumeup');
 
-  const handleVolumeDown = () => {
-    if (webrtcService) webrtcService.sendKeyCommand('volumedown', 'press');
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.keyDownMultiple(targetDevices, 'VOLUMEDOWN');
-      setTimeout(() => props.webSocketService?.keyUpMultiple(targetDevices, 'VOLUMEDOWN'), 50);
-    }
-  };
+  const handleVolumeDown = () => sendSynchronizedKeyPress('volumedown');
 
-  const handleLockScreen = () => {
-    if (webrtcService) webrtcService.sendKeyCommand('lock', 'press');
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length > 0 && props.webSocketService) {
-      props.webSocketService.keyDownMultiple(targetDevices, 'LOCK');
-      setTimeout(() => props.webSocketService?.keyUpMultiple(targetDevices, 'LOCK'), 50);
-    }
-  };
+  const handleLockScreen = () => sendSynchronizedKeyPress('lock');
 
   // 剪贴板处理 - 打开读取模态框
   const handleCopyFromDevice = () => {

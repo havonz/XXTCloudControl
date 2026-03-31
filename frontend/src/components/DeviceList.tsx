@@ -203,21 +203,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [lastLogs, setLastLogs] = createStore<Record<string, string>>({});
   const localMessageTimers = new Map<string, number>();
   const localMessageTTL = 10000;
-  const clearLocalDeviceMessage = (udid: string) => {
-    const timer = localMessageTimers.get(udid);
-    if (timer) {
-      clearTimeout(timer);
-      localMessageTimers.delete(udid);
-    }
-    setLocalDeviceMessages((prev) => {
-      if (!(udid in prev)) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[udid];
-      return next;
-    });
-  };
   const setDeviceMessage = (udid: string, message: string) => {
     setLocalDeviceMessages((prev) => {
       if (prev[udid] === message) {
@@ -314,30 +299,53 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const closeContextMenu = () => {
     setContextMenuDevice(null);
   };
+
+  const copyContextMenuDeviceValue = (
+    type: string,
+    resolveValue: (device: Device) => string,
+    emptyMessage?: string,
+  ) => {
+    const device = contextMenuDevice();
+    const value = device ? resolveValue(device) : '';
+
+    if (value || !emptyMessage) {
+      void copyToClipboard(value, type);
+    } else {
+      showToastMessage(emptyMessage);
+    }
+
+    closeContextMenu();
+  };
+
+  const copySelectedDeviceValues = (
+    type: string,
+    resolveValue: (device: Device) => string,
+    emptyMessage?: string,
+  ) => {
+    const value = props.selectedDevices()
+      .map(resolveValue)
+      .filter((item) => item !== '')
+      .join('\n');
+
+    if (value || !emptyMessage) {
+      void copyToClipboard(value, type);
+    } else {
+      showToastMessage(emptyMessage);
+    }
+
+    closeContextMenu();
+  };
   
   const handleContextMenuCopyUdid = () => {
-    const device = contextMenuDevice();
-    if (device) {
-      copyToClipboard(device.udid, 'UDID');
-    }
-    closeContextMenu();
+    copyContextMenuDeviceValue('UDID', (device) => device.udid);
   };
   
   const handleContextMenuCopyName = () => {
-    const device = contextMenuDevice();
-    if (device) {
-      const name = device.system?.name || '未知设备';
-      copyToClipboard(name, '设备名称');
-    }
-    closeContextMenu();
+    copyContextMenuDeviceValue('设备名称', (device) => device.system?.name || '未知设备');
   };
   
   const handleContextMenuCopyIp = () => {
-    const device = contextMenuDevice();
-    if (device) {
-      copyToClipboard(device.system?.ip || '未知', 'IP地址');
-    }
-    closeContextMenu();
+    copyContextMenuDeviceValue('IP地址', (device) => device.system?.ip || '未知');
   };
   
   const handleContextMenuOpenFileBrowser = () => {
@@ -360,87 +368,59 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   // 批量拷贝选中设备信息
   const handleContextMenuCopySelectedUdids = () => {
-    const udids = props.selectedDevices().map(d => d.udid).join('\n');
-    copyToClipboard(udids, '选中设备 UDID');
-    closeContextMenu();
+    copySelectedDeviceValues('选中设备 UDID', (device) => device.udid);
   };
   
   const handleContextMenuCopySelectedNames = () => {
-    const names = props.selectedDevices().map(d => d.system?.name || '未知设备').join('\n');
-    copyToClipboard(names, '选中设备名称');
-    closeContextMenu();
+    copySelectedDeviceValues('选中设备名称', (device) => device.system?.name || '未知设备');
   };
   
   const handleContextMenuCopySelectedIps = () => {
-    const ips = props.selectedDevices().map(d => d.system?.ip || '未知').join('\n');
-    copyToClipboard(ips, '选中设备 IP');
-    closeContextMenu();
+    copySelectedDeviceValues('选中设备 IP', (device) => device.system?.ip || '未知');
   };
   
   // 拷贝最后日志
   const handleContextMenuCopyLastLog = () => {
-    const device = contextMenuDevice();
-    if (device) {
-      const log = getDisplayLog(device);
-      if (log) {
-        copyToClipboard(log, '最后日志');
-      } else {
-        showToastMessage('该设备暂无日志');
-      }
-    }
-    closeContextMenu();
+    copyContextMenuDeviceValue('最后日志', (device) => getDisplayLog(device), '该设备暂无日志');
   };
   
   // 拷贝选中设备最后日志
   const handleContextMenuCopySelectedLastLogs = () => {
-    const logs = props.selectedDevices()
-      .map(d => {
-        const name = d.system?.name || d.udid;
-        const log = getDisplayLog(d);
-        return log ? `[${name}] ${log}` : '';
-      })
-      .filter(log => log) // 过滤掉空日志
-      .join('\n');
-    
-    if (logs) {
-      copyToClipboard(logs, '选中设备最后日志');
-    } else {
-      showToastMessage('选中设备暂无日志');
-    }
-    closeContextMenu();
+    copySelectedDeviceValues(
+      '选中设备最后日志',
+      (device) => {
+        const log = getDisplayLog(device);
+        if (!log) {
+          return '';
+        }
+
+        const name = device.system?.name || device.udid;
+        return `[${name}] ${log}`;
+      },
+      '选中设备暂无日志',
+    );
   };
 
   // 拷贝脚本文件名
   const handleContextMenuCopyScriptSelect = () => {
-    const device = contextMenuDevice();
-    if (device) {
-      const scriptName = device.script?.select || '';
-      if (scriptName) {
-        copyToClipboard(scriptName, '脚本文件名');
-      } else {
-        showToastMessage('该设备未选中任何脚本');
-      }
-    }
-    closeContextMenu();
+    copyContextMenuDeviceValue('脚本文件名', (device) => device.script?.select || '', '该设备未选中任何脚本');
   };
 
   // 拷贝选中设备的脚本文件名
   const handleContextMenuCopySelectedScriptSelects = () => {
-    const scriptNames = props.selectedDevices()
-      .map(d => {
-        const name = d.system?.name || d.udid;
-        const scriptName = d.script?.select || '';
-        return scriptName ? `[${name}] ${scriptName}` : '';
-      })
-      .filter(sn => sn) // 过滤掉空脚本名
-      .join('\n');
-    
-    if (scriptNames) {
-      copyToClipboard(scriptNames, '选中设备脚本文件名');
-    } else {
-      showToastMessage('选中设备暂无脚本选中');
-    }
-    closeContextMenu();
+    copySelectedDeviceValues(
+      '选中设备脚本文件名',
+      (device) => {
+        const scriptName = device.script?.select || '';
+        if (!scriptName) {
+          return '';
+        }
+
+        const name = device.system?.name || device.udid;
+        return `[${name}] ${scriptName}`;
+      },
+      '选中设备暂无脚本选中',
+    );
   };
   
   onMount(() => {

@@ -6,8 +6,10 @@ import styles from './BatchRemoteControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
 import type { WebSocketService } from '../services/WebSocketService';
+import { getDeviceHttpPort } from '../utils/device';
 import { MultiTouchSessionManager, type TouchPoint } from '../utils/multiTouchSession';
 import { debugLog, debugWarn } from '../utils/debugLogger';
+import { getNormalizedVideoCoordinates } from '../utils/videoCoordinates';
 import {
   canHandleRemoteWheel,
   createRemoteWheelBatcher,
@@ -59,30 +61,6 @@ function createConnectionStateMap(devices: Device[]): Record<string, ConnectionV
 // 获取设备名称的辅助函数
 function getDeviceName(device: Device): string {
   return device.system?.name || device.udid.substring(0, 12) + '...';
-}
-
-// 获取设备 HTTP 端口
-function getDeviceHttpPort(device: Device): number | undefined {
-  const candidates = [
-    device.system?.port,
-    device.system?.httpPort,
-    device.system?.http_port,
-    (device as any).port,
-    (device as any).httpPort,
-    (device as any).http_port
-  ];
-  for (const value of candidates) {
-    if (typeof value === 'number' && value > 0 && value <= 65535) {
-      return value;
-    }
-    if (typeof value === 'string') {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed) && parsed > 0 && parsed <= 65535) {
-        return parsed;
-      }
-    }
-  }
-  return undefined;
 }
 
 export default function BatchRemoteControl(props: BatchRemoteControlProps) {
@@ -797,12 +775,21 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     return [...checkedDevices()].filter(udid => udid !== currentUdid);
   };
 
+  const getMirrorDevices = (sourceUdid: string): string[] => {
+    if (!checkedDevices().has(sourceUdid)) {
+      return [];
+    }
+
+    return getOtherCheckedDevices(sourceUdid);
+  };
+
   const resolveWheelTargets = (sourceUdid: string): string[] => {
-    const checked = checkedDevices();
-    if (!checked.size || !checked.has(sourceUdid)) {
+    const mirrorDevices = getMirrorDevices(sourceUdid);
+    if (mirrorDevices.length === 0) {
       return [sourceUdid];
     }
-    return [sourceUdid, ...getOtherCheckedDevices(sourceUdid)];
+
+    return [sourceUdid, ...mirrorDevices];
   };
 
   // 将设备按可用控制通道拆分，避免同一个动作重复发送
@@ -1106,41 +1093,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   // 坐标转换
   const convertToDeviceCoordinates = (event: MouseEvent | Touch, videoElement: HTMLVideoElement) => {
-    const rect = videoElement.getBoundingClientRect();
-    const videoWidth = videoElement.videoWidth;
-    const videoHeight = videoElement.videoHeight;
-
-    if (!videoWidth || !videoHeight) return null;
-
-    const videoAspectRatio = videoWidth / videoHeight;
-    const containerAspectRatio = rect.width / rect.height;
-    
-    let displayWidth, displayHeight, offsetX, offsetY;
-    
-    if (videoAspectRatio > containerAspectRatio) {
-      displayWidth = rect.width;
-      displayHeight = rect.width / videoAspectRatio;
-      offsetX = 0;
-      offsetY = (rect.height - displayHeight) / 2;
-    } else {
-      displayWidth = rect.height * videoAspectRatio;
-      displayHeight = rect.height;
-      offsetX = (rect.width - displayWidth) / 2;
-      offsetY = 0;
-    }
-
-    const clickPosX = event.clientX - rect.left;
-    const clickPosY = event.clientY - rect.top;
-
-    if (clickPosX < offsetX || clickPosX > offsetX + displayWidth ||
-        clickPosY < offsetY || clickPosY > offsetY + displayHeight) {
-      return null;
-    }
-
-    const clickX = (clickPosX - offsetX) / displayWidth;
-    const clickY = (clickPosY - offsetY) / displayHeight;
-
-    return { x: clickX, y: clickY };
+    return getNormalizedVideoCoordinates({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      videoElement,
+    });
   };
 
   // 触控事件处理
@@ -1160,7 +1117,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     mouseActiveDevice = udid;
     isMouseTouching = true;
     lastMouseTouchPosition = coords;
-    mouseMirrorDevices = checkedDevices().has(udid) ? getOtherCheckedDevices(udid) : [];
+    mouseMirrorDevices = getMirrorDevices(udid);
     sendTouchAction(udid, 'down', coords, undefined, mouseMirrorDevices);
   };
 
@@ -1204,11 +1161,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
 
     // 如果当前设备是选中状态，同步到其他选中设备
-    if (checkedDevices().has(udid)) {
-      const otherDevices = getOtherCheckedDevices(udid);
-      if (otherDevices.length > 0 && props.webSocketService) {
-        props.webSocketService.pressHomeButtonMultiple(otherDevices);
-      }
+    const otherDevices = getMirrorDevices(udid);
+    if (otherDevices.length > 0 && props.webSocketService) {
+      void props.webSocketService.pressKeyMultiple(otherDevices, 'HOMEBUTTON');
     }
   };
 
@@ -1229,7 +1184,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
       if (!activeTouchDevice) {
         activeTouchDevice = udid;
-        activeTouchMirrorDevices = checkedDevices().has(udid) ? getOtherCheckedDevices(udid) : [];
+        activeTouchMirrorDevices = getMirrorDevices(udid);
       }
 
       const session = touchSession.beginTouch(buildTouchKey(touch), coords);
@@ -1319,8 +1274,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
 
     if (props.webSocketService && viaWebSocket.length > 0) {
-      props.webSocketService.keyDownMultiple(viaWebSocket, wsKey);
-      setTimeout(() => props.webSocketService?.keyUpMultiple(viaWebSocket, wsKey), 50);
+      void props.webSocketService.pressKeyMultiple(viaWebSocket, wsKey);
     }
   };
 

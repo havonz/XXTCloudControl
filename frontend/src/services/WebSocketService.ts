@@ -36,6 +36,22 @@ interface PendingRequest<T = any> {
   type: string; // The expected response type
 }
 
+interface SendAuthenticatedMessageOptions {
+  body?: any;
+  requireOpenConnection?: boolean;
+  missingPasswordMessage?: string;
+  connectionErrorMessage?: string;
+  errorMessage: string;
+}
+
+interface SendDeviceCommandOptions {
+  body?: any;
+  requireOpenConnection?: boolean;
+  missingPasswordMessage?: string;
+  missingDevicesMessage: string;
+  errorMessage: string;
+}
+
 export class WebSocketService {
   private ws: WebSocket | null = null;
   private url: string;
@@ -202,101 +218,111 @@ export class WebSocketService {
     return false;
   }
 
-  async requestDeviceList(): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法请求设备列表');
+  private sendAuthenticatedMessage(messageType: string, options: SendAuthenticatedMessageOptions): void {
+    const {
+      body,
+      requireOpenConnection = false,
+      missingPasswordMessage = '未设置密码',
+      connectionErrorMessage = 'WebSocket未连接或未认证',
+      errorMessage,
+    } = options;
+
+    if (requireOpenConnection) {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
+        console.error(connectionErrorMessage);
+        return;
+      }
+    } else if (!this.password) {
+      console.error(missingPasswordMessage);
       return;
     }
 
     try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
+      const message = AuthService.getInstance().createControlMessage(
         this.password,
-        'control/devices'
+        messageType,
+        body,
       );
-      
       this.send(message);
     } catch (error) {
-      console.error('请求设备列表失败:', error);
+      console.error(errorMessage, error);
     }
+  }
+
+  private sendDeviceCommand(
+    deviceUdids: string[],
+    commandType: string,
+    options: SendDeviceCommandOptions,
+  ): void {
+    const {
+      body,
+      requireOpenConnection = false,
+      missingPasswordMessage = '未设置密码',
+      missingDevicesMessage,
+      errorMessage,
+    } = options;
+
+    if (!deviceUdids || deviceUdids.length === 0) {
+      console.error(missingDevicesMessage);
+      return;
+    }
+
+    this.sendAuthenticatedMessage('control/command', {
+      body: body === undefined
+        ? {
+            devices: deviceUdids,
+            type: commandType,
+          }
+        : {
+            devices: deviceUdids,
+            type: commandType,
+            body,
+          },
+      requireOpenConnection,
+      missingPasswordMessage,
+      connectionErrorMessage: 'WebSocket未连接或未认证',
+      errorMessage,
+    });
+  }
+
+  async requestDeviceList(): Promise<void> {
+    this.sendAuthenticatedMessage('control/devices', {
+      missingPasswordMessage: '未设置密码，无法请求设备列表',
+      errorMessage: '请求设备列表失败:',
+    });
   }
 
   async refreshDeviceStates(): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法刷新设备状态');
-      return;
-    }
-
-    try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
-        this.password,
-        'control/refresh'
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('刷新设备状态失败:', error);
-    }
+    this.sendAuthenticatedMessage('control/refresh', {
+      missingPasswordMessage: '未设置密码，无法刷新设备状态',
+      errorMessage: '刷新设备状态失败:',
+    });
   }
 
   async subscribeDeviceLogs(deviceUdids: string[]): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法订阅日志');
-      return;
-    }
-
     if (!deviceUdids || deviceUdids.length === 0) {
       console.error('未选择设备，无法订阅日志');
       return;
     }
 
-    try {
-      const authService = AuthService.getInstance();
-
-      const message = authService.createControlMessage(
-        this.password,
-        'control/log/subscribe',
-        {
-          devices: deviceUdids
-        }
-      );
-
-      this.send(message);
-    } catch (error) {
-      console.error('订阅日志失败:', error);
-    }
+    this.sendAuthenticatedMessage('control/log/subscribe', {
+      body: { devices: deviceUdids },
+      missingPasswordMessage: '未设置密码，无法订阅日志',
+      errorMessage: '订阅日志失败:',
+    });
   }
 
   async unsubscribeDeviceLogs(deviceUdids: string[]): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法取消订阅日志');
-      return;
-    }
-
     if (!deviceUdids || deviceUdids.length === 0) {
       console.error('未选择设备，无法取消订阅日志');
       return;
     }
 
-    try {
-      const authService = AuthService.getInstance();
-
-      const message = authService.createControlMessage(
-        this.password,
-        'control/log/unsubscribe',
-        {
-          devices: deviceUdids
-        }
-      );
-
-      this.send(message);
-    } catch (error) {
-      console.error('取消订阅日志失败:', error);
-    }
+    this.sendAuthenticatedMessage('control/log/unsubscribe', {
+      body: { devices: deviceUdids },
+      missingPasswordMessage: '未设置密码，无法取消订阅日志',
+      errorMessage: '取消订阅日志失败:',
+    });
   }
 
   /**
@@ -358,196 +384,55 @@ export class WebSocketService {
   }
 
   async startScript(deviceUdids: string[], scriptName: string): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法启动脚本');
-      return;
-    }
-
-    if (!deviceUdids || deviceUdids.length === 0) {
-      console.error('未选择设备，无法启动脚本');
-      return;
-    }
-
-    // 允许空脚本名称，直接发送请求
-
-    try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: deviceUdids,
-          type: 'script/run',
-          body: {
-            name: scriptName || ''
-          }
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('启动脚本失败:', error);
-    }
+    this.sendDeviceCommand(deviceUdids, 'script/run', {
+      body: { name: scriptName || '' },
+      missingPasswordMessage: '未设置密码，无法启动脚本',
+      missingDevicesMessage: '未选择设备，无法启动脚本',
+      errorMessage: '启动脚本失败:',
+    });
   }
 
   async stopScript(deviceUdids: string[]): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法停止脚本');
-      return;
-    }
-
-    if (!deviceUdids || deviceUdids.length === 0) {
-      console.error('未选择设备，无法停止脚本');
-      return;
-    }
-
-    try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: deviceUdids,
-          type: 'script/stop'
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('停止脚本失败:', error);
-    }
+    this.sendDeviceCommand(deviceUdids, 'script/stop', {
+      missingPasswordMessage: '未设置密码，无法停止脚本',
+      missingDevicesMessage: '未选择设备，无法停止脚本',
+      errorMessage: '停止脚本失败:',
+    });
   }
 
   async pauseScript(deviceUdids: string[]): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法暂停脚本');
-      return;
-    }
-
-    if (!deviceUdids || deviceUdids.length === 0) {
-      console.error('未选择设备，无法暂停脚本');
-      return;
-    }
-
-    try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: deviceUdids,
-          type: 'script/pause'
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('暂停脚本失败:', error);
-    }
+    this.sendDeviceCommand(deviceUdids, 'script/pause', {
+      missingPasswordMessage: '未设置密码，无法暂停脚本',
+      missingDevicesMessage: '未选择设备，无法暂停脚本',
+      errorMessage: '暂停脚本失败:',
+    });
   }
 
   async resumeScript(deviceUdids: string[]): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法继续脚本');
-      return;
-    }
-
-    if (!deviceUdids || deviceUdids.length === 0) {
-      console.error('未选择设备，无法继续脚本');
-      return;
-    }
-
-    try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: deviceUdids,
-          type: 'script/resume'
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('继续脚本失败:', error);
-    }
+    this.sendDeviceCommand(deviceUdids, 'script/resume', {
+      missingPasswordMessage: '未设置密码，无法继续脚本',
+      missingDevicesMessage: '未选择设备，无法继续脚本',
+      errorMessage: '继续脚本失败:',
+    });
   }
 
   async respringDevices(deviceUdids: string[]): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法注销设备');
-      return;
-    }
-
-    if (!deviceUdids || deviceUdids.length === 0) {
-      console.error('未选择设备，无法注销设备');
-      return;
-    }
-
-    try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: deviceUdids,
-          type: 'system/respring'
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('注销设备失败:', error);
-    }
+    this.sendDeviceCommand(deviceUdids, 'system/respring', {
+      missingPasswordMessage: '未设置密码，无法注销设备',
+      missingDevicesMessage: '未选择设备，无法注销设备',
+      errorMessage: '注销设备失败:',
+    });
   }
 
   async rebootDevices(deviceUdids: string[]): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法重启设备');
-      return;
-    }
-
-    if (!deviceUdids || deviceUdids.length === 0) {
-      console.error('未选择设备，无法重启设备');
-      return;
-    }
-
-    try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: deviceUdids,
-          type: 'system/reboot'
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('重启设备失败:', error);
-    }
+    this.sendDeviceCommand(deviceUdids, 'system/reboot', {
+      missingPasswordMessage: '未设置密码，无法重启设备',
+      missingDevicesMessage: '未选择设备，无法重启设备',
+      errorMessage: '重启设备失败:',
+    });
   }
 
   async uploadFile(deviceUdids: string[], filePath: string, fileData: string): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法上传文件');
-      return;
-    }
-
     if (!deviceUdids || deviceUdids.length === 0) {
       console.error('未选择设备，无法上传文件');
       return;
@@ -563,54 +448,25 @@ export class WebSocketService {
       return;
     }
 
-    try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: deviceUdids,
-          type: 'file/put',
-          body: {
-            path: filePath.trim(),
-            data: fileData
-          }
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('上传文件失败:', error);
-    }
+    this.sendDeviceCommand(deviceUdids, 'file/put', {
+      body: {
+        path: filePath.trim(),
+        data: fileData,
+      },
+      missingPasswordMessage: '未设置密码，无法上传文件',
+      missingDevicesMessage: '未选择设备，无法上传文件',
+      errorMessage: '上传文件失败:',
+    });
   }
 
   // 列出文件目录
   async listFiles(deviceUdid: string, path: string): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
-      console.error('WebSocket未连接或未认证');
-      return;
-    }
-
-    try {
-      const message = AuthService.getInstance().createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: [deviceUdid],
-          type: 'file/list',
-          body: {
-            path: path.trim()
-          }
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('获取文件列表失败:', error);
-    }
+    this.sendDeviceCommand([deviceUdid], 'file/list', {
+      body: { path: path.trim() },
+      requireOpenConnection: true,
+      missingDevicesMessage: '未选择设备，无法获取文件列表',
+      errorMessage: '获取文件列表失败:',
+    });
   }
 
   // 列出文件目录 (Promise 版本，用于递归扫描)
@@ -646,162 +502,71 @@ export class WebSocketService {
 
   // 删除文件
   async deleteFile(deviceUdid: string, path: string): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
-      console.error('WebSocket未连接或未认证');
-      return;
-    }
-
-    try {
-      const message = AuthService.getInstance().createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: [deviceUdid],
-          type: 'file/delete',
-          body: {
-            path: path.trim()
-          }
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('删除文件失败:', error);
-    }
+    this.sendDeviceCommand([deviceUdid], 'file/delete', {
+      body: { path: path.trim() },
+      requireOpenConnection: true,
+      missingDevicesMessage: '未选择设备，无法删除文件',
+      errorMessage: '删除文件失败:',
+    });
   }
 
   // 创建目录
   async createDirectory(deviceUdid: string, path: string): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
-      console.error('WebSocket未连接或未认证');
-      return;
-    }
-
-    try {
-      const message = AuthService.getInstance().createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: [deviceUdid],
-          type: 'file/put',
-          body: {
-            path: path.trim(),
-            directory: true
-          }
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('创建目录失败:', error);
-    }
+    this.sendDeviceCommand([deviceUdid], 'file/put', {
+      body: {
+        path: path.trim(),
+        directory: true,
+      },
+      requireOpenConnection: true,
+      missingDevicesMessage: '未选择设备，无法创建目录',
+      errorMessage: '创建目录失败:',
+    });
   }
 
   // 下载文件
   async downloadFile(udid: string, path: string): Promise<void> {
-    try {
-      const message = AuthService.getInstance().createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: [udid],
-          type: 'file/get',
-          body: {
-            path: path.trim()
-          }
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('下载文件失败:', error);
-    }
+    this.sendDeviceCommand([udid], 'file/get', {
+      body: { path: path.trim() },
+      missingPasswordMessage: '未设置密码，无法下载文件',
+      missingDevicesMessage: '未选择设备，无法下载文件',
+      errorMessage: '下载文件失败:',
+    });
   }
 
   // 移动/重命名文件
   async moveFile(deviceUdid: string, fromPath: string, toPath: string): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
-      console.error('WebSocket未连接或未认证');
-      return;
-    }
-
-    try {
-      const message = AuthService.getInstance().createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: [deviceUdid],
-          type: 'file/move',
-          body: {
-            from: fromPath.trim(),
-            to: toPath.trim()
-          }
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('移动文件失败:', error);
-    }
+    this.sendDeviceCommand([deviceUdid], 'file/move', {
+      body: {
+        from: fromPath.trim(),
+        to: toPath.trim(),
+      },
+      requireOpenConnection: true,
+      missingDevicesMessage: '未选择设备，无法移动文件',
+      errorMessage: '移动文件失败:',
+    });
   }
 
   // 复制文件
   async copyFile(deviceUdid: string, fromPath: string, toPath: string): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
-      console.error('WebSocket未连接或未认证');
-      return;
-    }
-
-    try {
-      const message = AuthService.getInstance().createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: [deviceUdid],
-          type: 'file/copy',
-          body: {
-            from: fromPath.trim(),
-            to: toPath.trim()
-          }
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('复制文件失败:', error);
-    }
+    this.sendDeviceCommand([deviceUdid], 'file/copy', {
+      body: {
+        from: fromPath.trim(),
+        to: toPath.trim(),
+      },
+      requireOpenConnection: true,
+      missingDevicesMessage: '未选择设备，无法复制文件',
+      errorMessage: '复制文件失败:',
+    });
   }
 
   // 读取文本文件内容
   async readFile(deviceUdid: string, path: string): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
-      console.error('WebSocket未连接或未认证');
-      return;
-    }
-
-    try {
-      const message = AuthService.getInstance().createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: [deviceUdid],
-          type: 'file/get',
-          body: {
-            path: path.trim()
-          }
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('读取文件失败:', error);
-    }
+    this.sendDeviceCommand([deviceUdid], 'file/get', {
+      body: { path: path.trim() },
+      requireOpenConnection: true,
+      missingDevicesMessage: '未选择设备，无法读取文件',
+      errorMessage: '读取文件失败:',
+    });
   }
 
   // 读取剪贴板
@@ -858,30 +623,15 @@ export class WebSocketService {
 
   // 屏幕截图
   async takeScreenshot(deviceUdid: string, scale: number = 30): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
-      console.error('WebSocket未连接或未认证');
-      return;
-    }
-
-    try {
-      const message = AuthService.getInstance().createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: [deviceUdid],
-          type: 'screen/snapshot',
-          body: {
-            format: 'png',
-            scale: scale
-          }
-        }
-      );
-      
-      this.send(message);
-
-    } catch (error) {
-      console.error('屏幕截图失败:', error);
-    }
+    this.sendDeviceCommand([deviceUdid], 'screen/snapshot', {
+      body: {
+        format: 'png',
+        scale,
+      },
+      requireOpenConnection: true,
+      missingDevicesMessage: '未选择设备，无法屏幕截图',
+      errorMessage: '屏幕截图失败:',
+    });
   }
 
   private handleMessage(message: any): void {
@@ -1790,29 +1540,31 @@ export class WebSocketService {
 
   // 模拟Home键（单设备）
   async pressHomeButton(deviceUdid: string): Promise<void> {
-    await this.keyDown(deviceUdid, 'HOMEBUTTON');
-    // 稍微延迟后抬起，模拟真实按键操作
-    setTimeout(() => {
-      this.keyUp(deviceUdid, 'HOMEBUTTON');
-    }, 50);
+    await this.pressKey(deviceUdid, 'HOMEBUTTON');
   }
 
   // 模拟Home键（多设备）
   async pressHomeButtonMultiple(deviceUdids: string[]): Promise<void> {
-    await this.keyDownMultiple(deviceUdids, 'HOMEBUTTON');
-    // 稍微延迟后抬起，模拟真实按键操作
-    setTimeout(() => {
-      this.keyUpMultiple(deviceUdids, 'HOMEBUTTON');
+    await this.pressKeyMultiple(deviceUdids, 'HOMEBUTTON');
+  }
+
+  async pressKey(deviceUdid: string, keyCode: string): Promise<void> {
+    await this.pressKeyMultiple([deviceUdid], keyCode);
+  }
+
+  async pressKeyMultiple(deviceUdids: string[], keyCode: string): Promise<void> {
+    if (deviceUdids.length === 0) {
+      return;
+    }
+
+    await this.keyDownMultiple(deviceUdids, keyCode);
+    window.setTimeout(() => {
+      void this.keyUpMultiple(deviceUdids, keyCode);
     }, 50);
   }
 
   // 设置词典值
   async setProcValue(deviceUdids: string[], key: string, value: string): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法设置词典值');
-      return;
-    }
-
     if (!deviceUdids || deviceUdids.length === 0) {
       console.error('未选择设备，无法设置词典值');
       return;
@@ -1823,36 +1575,17 @@ export class WebSocketService {
       return;
     }
 
-    try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: deviceUdids,
-          type: 'proc-value/put',
-          body: {
-            key: key,
-            value: value
-          }
-        }
-      );
-      
-      this.send(message);
-      debugLog('ws', `已发送设置词典值请求: ${key}=${value} 到设备:`, deviceUdids);
-    } catch (error) {
-      console.error('设置词典值失败:', error);
-    }
+    this.sendDeviceCommand(deviceUdids, 'proc-value/put', {
+      body: { key, value },
+      missingPasswordMessage: '未设置密码，无法设置词典值',
+      missingDevicesMessage: '未选择设备，无法设置词典值',
+      errorMessage: '设置词典值失败:',
+    });
+    debugLog('ws', `已发送设置词典值请求: ${key}=${value} 到设备:`, deviceUdids);
   }
 
   // 推送值到队列
   async pushToQueue(deviceUdids: string[], key: string, value: string): Promise<void> {
-    if (!this.password) {
-      console.error('未设置密码，无法推送到队列');
-      return;
-    }
-
     if (!deviceUdids || deviceUdids.length === 0) {
       console.error('未选择设备，无法推送到队列');
       return;
@@ -1863,58 +1596,23 @@ export class WebSocketService {
       return;
     }
 
-    try {
-      const authService = AuthService.getInstance();
-      
-      const message = authService.createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: deviceUdids,
-          type: 'proc-queue/push',
-          body: {
-            key: key,
-            value: value
-          }
-        }
-      );
-      
-      this.send(message);
-      debugLog('ws', `已发送推送到队列请求: ${key}=${value} 到设备:`, deviceUdids);
-    } catch (error) {
-      console.error('推送到队列失败:', error);
-    }
+    this.sendDeviceCommand(deviceUdids, 'proc-queue/push', {
+      body: { key, value },
+      missingPasswordMessage: '未设置密码，无法推送到队列',
+      missingDevicesMessage: '未选择设备，无法推送到队列',
+      errorMessage: '推送到队列失败:',
+    });
+    debugLog('ws', `已发送推送到队列请求: ${key}=${value} 到设备:`, deviceUdids);
   }
 
   // 选择脚本
   async selectScript(deviceUdids: string[], scriptName: string): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
-      console.error('WebSocket未连接或未认证');
-      return;
-    }
-
-    if (!deviceUdids || deviceUdids.length === 0) {
-      console.error('未选择设备，无法选择脚本');
-      return;
-    }
-
-    try {
-      const message = AuthService.getInstance().createControlMessage(
-        this.password,
-        'control/command',
-        {
-          devices: deviceUdids,
-          type: 'script/selected/put',
-          body: {
-            name: scriptName || ''
-          }
-        }
-      );
-      
-      this.send(message);
-      debugLog('ws', `已发送选择脚本请求: ${scriptName} 到设备:`, deviceUdids);
-    } catch (error) {
-      console.error('选择脚本失败:', error);
-    }
+    this.sendDeviceCommand(deviceUdids, 'script/selected/put', {
+      body: { name: scriptName || '' },
+      requireOpenConnection: true,
+      missingDevicesMessage: '未选择设备，无法选择脚本',
+      errorMessage: '选择脚本失败:',
+    });
+    debugLog('ws', `已发送选择脚本请求: ${scriptName} 到设备:`, deviceUdids);
   }
 }
