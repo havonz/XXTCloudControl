@@ -207,6 +207,8 @@ func main() {
 	r.GET("/api/scripts/selectable", selectableScriptsHandler)
 	r.POST("/api/scripts/send", scriptsSendHandler)
 	r.POST("/api/scripts/send-and-start", scriptsSendAndStartHandler)
+	r.POST("/api/scripts/send-and-start/cancel", scriptsSendAndStartCancelHandler)
+	r.GET("/api/scripts/start-state", scriptsStartStateHandler)
 	r.GET("/api/scripts/config-status", scriptConfigStatusHandler)
 	r.GET("/api/scripts/config", scriptConfigGetHandler)
 	r.POST("/api/scripts/config", scriptConfigSaveHandler)

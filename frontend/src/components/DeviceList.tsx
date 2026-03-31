@@ -40,6 +40,7 @@ import {
 } from '../icons';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
+import { createStore } from 'solid-js/store';
 import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
 import ScriptConfigModal from './ScriptConfigModal';
 import { authFetch } from '../services/httpAuth';
@@ -199,6 +200,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   // Device messages: local immediate write, then backend message overwrites on arrival.
   const [localDeviceMessages, setLocalDeviceMessages] = createSignal<Record<string, string>>({}, { equals: false });
+  const [lastLogs, setLastLogs] = createStore<Record<string, string>>({});
   const localMessageTimers = new Map<string, number>();
   const localMessageTTL = 10000;
   const clearLocalDeviceMessage = (udid: string) => {
@@ -247,6 +249,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   };
   const getDisplayMessage = (device: Device): string => {
     return localDeviceMessages()[device.udid] || device.system?.message || '';
+  };
+  const getDisplayLog = (device: Device): string => {
+    return lastLogs[device.udid] ?? device.system?.log ?? '';
   };
   
   // Device context menu state
@@ -372,7 +377,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const handleContextMenuCopyLastLog = () => {
     const device = contextMenuDevice();
     if (device) {
-      const log = device.system?.log || '';
+      const log = getDisplayLog(device);
       if (log) {
         copyToClipboard(log, '最后日志');
       } else {
@@ -387,7 +392,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     const logs = props.selectedDevices()
       .map(d => {
         const name = d.system?.name || d.udid;
-        const log = d.system?.log || '';
+        const log = getDisplayLog(d);
         return log ? `[${name}] ${log}` : '';
       })
       .filter(log => log) // 过滤掉空日志
@@ -502,6 +507,19 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       return next;
     });
   });
+
+  createEffect(() => {
+    const ws = props.webSocketService;
+    if (!ws) {
+      return;
+    }
+
+    const unsubscribe = ws.onLastLogUpdate((udid, lastLine) => {
+      setLastLogs(udid, lastLine);
+    });
+
+    onCleanup(unsubscribe);
+  });
   
 
   
@@ -521,7 +539,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // Selectable scripts state
   const [selectableScripts, setSelectableScripts] = createSignal<string[]>([]);
   const [isLoadingScripts, setIsLoadingScripts] = createSignal(false);
-  const [isSendingScript, setIsSendingScript] = createSignal(false);
+  const [isSubmittingScriptAction, setIsSubmittingScriptAction] = createSignal(false);
   // Placeholder for device-selected script option
   const DEVICE_SELECTED_PLACEHOLDER = '<设备端已选中>';
   const [serverScriptName, setServerScriptName] = createSignal(DEVICE_SELECTED_PLACEHOLDER); // 默认选择设备端已选中
@@ -539,6 +557,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // Script config manager
   const scriptConfigManager = useScriptConfigManager();
   const [isConfigurable, setIsConfigurable] = createSignal(false);
+  const cancelableScriptStartDevices = createMemo(() =>
+    props.selectedDevices().filter((device) => device.scriptStart?.active && device.scriptStart?.cancelable)
+  );
+  const hasCancelableScriptStarts = createMemo(() => cancelableScriptStartDevices().length > 0);
 
   // Handle configuration status check when script selection changes
   createEffect(() => {
@@ -601,6 +623,42 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     loadSavedScript();
   });
 
+  const syncScriptStartStates = async () => {
+    const ws = props.webSocketService;
+    if (!ws) {
+      return;
+    }
+
+    try {
+      const response = await authFetch('/api/scripts/start-state');
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+      ws.replaceScriptStartStates(data?.states && typeof data.states === 'object' ? data.states : {});
+    } catch (error) {
+      console.error('加载脚本启动状态失败:', error);
+    }
+  };
+
+  createEffect(() => {
+    const ws = props.webSocketService;
+    if (!ws) {
+      return;
+    }
+
+    void syncScriptStartStates();
+
+    const unsubscribe = ws.onStatusChange((status) => {
+      if (status === 'connected') {
+        void syncScriptStartStates();
+      }
+    });
+
+    onCleanup(unsubscribe);
+  });
+
 
   // Fetch selectable scripts from server
   const fetchSelectableScripts = async () => {
@@ -623,21 +681,19 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
   };
 
+  const resolveScriptName = (name: string | undefined): string => {
+    if (!name) return '';
+    if (name === DEVICE_SELECTED_PLACEHOLDER || name.includes('设备端已选中')) {
+      return '';
+    }
+    return name;
+  };
+
   const handleSendAndStartScript = async () => {
     if (props.selectedDevices().length === 0) return;
     
-    setIsSendingScript(true);
+    setIsSubmittingScriptAction(true);
     try {
-      // Helper: Convert placeholder values to actual API values
-      const resolveScriptName = (name: string | undefined): string => {
-        if (!name) return '';
-        // Match both the constant and any string containing the device-selected text
-        if (name === DEVICE_SELECTED_PLACEHOLDER || name.includes('设备端已选中')) {
-          return ''; // Empty string means device-selected mode
-        }
-        return name;
-      };
-
       // 获取按分组分配的设备列表
       const selectedDeviceIds = props.selectedDevices().map((d: Device) => d.udid);
       selectedDeviceIds.forEach((udid) => {
@@ -724,8 +780,65 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       console.error('发送脚本错误:', error);
       showToastMessage('发送脚本网络错误');
     } finally {
-      setIsSendingScript(false);
+      setIsSubmittingScriptAction(false);
     }
+  };
+
+  const handleCancelScriptStart = async () => {
+    const devicesToCancel = cancelableScriptStartDevices();
+    if (devicesToCancel.length === 0) {
+      showToastMessage('当前没有可取消的启动流程');
+      return;
+    }
+
+    const confirmed = await dialog.confirm(
+      `确定要取消 ${devicesToCancel.length} 台设备的本次启动脚本流程吗？这只会取消仍在启动流程中的设备，不会停止已启动脚本。`,
+      '取消启动'
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSubmittingScriptAction(true);
+    try {
+      const deviceIds = devicesToCancel.map((device) => device.udid);
+      deviceIds.forEach((udid) => {
+        setDeviceMessage(udid, '正在取消启动流程...');
+      });
+
+      const response = await authFetch('/api/scripts/send-and-start/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ devices: deviceIds }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        showToastMessage('取消启动失败: ' + (result?.error || '未知错误'));
+        return;
+      }
+
+      const canceledCount = Array.isArray(result?.canceled) ? result.canceled.length : 0;
+      if (canceledCount > 0) {
+        showToastMessage(`已请求取消 ${canceledCount} 台设备的启动流程`);
+      } else {
+        showToastMessage('当前没有可取消的启动流程');
+      }
+    } catch (error) {
+      console.error('取消启动脚本失败:', error);
+      showToastMessage('取消启动网络错误');
+    } finally {
+      setIsSubmittingScriptAction(false);
+    }
+  };
+
+  const handleScriptStartButtonClick = async () => {
+    if (hasCancelableScriptStarts()) {
+      await handleCancelScriptStart();
+      return;
+    }
+
+    await handleSendAndStartScript();
   };
 
 
@@ -807,7 +920,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       case 'script':
         return device.script?.select || '';
       case 'log':
-        return device.system?.log || '';
+        return getDisplayLog(device);
       default:
         return '';
     }
@@ -1334,12 +1447,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             <div class={styles.scriptControlGroup}>
               <button 
                 class={`${styles.toolbarActionButton} ${styles.scriptControlButton}`}
-                disabled={props.selectedDevices().length === 0 || isSendingScript()}
-                onClick={handleSendAndStartScript}
-                title="启动脚本"
+                disabled={props.selectedDevices().length === 0 || isSubmittingScriptAction()}
+                onClick={handleScriptStartButtonClick}
+                title={hasCancelableScriptStarts() ? '取消启动脚本' : '启动脚本'}
               >
-                <IconPlay size={14} />
-                <span class={styles.hideOnMobile}>{isSendingScript() ? '启动中...' : '启动脚本'}</span>
+                <Show
+                  when={hasCancelableScriptStarts()}
+                  fallback={<IconPlay size={14} />}
+                >
+                  <IconLoader size={14} class={styles.spin} />
+                </Show>
+                <span class={styles.hideOnMobile}>{hasCancelableScriptStarts() ? '启动中...' : '启动脚本'}</span>
               </button>
             
               <button 
@@ -1844,18 +1962,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         
                         <Show when={visibleColumns().includes('log')}>
                           <div class={styles.tableCell}>
-                            <div 
-                              class={styles.lastLog} 
-                              title={device.system?.log || '无日志'}
-                            >
-                              {device.system?.log ? 
-                                (device.system.log.length > 50 ? 
-                                  device.system.log.substring(0, 50) + '...' : 
-                                  device.system.log
-                                ) : 
-                                '无日志'
-                              }
-                            </div>
+                            {(() => {
+                              const log = getDisplayLog(device);
+                              return (
+                                <div
+                                  class={styles.lastLog}
+                                  title={log || '无日志'}
+                                >
+                                  {log ? (log.length > 50 ? `${log.substring(0, 50)}...` : log) : '无日志'}
+                                </div>
+                              );
+                            })()}
                           </div>
                         </Show>
                       </div>
@@ -1922,9 +2039,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         </div>
                       </Show>
                       
-                      <Show when={device.system?.log}>
+                      <Show when={getDisplayLog(device)}>
                         <div class={styles.cardLogArea}>
-                          {device.system?.log}
+                          {getDisplayLog(device)}
                         </div>
                       </Show>
                     </div>

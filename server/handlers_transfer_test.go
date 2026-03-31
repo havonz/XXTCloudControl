@@ -199,9 +199,9 @@ func TestCreateTransferToken_ExplicitOneTimeTrue(t *testing.T) {
 func TestTransferDownloadHandler_DoesNotCompletePendingScriptStartOnHTTPCopy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	resetTransferTokensForTest()
-	resetPendingScriptStartsForTest()
+	resetScriptStartSessionsForTest()
 	t.Cleanup(resetTransferTokensForTest)
-	t.Cleanup(resetPendingScriptStartsForTest)
+	t.Cleanup(resetScriptStartSessionsForTest)
 
 	oldTimeout := scriptStartWaitTimeout
 	scriptStartWaitTimeout = 0
@@ -232,13 +232,18 @@ func TestTransferDownloadHandler_DoesNotCompletePendingScriptStartOnHTTPCopy(t *
 	}
 	transferTokensMu.Unlock()
 
-	if !registerPendingScriptStart(deviceSN, []byte(`{"type":"script/run"}`), true, "main.lua", []pendingScriptFetchRequest{
-		{requestID: "req-http-copy", targetPath: targetPath},
-	}) {
-		t.Fatalf("register should succeed")
+	if _, ok := createScriptStartSession(
+		deviceSN,
+		[]byte(`{"type":"script/run"}`),
+		true,
+		"main.lua",
+		scriptStartPhaseWaitingTransfer,
+		[]pendingScriptFetchRequest{{requestID: "req-http-copy", targetPath: targetPath}},
+	); !ok {
+		t.Fatalf("session create should succeed")
 	}
-	if count := pendingScriptStartCountForTest(); count != 1 {
-		t.Fatalf("expected 1 pending entry before HTTP download, got %d", count)
+	if count := scriptStartSessionCountForTest(); count != 1 {
+		t.Fatalf("expected 1 active session before HTTP download, got %d", count)
 	}
 
 	w := httptest.NewRecorder()
@@ -250,8 +255,8 @@ func TestTransferDownloadHandler_DoesNotCompletePendingScriptStartOnHTTPCopy(t *
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
 	}
-	if count := pendingScriptStartCountForTest(); count != 1 {
-		t.Fatalf("pending script start should not be completed by HTTP copy, got %d", count)
+	if count := scriptStartSessionCountForTest(); count != 1 {
+		t.Fatalf("script start session should not be completed by HTTP copy, got %d", count)
 	}
 }
 

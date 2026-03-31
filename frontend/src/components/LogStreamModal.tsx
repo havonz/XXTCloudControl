@@ -12,31 +12,133 @@ interface LogStreamModalProps {
 }
 
 const MAX_LOG_LENGTH = 8 * 1024 * 1024;
-const TRIM_AMOUNT = 4 * 1024 * 1024;
+const TRIM_TARGET_LENGTH = 4 * 1024 * 1024;
 
 const LogStreamModal: Component<LogStreamModalProps> = (props) => {
-  const [logText, setLogText] = createSignal('');
   const [paused, setPaused] = createSignal(false);
   const [autoScroll, setAutoScroll] = createSignal(true);
   const [status, setStatus] = createSignal('未连接');
   let logAreaRef: HTMLTextAreaElement | undefined;
-
-  const appendLog = (message: string) => {
-    if (!message) return;
-    setLogText((prev) => {
-      let next = prev + message;
-      if (next.length > MAX_LOG_LENGTH) {
-        const cutPoint = next.indexOf('\n', TRIM_AMOUNT);
-        const startIndex = cutPoint !== -1 ? cutPoint + 1 : TRIM_AMOUNT;
-        next = next.slice(startIndex);
-      }
-      return next;
-    });
-  };
+  let logChunks: string[] = [];
+  let totalLogLength = 0;
+  let pendingLogBuffer = '';
+  let flushFrameId: number | null = null;
 
   const normalizeLog = (chunk: string) => {
     if (!chunk) return '';
     return chunk.endsWith('\n') ? chunk : `${chunk}\n`;
+  };
+
+  const scrollToBottom = () => {
+    if (!logAreaRef) {
+      return;
+    }
+
+    logAreaRef.scrollTop = logAreaRef.scrollHeight;
+  };
+
+  const syncLogArea = () => {
+    if (!logAreaRef) {
+      return;
+    }
+
+    logAreaRef.value = logChunks.join('');
+    if (autoScroll()) {
+      scrollToBottom();
+    }
+  };
+
+  const cancelScheduledFlush = () => {
+    if (flushFrameId === null) {
+      return;
+    }
+
+    cancelAnimationFrame(flushFrameId);
+    flushFrameId = null;
+  };
+
+  const resetLogState = () => {
+    cancelScheduledFlush();
+    logChunks = [];
+    totalLogLength = 0;
+    pendingLogBuffer = '';
+    if (logAreaRef) {
+      logAreaRef.value = '';
+    }
+  };
+
+  const trimChunkToTarget = (chunk: string, keepLength: number) => {
+    if (chunk.length <= keepLength) {
+      return chunk;
+    }
+
+    const start = Math.max(0, chunk.length - keepLength);
+    const nextLine = chunk.indexOf('\n', start);
+    return chunk.slice(nextLine !== -1 && nextLine + 1 < chunk.length ? nextLine + 1 : start);
+  };
+
+  const trimLogsIfNeeded = () => {
+    if (totalLogLength <= MAX_LOG_LENGTH) {
+      return false;
+    }
+
+    while (logChunks.length > 0 && totalLogLength - logChunks[0].length >= TRIM_TARGET_LENGTH) {
+      totalLogLength -= logChunks[0].length;
+      logChunks.shift();
+    }
+
+    if (totalLogLength > TRIM_TARGET_LENGTH && logChunks.length > 0) {
+      const keepLength = TRIM_TARGET_LENGTH - (totalLogLength - logChunks[0].length);
+      const trimmedChunk = trimChunkToTarget(logChunks[0], Math.max(0, keepLength));
+      totalLogLength -= logChunks[0].length - trimmedChunk.length;
+      logChunks[0] = trimmedChunk;
+    }
+
+    return true;
+  };
+
+  const flushPendingLogs = () => {
+    flushFrameId = null;
+    if (!pendingLogBuffer) {
+      return;
+    }
+
+    const nextChunk = pendingLogBuffer;
+    pendingLogBuffer = '';
+    logChunks.push(nextChunk);
+    totalLogLength += nextChunk.length;
+
+    const trimmed = trimLogsIfNeeded();
+    if (!logAreaRef) {
+      return;
+    }
+
+    if (trimmed) {
+      syncLogArea();
+      return;
+    }
+
+    logAreaRef.value += nextChunk;
+    if (autoScroll()) {
+      scrollToBottom();
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (flushFrameId !== null) {
+      return;
+    }
+
+    flushFrameId = requestAnimationFrame(flushPendingLogs);
+  };
+
+  const appendLog = (message: string) => {
+    if (!message) {
+      return;
+    }
+
+    pendingLogBuffer += message;
+    scheduleFlush();
   };
 
   createEffect(() => {
@@ -45,17 +147,12 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
     }
 
     const udid = props.device.udid;
-    setLogText('');
+    resetLogState();
     setPaused(false);
     setAutoScroll(true);
     setStatus('订阅中');
 
-    props.webSocketService.subscribeDeviceLogs([udid]);
-
-    const unsubscribe = props.webSocketService.onMessage((message) => {
-      if (message.type !== 'system/log/push' || message.udid !== udid) return;
-      const chunk = typeof message.body?.chunk === 'string' ? message.body.chunk : '';
-      if (!chunk) return;
+    const unsubscribe = props.webSocketService.watchDeviceLog(udid, (chunk) => {
       if (!paused()) {
         appendLog(normalizeLog(chunk));
       }
@@ -64,7 +161,7 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
 
     onCleanup(() => {
       unsubscribe();
-      props.webSocketService?.unsubscribeDeviceLogs([udid]);
+      cancelScheduledFlush();
       setStatus('已断开');
     });
   });
@@ -74,8 +171,7 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
       return;
     }
 
-    logText();
-    logAreaRef.scrollTop = logAreaRef.scrollHeight;
+    scrollToBottom();
   });
 
   const handleClose = () => {
@@ -91,7 +187,7 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
   };
 
   const handleClear = () => {
-    setLogText('');
+    resetLogState();
   };
 
   return (
@@ -128,9 +224,9 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
             <textarea
               ref={(el) => {
                 logAreaRef = el;
+                syncLogArea();
               }}
               class={styles.logArea}
-              value={logText()}
               readOnly
               spellcheck={false}
             />

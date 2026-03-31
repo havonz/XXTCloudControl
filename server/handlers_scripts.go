@@ -27,6 +27,15 @@ const (
 
 var scriptStartWaitTimeout = 6 * time.Minute
 
+const (
+	scriptStartPhasePreparing       = "preparing"
+	scriptStartPhaseWaitingTransfer = "waiting_transfer"
+	scriptStartPhaseStarting        = "starting"
+
+	scriptStartCancelReasonNoActive      = "没有活动启动流程"
+	scriptStartCancelReasonNotCancelable = "已不再可取消"
+)
+
 type scriptFileData struct {
 	Path           string
 	NormalizedPath string
@@ -51,12 +60,31 @@ type pendingScriptFetchRequest struct {
 	targetPath string
 }
 
-type pendingScriptStart struct {
+type scriptStartState struct {
+	Active     bool   `json:"active"`
+	Cancelable bool   `json:"cancelable"`
+	Phase      string `json:"phase,omitempty"`
+}
+
+type scriptStartSession struct {
 	runPayload             []byte
 	runPayloadPrepared     bool
 	runName                string
 	remainingFetchRequests map[string]string // requestID -> targetPath
 	generation             uint64
+	state                  scriptStartState
+}
+
+type readyScriptStart struct {
+	runPayload         []byte
+	runPayloadPrepared bool
+	runName            string
+	generation         uint64
+}
+
+type scriptStartCancelResult struct {
+	Canceled bool
+	Reason   string
 }
 
 var scriptPackageCache = struct {
@@ -66,81 +94,17 @@ var scriptPackageCache = struct {
 	entries: make(map[string]scriptPackageCacheEntry),
 }
 
-var pendingScriptStarts = struct {
+var scriptStartSessions = struct {
 	sync.Mutex
 	seq     uint64
-	entries map[string]*pendingScriptStart
+	entries map[string]*scriptStartSession
 }{
-	entries: make(map[string]*pendingScriptStart),
+	entries: make(map[string]*scriptStartSession),
 }
 
-var scriptStartInFlight = struct {
-	sync.Mutex
-	entries map[string]struct{}
-}{
-	entries: make(map[string]struct{}),
-}
-
-func tryAcquireScriptStart(deviceID string) bool {
-	if deviceID == "" {
-		return false
-	}
-	scriptStartInFlight.Lock()
-	_, exists := scriptStartInFlight.entries[deviceID]
-	if !exists {
-		scriptStartInFlight.entries[deviceID] = struct{}{}
-	}
-	scriptStartInFlight.Unlock()
-	return !exists
-}
-
-func releaseScriptStart(deviceID string) {
-	if deviceID == "" {
-		return
-	}
-	scriptStartInFlight.Lock()
-	delete(scriptStartInFlight.entries, deviceID)
-	scriptStartInFlight.Unlock()
-}
-
-func startScriptOnDevice(deviceID string, runPayload []byte, runPayloadPrepared bool, runName string, delay time.Duration, done func()) {
-	go func() {
-		defer func() {
-			if done != nil {
-				done()
-			}
-		}()
-
-		if delay > 0 {
-			time.Sleep(delay)
-		}
-
-		mu.RLock()
-		conn, exists := deviceLinks[deviceID]
-		mu.RUnlock()
-		if !exists {
-			broadcastDeviceMessage(deviceID, "脚本启动失败: 设备已离线")
-			return
-		}
-
-		if runPayloadPrepared {
-			_ = writeTextMessage(conn, runPayload)
-		} else {
-			_ = sendMessage(conn, Message{
-				Type: "script/run",
-				Body: gin.H{
-					"name": runName,
-				},
-			})
-		}
-
-		broadcastDeviceMessage(deviceID, "脚本已启动")
-	}()
-}
-
-func registerPendingScriptStart(deviceID string, runPayload []byte, runPayloadPrepared bool, runName string, fetchRequests []pendingScriptFetchRequest) bool {
-	if deviceID == "" || len(fetchRequests) == 0 {
-		return false
+func buildScriptStartFetchRequestMap(fetchRequests []pendingScriptFetchRequest) map[string]string {
+	if len(fetchRequests) == 0 {
+		return nil
 	}
 
 	remainingFetchRequests := make(map[string]string, len(fetchRequests))
@@ -153,47 +117,270 @@ func registerPendingScriptStart(deviceID string, runPayload []byte, runPayloadPr
 		remainingFetchRequests[requestID] = targetPath
 	}
 	if len(remainingFetchRequests) == 0 {
-		return false
+		return nil
+	}
+	return remainingFetchRequests
+}
+
+func cloneScriptStartState(state scriptStartState) scriptStartState {
+	return scriptStartState{
+		Active:     state.Active,
+		Cancelable: state.Cancelable,
+		Phase:      state.Phase,
+	}
+}
+
+func broadcastScriptStartState(deviceID string, state scriptStartState) {
+	controllerList := snapshotControllerConns()
+	if len(controllerList) == 0 {
+		return
 	}
 
-	entry := &pendingScriptStart{
+	msg := Message{
+		Type: "script/start/state",
+		Body: gin.H{
+			"udid":       deviceID,
+			"active":     state.Active,
+			"cancelable": state.Cancelable,
+			"phase":      state.Phase,
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	for _, conn := range controllerList {
+		writeTextMessageAsync(conn, data)
+	}
+}
+
+func createScriptStartSession(
+	deviceID string,
+	runPayload []byte,
+	runPayloadPrepared bool,
+	runName string,
+	phase string,
+	fetchRequests []pendingScriptFetchRequest,
+) (uint64, bool) {
+	if deviceID == "" {
+		return 0, false
+	}
+	remainingFetchRequests := buildScriptStartFetchRequestMap(fetchRequests)
+	if len(fetchRequests) > 0 && len(remainingFetchRequests) == 0 {
+		return 0, false
+	}
+
+	session := &scriptStartSession{
 		runPayload:             append([]byte(nil), runPayload...),
 		runPayloadPrepared:     runPayloadPrepared,
 		runName:                runName,
 		remainingFetchRequests: remainingFetchRequests,
+		state: scriptStartState{
+			Active:     true,
+			Cancelable: true,
+			Phase:      phase,
+		},
 	}
 
-	pendingScriptStarts.Lock()
-	if current := pendingScriptStarts.entries[deviceID]; current != nil && len(current.remainingFetchRequests) > 0 {
-		pendingScriptStarts.Unlock()
+	scriptStartSessions.Lock()
+	current := scriptStartSessions.entries[deviceID]
+	if current != nil && current.state.Active {
+		scriptStartSessions.Unlock()
+		return 0, false
+	}
+	scriptStartSessions.seq++
+	session.generation = scriptStartSessions.seq
+	scriptStartSessions.entries[deviceID] = session
+	generation := session.generation
+	state := cloneScriptStartState(session.state)
+	scriptStartSessions.Unlock()
+
+	broadcastScriptStartState(deviceID, state)
+
+	if len(session.remainingFetchRequests) > 0 && scriptStartWaitTimeout > 0 {
+		go func(device string, gen uint64, wait time.Duration) {
+			time.Sleep(wait)
+
+			scriptStartSessions.Lock()
+			current := scriptStartSessions.entries[device]
+			if current == nil || current.generation != gen || len(current.remainingFetchRequests) == 0 {
+				scriptStartSessions.Unlock()
+				return
+			}
+			delete(scriptStartSessions.entries, device)
+			scriptStartSessions.Unlock()
+
+			broadcastScriptStartState(device, scriptStartState{})
+			broadcastDeviceMessage(device, "脚本启动失败: 大文件传输超时")
+		}(deviceID, generation, scriptStartWaitTimeout)
+	}
+
+	return generation, true
+}
+
+func updateScriptStartSessionPhase(deviceID string, generation uint64, phase string, cancelable bool) bool {
+	if deviceID == "" {
 		return false
 	}
-	pendingScriptStarts.seq++
-	entry.generation = pendingScriptStarts.seq
-	pendingScriptStarts.entries[deviceID] = entry
-	generation := entry.generation
-	pendingScriptStarts.Unlock()
-
-	if scriptStartWaitTimeout <= 0 {
+	scriptStartSessions.Lock()
+	current := scriptStartSessions.entries[deviceID]
+	if current == nil || current.generation != generation || !current.state.Active {
+		scriptStartSessions.Unlock()
+		return false
+	}
+	if current.state.Phase == phase && current.state.Cancelable == cancelable {
+		scriptStartSessions.Unlock()
 		return true
 	}
+	current.state.Phase = phase
+	current.state.Cancelable = cancelable
+	state := cloneScriptStartState(current.state)
+	scriptStartSessions.Unlock()
 
-	go func(device string, gen uint64, wait time.Duration) {
-		time.Sleep(wait)
+	broadcastScriptStartState(deviceID, state)
+	return true
+}
 
-		pendingScriptStarts.Lock()
-		current := pendingScriptStarts.entries[device]
-		if current == nil || current.generation != gen {
-			pendingScriptStarts.Unlock()
+func snapshotScriptStartStates(deviceIDs []string) map[string]scriptStartState {
+	scriptStartSessions.Lock()
+	defer scriptStartSessions.Unlock()
+
+	states := make(map[string]scriptStartState)
+	if len(deviceIDs) == 0 {
+		for deviceID, session := range scriptStartSessions.entries {
+			if session == nil || !session.state.Active {
+				continue
+			}
+			states[deviceID] = cloneScriptStartState(session.state)
+		}
+		return states
+	}
+
+	for _, deviceID := range deviceIDs {
+		session := scriptStartSessions.entries[deviceID]
+		if session == nil || !session.state.Active {
+			continue
+		}
+		states[deviceID] = cloneScriptStartState(session.state)
+	}
+	return states
+}
+
+func clearScriptStartSession(deviceID string) bool {
+	if deviceID == "" {
+		return false
+	}
+	scriptStartSessions.Lock()
+	if _, exists := scriptStartSessions.entries[deviceID]; !exists {
+		scriptStartSessions.Unlock()
+		return false
+	}
+	delete(scriptStartSessions.entries, deviceID)
+	scriptStartSessions.Unlock()
+
+	broadcastScriptStartState(deviceID, scriptStartState{})
+	return true
+}
+
+func clearScriptStartSessionIfGeneration(deviceID string, generation uint64) bool {
+	if deviceID == "" {
+		return false
+	}
+	scriptStartSessions.Lock()
+	current := scriptStartSessions.entries[deviceID]
+	if current == nil || current.generation != generation {
+		scriptStartSessions.Unlock()
+		return false
+	}
+	delete(scriptStartSessions.entries, deviceID)
+	scriptStartSessions.Unlock()
+
+	broadcastScriptStartState(deviceID, scriptStartState{})
+	return true
+}
+
+func isCurrentScriptStartSession(deviceID string, generation uint64) bool {
+	scriptStartSessions.Lock()
+	current := scriptStartSessions.entries[deviceID]
+	ok := current != nil && current.generation == generation && current.state.Active
+	scriptStartSessions.Unlock()
+	return ok
+}
+
+func cancelScriptStartSession(deviceID string) scriptStartCancelResult {
+	if deviceID == "" {
+		return scriptStartCancelResult{Reason: scriptStartCancelReasonNoActive}
+	}
+	scriptStartSessions.Lock()
+	current := scriptStartSessions.entries[deviceID]
+	if current == nil || !current.state.Active {
+		scriptStartSessions.Unlock()
+		return scriptStartCancelResult{Reason: scriptStartCancelReasonNoActive}
+	}
+	if !current.state.Cancelable {
+		scriptStartSessions.Unlock()
+		return scriptStartCancelResult{Reason: scriptStartCancelReasonNotCancelable}
+	}
+	delete(scriptStartSessions.entries, deviceID)
+	scriptStartSessions.Unlock()
+
+	broadcastScriptStartState(deviceID, scriptStartState{})
+	return scriptStartCancelResult{Canceled: true}
+}
+
+func failScriptStartSession(deviceID string, generation uint64, message string) {
+	if clearScriptStartSessionIfGeneration(deviceID, generation) {
+		broadcastDeviceMessage(deviceID, message)
+	}
+}
+
+func startScriptOnDevice(
+	deviceID string,
+	generation uint64,
+	runPayload []byte,
+	runPayloadPrepared bool,
+	runName string,
+	delay time.Duration,
+) {
+	go func() {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		if !isCurrentScriptStartSession(deviceID, generation) {
 			return
 		}
-		delete(pendingScriptStarts.entries, device)
-		pendingScriptStarts.Unlock()
 
-		releaseScriptStart(device)
-		broadcastDeviceMessage(device, "脚本启动失败: 大文件传输超时")
-	}(deviceID, generation, scriptStartWaitTimeout)
-	return true
+		mu.RLock()
+		conn, exists := deviceLinks[deviceID]
+		mu.RUnlock()
+		if !exists {
+			failScriptStartSession(deviceID, generation, "脚本启动失败: 设备已离线")
+			return
+		}
+
+		var err error
+		if runPayloadPrepared {
+			err = writeTextMessage(conn, runPayload)
+		} else {
+			err = sendMessage(conn, Message{
+				Type: "script/run",
+				Body: gin.H{
+					"name": runName,
+				},
+			})
+		}
+		if err != nil {
+			failScriptStartSession(deviceID, generation, "脚本启动失败: 发送启动命令失败")
+			return
+		}
+		if !clearScriptStartSessionIfGeneration(deviceID, generation) {
+			return
+		}
+
+		broadcastDeviceMessage(deviceID, "脚本已启动")
+	}()
 }
 
 func completePendingScriptStart(
@@ -201,28 +388,29 @@ func completePendingScriptStart(
 	requestID string,
 	success bool,
 	errMsg string,
-) (ready *pendingScriptStart, cancelMsg string, handled bool) {
+) (ready *readyScriptStart, cancelMsg string, handled bool) {
 	if deviceID == "" || requestID == "" {
 		return nil, "", false
 	}
 
-	pendingScriptStarts.Lock()
-	entry := pendingScriptStarts.entries[deviceID]
+	scriptStartSessions.Lock()
+	entry := scriptStartSessions.entries[deviceID]
 	if entry == nil {
-		pendingScriptStarts.Unlock()
+		scriptStartSessions.Unlock()
 		return nil, "", false
 	}
 
 	targetPath, exists := entry.remainingFetchRequests[requestID]
 	if !exists {
-		pendingScriptStarts.Unlock()
+		scriptStartSessions.Unlock()
 		return nil, "", false
 	}
 
 	if !success {
-		delete(pendingScriptStarts.entries, deviceID)
-		pendingScriptStarts.Unlock()
-		releaseScriptStart(deviceID)
+		delete(scriptStartSessions.entries, deviceID)
+		scriptStartSessions.Unlock()
+
+		broadcastScriptStartState(deviceID, scriptStartState{})
 
 		errMsg = strings.TrimSpace(errMsg)
 		if errMsg == "" {
@@ -236,17 +424,21 @@ func completePendingScriptStart(
 
 	delete(entry.remainingFetchRequests, requestID)
 	if len(entry.remainingFetchRequests) > 0 {
-		pendingScriptStarts.Unlock()
+		scriptStartSessions.Unlock()
 		return nil, "", true
 	}
 
-	ready = &pendingScriptStart{
+	entry.state.Phase = scriptStartPhaseStarting
+	state := cloneScriptStartState(entry.state)
+	ready = &readyScriptStart{
 		runPayload:         append([]byte(nil), entry.runPayload...),
 		runPayloadPrepared: entry.runPayloadPrepared,
 		runName:            entry.runName,
+		generation:         entry.generation,
 	}
-	delete(pendingScriptStarts.entries, deviceID)
-	pendingScriptStarts.Unlock()
+	scriptStartSessions.Unlock()
+
+	broadcastScriptStartState(deviceID, state)
 
 	return ready, "", true
 }
@@ -256,15 +448,15 @@ func completePendingScriptStartByTargetPath(
 	targetPath string,
 	success bool,
 	errMsg string,
-) (ready *pendingScriptStart, cancelMsg string, handled bool) {
+) (ready *readyScriptStart, cancelMsg string, handled bool) {
 	if deviceID == "" || targetPath == "" {
 		return nil, "", false
 	}
 
-	pendingScriptStarts.Lock()
-	entry := pendingScriptStarts.entries[deviceID]
+	scriptStartSessions.Lock()
+	entry := scriptStartSessions.entries[deviceID]
 	if entry == nil {
-		pendingScriptStarts.Unlock()
+		scriptStartSessions.Unlock()
 		return nil, "", false
 	}
 
@@ -276,14 +468,15 @@ func completePendingScriptStartByTargetPath(
 		}
 	}
 	if matchedRequestID == "" {
-		pendingScriptStarts.Unlock()
+		scriptStartSessions.Unlock()
 		return nil, "", false
 	}
 
 	if !success {
-		delete(pendingScriptStarts.entries, deviceID)
-		pendingScriptStarts.Unlock()
-		releaseScriptStart(deviceID)
+		delete(scriptStartSessions.entries, deviceID)
+		scriptStartSessions.Unlock()
+
+		broadcastScriptStartState(deviceID, scriptStartState{})
 
 		errMsg = strings.TrimSpace(errMsg)
 		if errMsg == "" {
@@ -294,38 +487,37 @@ func completePendingScriptStartByTargetPath(
 
 	delete(entry.remainingFetchRequests, matchedRequestID)
 	if len(entry.remainingFetchRequests) > 0 {
-		pendingScriptStarts.Unlock()
+		scriptStartSessions.Unlock()
 		return nil, "", true
 	}
 
-	ready = &pendingScriptStart{
+	entry.state.Phase = scriptStartPhaseStarting
+	state := cloneScriptStartState(entry.state)
+	ready = &readyScriptStart{
 		runPayload:         append([]byte(nil), entry.runPayload...),
 		runPayloadPrepared: entry.runPayloadPrepared,
 		runName:            entry.runName,
+		generation:         entry.generation,
 	}
-	delete(pendingScriptStarts.entries, deviceID)
-	pendingScriptStarts.Unlock()
+	scriptStartSessions.Unlock()
+
+	broadcastScriptStartState(deviceID, state)
 
 	return ready, "", true
 }
 
 func clearPendingScriptStart(deviceID string) {
-	if deviceID == "" {
-		return
-	}
-	pendingScriptStarts.Lock()
-	delete(pendingScriptStarts.entries, deviceID)
-	pendingScriptStarts.Unlock()
-	releaseScriptStart(deviceID)
+	clearScriptStartSession(deviceID)
 }
 
 func hasPendingScriptStart(deviceID string) bool {
 	if deviceID == "" {
 		return false
 	}
-	pendingScriptStarts.Lock()
-	_, exists := pendingScriptStarts.entries[deviceID]
-	pendingScriptStarts.Unlock()
+	scriptStartSessions.Lock()
+	entry := scriptStartSessions.entries[deviceID]
+	exists := entry != nil && entry.state.Active && len(entry.remainingFetchRequests) > 0
+	scriptStartSessions.Unlock()
 	return exists
 }
 
@@ -360,7 +552,7 @@ func handleTransferFetchCompletionForScriptStart(deviceID string, body interface
 	}
 
 	var (
-		ready     *pendingScriptStart
+		ready     *readyScriptStart
 		cancelMsg string
 		handled   bool
 	)
@@ -384,9 +576,7 @@ func handleTransferFetchCompletionForScriptStart(deviceID string, body interface
 	}
 
 	broadcastDeviceMessage(deviceID, "大文件传输完成，启动脚本...")
-	startScriptOnDevice(deviceID, ready.runPayload, ready.runPayloadPrepared, ready.runName, ScriptStartDelay, func() {
-		releaseScriptStart(deviceID)
-	})
+	startScriptOnDevice(deviceID, ready.generation, ready.runPayload, ready.runPayloadPrepared, ready.runName, ScriptStartDelay)
 }
 
 func normalizeScriptPath(path string) string {
@@ -1146,17 +1336,15 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	if req.Name == "" {
 		deviceConns := snapshotDeviceConns(req.Devices)
 		for _, udid := range req.Devices {
-			if !tryAcquireScriptStart(udid) {
-				broadcastDeviceMessage(udid, "脚本启动已取消: 上一次脚本启动尚未完成，请稍后重试")
-				continue
-			}
 			if _, exists := deviceConns[udid]; exists {
-				startScriptOnDevice(udid, nil, false, "", 0, func() {
-					releaseScriptStart(udid)
-				})
+				generation, ok := createScriptStartSession(udid, nil, false, "", scriptStartPhaseStarting, nil)
+				if !ok {
+					broadcastDeviceMessage(udid, "脚本启动已取消: 上一次脚本启动尚未完成，请稍后重试")
+					continue
+				}
+				startScriptOnDevice(udid, generation, nil, false, "", 0)
 			} else {
 				broadcastDeviceMessage(udid, "脚本启动失败: 设备未连接")
-				releaseScriptStart(udid)
 			}
 		}
 
@@ -1292,11 +1480,6 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	}
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
-			if !tryAcquireScriptStart(udid) {
-				broadcastDeviceMessage(udid, "脚本启动已取消: 上一次脚本启动尚未完成，请稍后重试")
-				continue
-			}
-
 			groupConfig := deviceConfigIndex[udid]
 			groupConfigKey := getGroupConfigKey(groupConfig)
 			plannedLargeFetches := make([]plannedLargeFetch, 0, largeFilesCount)
@@ -1316,15 +1499,10 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				})
 			}
 			largeTransferPrepareFailed := false
-			pendingRegistered := false
-
-			if len(pendingFetchRequests) > 0 {
-				if !registerPendingScriptStart(udid, runPayload, runPayloadPrepared, runName, pendingFetchRequests) {
-					broadcastDeviceMessage(udid, "脚本启动已取消: 上一次大文件传输尚未完成，请稍后重试")
-					releaseScriptStart(udid)
-					continue
-				}
-				pendingRegistered = true
+			generation, ok := createScriptStartSession(udid, runPayload, runPayloadPrepared, runName, scriptStartPhasePreparing, pendingFetchRequests)
+			if !ok {
+				broadcastDeviceMessage(udid, "脚本启动已取消: 上一次脚本启动尚未完成，请稍后重试")
+				continue
 			}
 
 			// 广播状态: 正在发送文件
@@ -1427,16 +1605,13 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			}
 
 			if largeTransferPrepareFailed {
-				if pendingRegistered {
-					clearPendingScriptStart(udid)
-				} else {
-					releaseScriptStart(udid)
-				}
+				clearScriptStartSessionIfGeneration(udid, generation)
 				broadcastDeviceMessage(udid, "脚本启动已取消: 大文件传输准备失败")
 				continue
 			}
 
 			if len(pendingFetchRequests) > 0 {
+				updateScriptStartSessionPhase(udid, generation, scriptStartPhaseWaitingTransfer, true)
 				if hasPendingScriptStart(udid) {
 					broadcastDeviceMessage(udid, fmt.Sprintf("等待大文件传输完成后启动脚本 (%d)", len(pendingFetchRequests)))
 				}
@@ -1445,15 +1620,58 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 
 			// 全部为小文件时，保持原有延迟启动行为。
 			broadcastDeviceMessage(udid, "启动脚本...")
-			startScriptOnDevice(udid, runPayload, runPayloadPrepared, runName, ScriptStartDelay, func() {
-				releaseScriptStart(udid)
-			})
+			updateScriptStartSessionPhase(udid, generation, scriptStartPhaseStarting, true)
+			startScriptOnDevice(udid, generation, runPayload, runPayloadPrepared, runName, ScriptStartDelay)
 		} else {
 			broadcastDeviceMessage(udid, "脚本启动失败: 设备未连接")
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(filesToSend)})
+}
+
+// scriptsSendAndStartCancelHandler handles POST /api/scripts/send-and-start/cancel
+func scriptsSendAndStartCancelHandler(c *gin.Context) {
+	var req struct {
+		Devices []string `json:"devices"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if len(req.Devices) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "devices are required"})
+		return
+	}
+
+	canceled := make([]string, 0, len(req.Devices))
+	ignored := make([]gin.H, 0)
+	for _, udid := range req.Devices {
+		result := cancelScriptStartSession(udid)
+		if result.Canceled {
+			canceled = append(canceled, udid)
+			broadcastDeviceMessage(udid, "脚本启动已取消: 已取消本次启动流程")
+			continue
+		}
+		ignored = append(ignored, gin.H{
+			"udid":   udid,
+			"reason": result.Reason,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"canceled": canceled,
+		"ignored":  ignored,
+	})
+}
+
+// scriptsStartStateHandler handles GET /api/scripts/start-state
+func scriptsStartStateHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"states": snapshotScriptStartStates(nil),
+	})
 }
 
 // scriptConfigStatusHandler handles GET /api/scripts/config-status

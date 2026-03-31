@@ -13,6 +13,11 @@ export interface Device {
     select?: string;
     [key: string]: any;
   };
+  scriptStart?: {
+    active: boolean;
+    cancelable: boolean;
+    phase?: string;
+  };
   [key: string]: any;
 }
 

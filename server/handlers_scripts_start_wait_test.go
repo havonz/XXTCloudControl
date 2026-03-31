@@ -7,47 +7,48 @@ import (
 	"time"
 )
 
-func resetPendingScriptStartsForTest() {
-	pendingScriptStarts.Lock()
-	pendingScriptStarts.seq = 0
-	pendingScriptStarts.entries = make(map[string]*pendingScriptStart)
-	pendingScriptStarts.Unlock()
-	resetScriptStartInFlightForTest()
+func resetScriptStartSessionsForTest() {
+	scriptStartSessions.Lock()
+	scriptStartSessions.seq = 0
+	scriptStartSessions.entries = make(map[string]*scriptStartSession)
+	scriptStartSessions.Unlock()
 }
 
-func pendingScriptStartCountForTest() int {
-	pendingScriptStarts.Lock()
-	defer pendingScriptStarts.Unlock()
-	return len(pendingScriptStarts.entries)
+func scriptStartSessionCountForTest() int {
+	scriptStartSessions.Lock()
+	defer scriptStartSessions.Unlock()
+	return len(scriptStartSessions.entries)
 }
 
-func resetScriptStartInFlightForTest() {
-	scriptStartInFlight.Lock()
-	scriptStartInFlight.entries = make(map[string]struct{})
-	scriptStartInFlight.Unlock()
-}
-
-func scriptStartInFlightCountForTest() int {
-	scriptStartInFlight.Lock()
-	defer scriptStartInFlight.Unlock()
-	return len(scriptStartInFlight.entries)
+func scriptStartStateForTest(deviceID string) (scriptStartState, bool) {
+	states := snapshotScriptStartStates([]string{deviceID})
+	state, ok := states[deviceID]
+	return state, ok
 }
 
 func TestPendingScriptStartCompletesAfterAllRequests(t *testing.T) {
-	resetPendingScriptStartsForTest()
+	resetScriptStartSessionsForTest()
 	oldTimeout := scriptStartWaitTimeout
 	scriptStartWaitTimeout = 0
 	defer func() {
 		scriptStartWaitTimeout = oldTimeout
-		resetPendingScriptStartsForTest()
+		resetScriptStartSessionsForTest()
 	}()
 
 	payload := []byte(`{"type":"script/run"}`)
-	if !registerPendingScriptStart("device-1", payload, true, "main.lua", []pendingScriptFetchRequest{
-		{requestID: "req-a", targetPath: "a.lua"},
-		{requestID: "req-b", targetPath: "b.lua"},
-	}) {
-		t.Fatalf("register should succeed")
+	generation, ok := createScriptStartSession(
+		"device-1",
+		payload,
+		true,
+		"main.lua",
+		scriptStartPhaseWaitingTransfer,
+		[]pendingScriptFetchRequest{
+			{requestID: "req-a", targetPath: "a.lua"},
+			{requestID: "req-b", targetPath: "b.lua"},
+		},
+	)
+	if !ok {
+		t.Fatalf("session create should succeed")
 	}
 
 	ready, cancelMsg, handled := completePendingScriptStart("device-1", "req-a", true, "")
@@ -77,28 +78,45 @@ func TestPendingScriptStartCompletesAfterAllRequests(t *testing.T) {
 	if ready.runName != "main.lua" {
 		t.Fatalf("unexpected run name: %s", ready.runName)
 	}
+	if ready.generation != generation {
+		t.Fatalf("unexpected generation: %d", ready.generation)
+	}
 	if !bytes.Equal(ready.runPayload, payload) {
 		t.Fatalf("unexpected run payload: %s", string(ready.runPayload))
 	}
-	if count := pendingScriptStartCountForTest(); count != 0 {
-		t.Fatalf("pending entries should be cleared, got %d", count)
+	if count := scriptStartSessionCountForTest(); count != 1 {
+		t.Fatalf("session should remain active until launch finishes, got %d", count)
+	}
+	state, exists := scriptStartStateForTest("device-1")
+	if !exists {
+		t.Fatalf("state should still exist after all transfers complete")
+	}
+	if state.Phase != scriptStartPhaseStarting {
+		t.Fatalf("expected phase %q, got %q", scriptStartPhaseStarting, state.Phase)
 	}
 }
 
 func TestPendingScriptStartFailureCancels(t *testing.T) {
-	resetPendingScriptStartsForTest()
+	resetScriptStartSessionsForTest()
 	oldTimeout := scriptStartWaitTimeout
 	scriptStartWaitTimeout = 0
 	defer func() {
 		scriptStartWaitTimeout = oldTimeout
-		resetPendingScriptStartsForTest()
+		resetScriptStartSessionsForTest()
 	}()
 
-	if !registerPendingScriptStart("device-2", []byte("x"), false, "fallback.lua", []pendingScriptFetchRequest{
-		{requestID: "req-a", targetPath: "a.bin"},
-		{requestID: "req-b", targetPath: "b.bin"},
-	}) {
-		t.Fatalf("register should succeed")
+	if _, ok := createScriptStartSession(
+		"device-2",
+		[]byte("x"),
+		false,
+		"fallback.lua",
+		scriptStartPhaseWaitingTransfer,
+		[]pendingScriptFetchRequest{
+			{requestID: "req-a", targetPath: "a.bin"},
+			{requestID: "req-b", targetPath: "b.bin"},
+		},
+	); !ok {
+		t.Fatalf("session create should succeed")
 	}
 
 	ready, cancelMsg, handled := completePendingScriptStart("device-2", "req-a", false, "md5 mismatch")
@@ -114,8 +132,8 @@ func TestPendingScriptStartFailureCancels(t *testing.T) {
 	if !strings.Contains(cancelMsg, "a.bin") {
 		t.Fatalf("cancel message should include target path, got %q", cancelMsg)
 	}
-	if count := pendingScriptStartCountForTest(); count != 0 {
-		t.Fatalf("pending entries should be cleared after failure, got %d", count)
+	if count := scriptStartSessionCountForTest(); count != 0 {
+		t.Fatalf("sessions should be cleared after failure, got %d", count)
 	}
 
 	ready, cancelMsg, handled = completePendingScriptStart("device-2", "req-b", true, "")
@@ -128,18 +146,23 @@ func TestPendingScriptStartFailureCancels(t *testing.T) {
 }
 
 func TestPendingScriptStartIgnoresUnknownRequestAndCanBeCleared(t *testing.T) {
-	resetPendingScriptStartsForTest()
+	resetScriptStartSessionsForTest()
 	oldTimeout := scriptStartWaitTimeout
 	scriptStartWaitTimeout = 10 * time.Second
 	defer func() {
 		scriptStartWaitTimeout = oldTimeout
-		resetPendingScriptStartsForTest()
+		resetScriptStartSessionsForTest()
 	}()
 
-	if !registerPendingScriptStart("device-3", []byte("x"), false, "fallback.lua", []pendingScriptFetchRequest{
-		{requestID: "req-only", targetPath: "only.lua"},
-	}) {
-		t.Fatalf("register should succeed")
+	if _, ok := createScriptStartSession(
+		"device-3",
+		[]byte("x"),
+		false,
+		"fallback.lua",
+		scriptStartPhaseWaitingTransfer,
+		[]pendingScriptFetchRequest{{requestID: "req-only", targetPath: "only.lua"}},
+	); !ok {
+		t.Fatalf("session create should succeed")
 	}
 
 	ready, cancelMsg, handled := completePendingScriptStart("device-3", "req-unknown", true, "")
@@ -149,34 +172,44 @@ func TestPendingScriptStartIgnoresUnknownRequestAndCanBeCleared(t *testing.T) {
 	if ready != nil || cancelMsg != "" {
 		t.Fatalf("unknown request should not return result")
 	}
-	if count := pendingScriptStartCountForTest(); count != 1 {
-		t.Fatalf("pending entry should still exist, got %d", count)
+	if count := scriptStartSessionCountForTest(); count != 1 {
+		t.Fatalf("session should still exist, got %d", count)
 	}
 
 	clearPendingScriptStart("device-3")
-	if count := pendingScriptStartCountForTest(); count != 0 {
-		t.Fatalf("pending entry should be cleared, got %d", count)
+	if count := scriptStartSessionCountForTest(); count != 0 {
+		t.Fatalf("session should be cleared, got %d", count)
 	}
 }
 
 func TestPendingScriptStartRejectsConcurrentBatchForSameDevice(t *testing.T) {
-	resetPendingScriptStartsForTest()
+	resetScriptStartSessionsForTest()
 	oldTimeout := scriptStartWaitTimeout
 	scriptStartWaitTimeout = 0
 	defer func() {
 		scriptStartWaitTimeout = oldTimeout
-		resetPendingScriptStartsForTest()
+		resetScriptStartSessionsForTest()
 	}()
 
-	if !registerPendingScriptStart("device-4", []byte("old"), true, "old.lua", []pendingScriptFetchRequest{
-		{requestID: "req-old", targetPath: "lua/scripts/main.lua"},
-	}) {
-		t.Fatalf("first register should succeed")
+	if _, ok := createScriptStartSession(
+		"device-4",
+		[]byte("old"),
+		true,
+		"old.lua",
+		scriptStartPhaseWaitingTransfer,
+		[]pendingScriptFetchRequest{{requestID: "req-old", targetPath: "lua/scripts/main.lua"}},
+	); !ok {
+		t.Fatalf("first create should succeed")
 	}
-	if registerPendingScriptStart("device-4", []byte("new"), true, "new.lua", []pendingScriptFetchRequest{
-		{requestID: "req-new", targetPath: "lua/scripts/main.lua"},
-	}) {
-		t.Fatalf("second register should be rejected while previous batch pending")
+	if _, ok := createScriptStartSession(
+		"device-4",
+		[]byte("new"),
+		true,
+		"new.lua",
+		scriptStartPhaseWaitingTransfer,
+		[]pendingScriptFetchRequest{{requestID: "req-new", targetPath: "lua/scripts/main.lua"}},
+	); ok {
+		t.Fatalf("second create should be rejected while previous session is active")
 	}
 
 	ready, cancelMsg, handled := completePendingScriptStart("device-4", "req-old", true, "")
@@ -195,76 +228,104 @@ func TestPendingScriptStartRejectsConcurrentBatchForSameDevice(t *testing.T) {
 }
 
 func TestHandleTransferFetchCompletionForScriptStartLegacyTargetPathFallback(t *testing.T) {
-	resetPendingScriptStartsForTest()
+	resetScriptStartSessionsForTest()
 	oldTimeout := scriptStartWaitTimeout
 	scriptStartWaitTimeout = 0
 	defer func() {
 		scriptStartWaitTimeout = oldTimeout
-		resetPendingScriptStartsForTest()
+		resetScriptStartSessionsForTest()
 	}()
 
-	if !registerPendingScriptStart("device-5", []byte("x"), true, "main.lua", []pendingScriptFetchRequest{
-		{requestID: "req-1", targetPath: "a.lua"},
-	}) {
-		t.Fatalf("register should succeed")
+	if _, ok := createScriptStartSession(
+		"device-5",
+		[]byte("x"),
+		true,
+		"main.lua",
+		scriptStartPhaseWaitingTransfer,
+		[]pendingScriptFetchRequest{{requestID: "req-1", targetPath: "a.lua"}},
+	); !ok {
+		t.Fatalf("session create should succeed")
 	}
 
 	handleTransferFetchCompletionForScriptStart("device-5", map[string]interface{}{
 		"targetPath": "a.lua",
 		"success":    true,
 	})
-	if count := pendingScriptStartCountForTest(); count != 0 {
-		t.Fatalf("legacy completion without requestId should still complete by targetPath, got %d", count)
+	state, exists := scriptStartStateForTest("device-5")
+	if !exists {
+		t.Fatalf("legacy completion should keep session active until dispatch")
+	}
+	if state.Phase != scriptStartPhaseStarting {
+		t.Fatalf("expected phase %q, got %q", scriptStartPhaseStarting, state.Phase)
 	}
 }
 
-func TestScriptStartInFlightRejectsReentryUntilReleased(t *testing.T) {
-	resetPendingScriptStartsForTest()
-	defer resetPendingScriptStartsForTest()
+func TestCancelScriptStartSessionClearsStateAndAllowsRestart(t *testing.T) {
+	resetScriptStartSessionsForTest()
+	defer resetScriptStartSessionsForTest()
 
-	if !tryAcquireScriptStart("device-lock") {
-		t.Fatalf("first acquire should succeed")
-	}
-	if tryAcquireScriptStart("device-lock") {
-		t.Fatalf("second acquire should fail before release")
-	}
-	if count := scriptStartInFlightCountForTest(); count != 1 {
-		t.Fatalf("expected 1 in-flight entry, got %d", count)
+	generation, ok := createScriptStartSession("device-cancel", []byte("x"), true, "main.lua", scriptStartPhasePreparing, nil)
+	if !ok {
+		t.Fatalf("session create should succeed")
 	}
 
-	releaseScriptStart("device-lock")
-
-	if !tryAcquireScriptStart("device-lock") {
-		t.Fatalf("acquire should succeed after release")
+	state, exists := scriptStartStateForTest("device-cancel")
+	if !exists {
+		t.Fatalf("state should exist before cancel")
 	}
-	releaseScriptStart("device-lock")
+	if !state.Active || !state.Cancelable || state.Phase != scriptStartPhasePreparing {
+		t.Fatalf("unexpected initial state: %+v", state)
+	}
+
+	result := cancelScriptStartSession("device-cancel")
+	if !result.Canceled {
+		t.Fatalf("cancel should succeed, got %+v", result)
+	}
+	if _, exists := scriptStartStateForTest("device-cancel"); exists {
+		t.Fatalf("state should be cleared after cancel")
+	}
+
+	newGeneration, ok := createScriptStartSession("device-cancel", []byte("y"), true, "main.lua", scriptStartPhasePreparing, nil)
+	if !ok {
+		t.Fatalf("session create should succeed after cancel")
+	}
+	if newGeneration == generation {
+		t.Fatalf("expected new generation after cancel")
+	}
 }
 
-func TestClearPendingScriptStartAlsoReleasesInFlightLock(t *testing.T) {
-	resetPendingScriptStartsForTest()
-	oldTimeout := scriptStartWaitTimeout
-	scriptStartWaitTimeout = 0
-	defer func() {
-		scriptStartWaitTimeout = oldTimeout
-		resetPendingScriptStartsForTest()
-	}()
+func TestStartScriptOnDeviceIgnoresCanceledGeneration(t *testing.T) {
+	resetScriptStartSessionsForTest()
+	defer resetScriptStartSessionsForTest()
 
-	if !tryAcquireScriptStart("device-clear") {
-		t.Fatalf("acquire should succeed")
+	oldGeneration, ok := createScriptStartSession("device-stale-start", nil, false, "", scriptStartPhaseStarting, nil)
+	if !ok {
+		t.Fatalf("first session create should succeed")
 	}
-	if !registerPendingScriptStart("device-clear", []byte("x"), true, "main.lua", []pendingScriptFetchRequest{
-		{requestID: "req-1", targetPath: "a.lua"},
-	}) {
-		t.Fatalf("register should succeed")
+	startScriptOnDevice("device-stale-start", oldGeneration, nil, false, "", 40*time.Millisecond)
+
+	time.Sleep(5 * time.Millisecond)
+
+	result := cancelScriptStartSession("device-stale-start")
+	if !result.Canceled {
+		t.Fatalf("cancel should succeed")
 	}
 
-	clearPendingScriptStart("device-clear")
+	newGeneration, ok := createScriptStartSession("device-stale-start", nil, false, "", scriptStartPhaseStarting, nil)
+	if !ok {
+		t.Fatalf("second session create should succeed")
+	}
+	if newGeneration == oldGeneration {
+		t.Fatalf("expected a new generation")
+	}
 
-	if count := pendingScriptStartCountForTest(); count != 0 {
-		t.Fatalf("pending entries should be cleared, got %d", count)
+	time.Sleep(80 * time.Millisecond)
+
+	state, exists := scriptStartStateForTest("device-stale-start")
+	if !exists {
+		t.Fatalf("newer session should remain active")
 	}
-	if !tryAcquireScriptStart("device-clear") {
-		t.Fatalf("clear should release in-flight lock")
+	if state.Phase != scriptStartPhaseStarting {
+		t.Fatalf("unexpected phase after stale delayed start: %+v", state)
 	}
-	releaseScriptStart("device-clear")
 }

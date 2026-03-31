@@ -4,9 +4,16 @@ import type { RemoteWheelSettings } from '../utils/remoteWheel';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
+export interface ScriptStartState {
+  active: boolean;
+  cancelable: boolean;
+  phase?: string;
+}
+
 export interface Device {
   udid: string;
   system?: any;
+  scriptStart?: ScriptStartState;
   [key: string]: any;
 }
 
@@ -14,6 +21,9 @@ type RemoteWheelCommandPayload = RemoteWheelSettings & {
   deltaY: number;
   rotateQuarter: number;
 };
+
+type DeviceLogWatcher = (chunk: string) => void;
+type LastLogUpdateCallback = (udid: string, lastLine: string) => void;
 
 // Pending file list request callback type
 type FileListCallback = (files: Array<{name: string; type: 'file' | 'directory'; size?: number}>) => void;
@@ -47,6 +57,9 @@ export class WebSocketService {
   
   private devices: Device[] = [];
   private deviceIndexByUdid: Map<string, number> = new Map();
+  private logWatchersByUdid: Map<string, Set<DeviceLogWatcher>> = new Map();
+  private lastLogCallbacks: LastLogUpdateCallback[] = [];
+  private scriptStartStatesByUdid: Map<string, ScriptStartState> = new Map();
   private password: string = '';
   private isAuthenticating = false;
   private isInitialLogin = true; // 区分首次登录和重连
@@ -893,6 +906,12 @@ export class WebSocketService {
       this.removeDevice(udid);
       return;
     }
+
+    if (message.type === 'script/start/state' && message.body?.udid) {
+      this.updateScriptStartState(message.body.udid, message.body);
+      this.notifyMessage(message);
+      return;
+    }
     
     // 处理脚本运行消息
     if (message.type === 'script/run' && message.body?.name && message.udid) {
@@ -916,8 +935,17 @@ export class WebSocketService {
 
     // 处理实时日志推送
     if (message.type === 'system/log/push' && message.udid && message.body?.chunk) {
-      this.updateDeviceLog(message.udid, message.body.chunk);
-      this.notifyMessage(message);
+      const chunk = typeof message.body.chunk === 'string' ? message.body.chunk : '';
+      if (!chunk) {
+        return;
+      }
+
+      this.notifyDeviceLogWatchers(message.udid, chunk);
+
+      const lastLine = this.extractLastLogLine(chunk);
+      if (lastLine !== null) {
+        this.notifyLastLogUpdate(message.udid, lastLine);
+      }
       return;
     }
     
@@ -967,15 +995,21 @@ export class WebSocketService {
       
       for (const [udid, deviceData] of Object.entries(message.body)) {
         if (deviceData && typeof deviceData === 'object') {
-          deviceArray.push({
+          const nextDevice: Device = {
             udid: udid,
             ...deviceData as any
-          });
+          };
+          const scriptStartState = this.scriptStartStatesByUdid.get(udid);
+          if (scriptStartState) {
+            nextDevice.scriptStart = { ...scriptStartState };
+          }
+          deviceArray.push(nextDevice);
         }
       }
       
       this.devices = deviceArray;
       this.rebuildDeviceIndex();
+      this.syncActiveLogSubscriptions();
       this.flushDeviceUpdate();
       return;
     }
@@ -1079,6 +1113,8 @@ export class WebSocketService {
         // 如果选中脚本发生了变化，记录状态以便 UI 同步
         this.devices[existingIndex].tempOldSelect = deviceData.script.select;
       }
+
+      this.applyScriptStartStateToDevice(existingIndex);
       
       debugLog('ws', `设备 ${udid} 状态已更新`);
     } else {
@@ -1101,6 +1137,7 @@ export class WebSocketService {
       }
       
       this.devices.push(newDevice);
+      this.applyScriptStartStateToDevice(this.devices.length - 1);
       this.deviceIndexByUdid.set(udid, this.devices.length - 1);
       debugLog('ws', `新设备 ${udid} 已添加`);
     }
@@ -1111,6 +1148,8 @@ export class WebSocketService {
 
   private removeDevice(udid: string): void {
     if (!udid) return;
+
+    this.scriptStartStatesByUdid.delete(udid);
 
     const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
@@ -1199,46 +1238,6 @@ export class WebSocketService {
     }
   }
 
-  private updateDeviceLog(udid: string, chunk: string): void {
-    if (!udid || typeof chunk !== 'string') return;
-
-    let end = chunk.length;
-    while (end > 0) {
-      const ch = chunk.charCodeAt(end - 1);
-      if (ch === 10 || ch === 13) {
-        end--;
-        continue;
-      }
-      break;
-    }
-    if (end === 0) {
-      return;
-    }
-
-    const lastLF = chunk.lastIndexOf('\n', end - 1);
-    const lastCR = chunk.lastIndexOf('\r', end - 1);
-    const start = Math.max(lastLF, lastCR) + 1;
-    const lastLine = chunk.slice(start, end);
-    if (lastLine === '') {
-      return;
-    }
-
-    const existingIndex = this.getDeviceIndex(udid);
-    if (existingIndex >= 0) {
-      const device = this.devices[existingIndex];
-      const system = { ...(device.system || {}) };
-      if (system.log === lastLine) {
-        return;
-      }
-      system.log = lastLine;
-      this.devices[existingIndex] = {
-        ...device,
-        system,
-      };
-      this.scheduleDeviceUpdate();
-    }
-  }
-
   private handleTransferProgress(body: any): void {
     const { percent, deviceSN } = body;
     if (deviceSN) {
@@ -1257,8 +1256,11 @@ export class WebSocketService {
     }
   }
 
-  onStatusChange(callback: (status: ConnectionStatus) => void): void {
+  onStatusChange(callback: (status: ConnectionStatus) => void): () => void {
     this.statusCallbacks.push(callback);
+    return () => {
+      this.statusCallbacks = this.statusCallbacks.filter(cb => cb !== callback);
+    };
   }
 
   onMessage(callback: (message: any) => void): () => void {
@@ -1268,8 +1270,73 @@ export class WebSocketService {
     };
   }
 
+  watchDeviceLog(udid: string, callback: DeviceLogWatcher): () => void {
+    if (!udid) {
+      return () => {};
+    }
+
+    let watchers = this.logWatchersByUdid.get(udid);
+    const shouldSubscribe = !watchers || watchers.size === 0;
+    if (!watchers) {
+      watchers = new Set<DeviceLogWatcher>();
+      this.logWatchersByUdid.set(udid, watchers);
+    }
+    watchers.add(callback);
+
+    if (shouldSubscribe) {
+      this.ensureLogSubscription(udid, true);
+    }
+
+    return () => {
+      const currentWatchers = this.logWatchersByUdid.get(udid);
+      if (!currentWatchers) {
+        return;
+      }
+
+      currentWatchers.delete(callback);
+      if (currentWatchers.size > 0) {
+        return;
+      }
+
+      this.logWatchersByUdid.delete(udid);
+      this.ensureLogSubscription(udid, false);
+    };
+  }
+
   onDeviceUpdate(callback: (devices: Device[]) => void): void {
     this.deviceCallbacks.push(callback);
+  }
+
+  onLastLogUpdate(callback: LastLogUpdateCallback): () => void {
+    this.lastLogCallbacks.push(callback);
+    return () => {
+      this.lastLogCallbacks = this.lastLogCallbacks.filter(cb => cb !== callback);
+    };
+  }
+
+  replaceScriptStartStates(states: Record<string, ScriptStartState>): void {
+    const nextStates = new Map<string, ScriptStartState>();
+    if (states && typeof states === 'object') {
+      for (const [udid, rawState] of Object.entries(states)) {
+        const state = this.normalizeScriptStartState(rawState);
+        if (!state || !state.active) {
+          continue;
+        }
+        nextStates.set(udid, state);
+      }
+    }
+
+    this.scriptStartStatesByUdid = nextStates;
+
+    let changed = false;
+    for (let index = 0; index < this.devices.length; index++) {
+      if (this.applyScriptStartStateToDevice(index)) {
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.scheduleDeviceUpdate();
+    }
   }
 
   onAuthResult(callback: (success: boolean, error?: string) => void): void {
@@ -1299,8 +1366,100 @@ export class WebSocketService {
     this.messageCallbacks.forEach(callback => callback(message));
   }
 
+  private notifyDeviceLogWatchers(udid: string, chunk: string): void {
+    const watchers = this.logWatchersByUdid.get(udid);
+    if (!watchers || watchers.size === 0) {
+      return;
+    }
+
+    watchers.forEach((callback) => callback(chunk));
+  }
+
+  private notifyLastLogUpdate(udid: string, lastLine: string): void {
+    this.lastLogCallbacks.forEach((callback) => callback(udid, lastLine));
+  }
+
   private notifyDeviceUpdate(devices: Device[]): void {
     this.deviceCallbacks.forEach(callback => callback(devices));
+  }
+
+  private normalizeScriptStartState(rawState: any): ScriptStartState | null {
+    if (!rawState || typeof rawState !== 'object') {
+      return null;
+    }
+
+    return {
+      active: rawState.active === true,
+      cancelable: rawState.cancelable === true,
+      phase: typeof rawState.phase === 'string' ? rawState.phase : '',
+    };
+  }
+
+  private updateScriptStartState(udid: string, rawState: any): void {
+    if (!udid) {
+      return;
+    }
+
+    const state = this.normalizeScriptStartState(rawState);
+    if (!state || !state.active) {
+      this.scriptStartStatesByUdid.delete(udid);
+    } else {
+      this.scriptStartStatesByUdid.set(udid, state);
+    }
+
+    const existingIndex = this.getDeviceIndex(udid);
+    if (existingIndex < 0) {
+      return;
+    }
+
+    if (this.applyScriptStartStateToDevice(existingIndex)) {
+      this.scheduleDeviceUpdate();
+    }
+  }
+
+  private applyScriptStartStateToDevice(index: number): boolean {
+    const device = this.devices[index];
+    const state = this.scriptStartStatesByUdid.get(device.udid);
+
+    if (state) {
+      const current = device.scriptStart;
+      if (
+        current &&
+        current.active === state.active &&
+        current.cancelable === state.cancelable &&
+        current.phase === state.phase
+      ) {
+        return false;
+      }
+
+      this.devices[index] = {
+        ...device,
+        scriptStart: { ...state },
+      };
+      return true;
+    }
+
+    if (device.scriptStart === undefined) {
+      return false;
+    }
+
+    const nextDevice = { ...device };
+    delete nextDevice.scriptStart;
+    this.devices[index] = nextDevice;
+    return true;
+  }
+
+  private ensureLogSubscription(udid: string, subscribe: boolean): void {
+    if (!udid || !this.password || !this.ws || this.ws.readyState !== WebSocket.OPEN || !this.hasReceivedDeviceList) {
+      return;
+    }
+
+    if (subscribe) {
+      void this.subscribeDeviceLogs([udid]);
+      return;
+    }
+
+    void this.unsubscribeDeviceLogs([udid]);
   }
 
   private scheduleDeviceUpdate(immediate: boolean = false): void {
@@ -1344,6 +1503,40 @@ export class WebSocketService {
   private getDeviceIndex(udid: string): number {
     const index = this.deviceIndexByUdid.get(udid);
     return index === undefined ? -1 : index;
+  }
+
+  private syncActiveLogSubscriptions(): void {
+    if (!this.password || !this.ws || this.ws.readyState !== WebSocket.OPEN || !this.hasReceivedDeviceList) {
+      return;
+    }
+
+    const activeUdids = [...this.logWatchersByUdid.keys()];
+    if (activeUdids.length === 0) {
+      return;
+    }
+
+    void this.subscribeDeviceLogs(activeUdids);
+  }
+
+  private extractLastLogLine(chunk: string): string | null {
+    let end = chunk.length;
+    while (end > 0) {
+      const ch = chunk.charCodeAt(end - 1);
+      if (ch === 10 || ch === 13) {
+        end--;
+        continue;
+      }
+      break;
+    }
+    if (end === 0) {
+      return null;
+    }
+
+    const lastLF = chunk.lastIndexOf('\n', end - 1);
+    const lastCR = chunk.lastIndexOf('\r', end - 1);
+    const start = Math.max(lastLF, lastCR) + 1;
+    const lastLine = chunk.slice(start, end);
+    return lastLine === '' ? null : lastLine;
   }
 
   private notifyAuthResult(success: boolean, error?: string): void {
