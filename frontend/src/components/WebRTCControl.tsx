@@ -241,6 +241,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   let lastTimestamp = 0;
   let lastAppliedResolution = 0;
   let lastAppliedFrameRate = 0;
+  const forwardedKeyboardKeys = new Set<string>();
+  const suppressedKeyboardKeys = new Set<string>();
   const wheelBatcher = createRemoteWheelBatcher((payload) => {
     if (webrtcService) {
       webrtcService.sendWheelCommand({
@@ -873,6 +875,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   function sendSynchronizedKeyCommand(key: string, action: 'down' | 'up'): void {
     sendKeyCommandToCurrentDevice(key, action);
     sendKeyCommandToTargetDevices(getWsKeyCode(key), action);
+    rememberForwardedKeyboardKey(key, action);
   }
 
   function sendSynchronizedKeyPress(key: string, wsKeyCode: string = getWsKeyCode(key)): void {
@@ -884,6 +887,56 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
 
     void props.webSocketService.pressKeyMultiple(targetDevices, wsKeyCode);
+  }
+
+  function rememberForwardedKeyboardKey(key: string, action: 'down' | 'up'): void {
+    if (!key) {
+      return;
+    }
+
+    if (action === 'down') {
+      forwardedKeyboardKeys.add(key);
+      return;
+    }
+
+    forwardedKeyboardKeys.delete(key);
+  }
+
+  function releaseForwardedKeyboardKey(key: string): void {
+    if (!key || !forwardedKeyboardKeys.has(key)) {
+      return;
+    }
+
+    sendKeyCommandToCurrentDevice(key, 'up');
+    sendKeyCommandToTargetDevices(getWsKeyCode(key), 'up');
+    forwardedKeyboardKeys.delete(key);
+  }
+
+  function suppressKeyboardKeys(keys: string[]): void {
+    for (const key of keys) {
+      if (key) {
+        suppressedKeyboardKeys.add(key);
+      }
+    }
+  }
+
+  function consumeSuppressedKeyboardEvent(e: KeyboardEvent, action: 'down' | 'up', key: string | null): boolean {
+    if (!key || !suppressedKeyboardKeys.has(key)) {
+      return false;
+    }
+
+    e.preventDefault();
+    if (action === 'up') {
+      suppressedKeyboardKeys.delete(key);
+      forwardedKeyboardKeys.delete(key);
+    }
+    return true;
+  }
+
+  function prepareClipboardShortcut(mainKey: string): void {
+    suppressKeyboardKeys(['command', mainKey]);
+    releaseForwardedKeyboardKey(mainKey);
+    releaseForwardedKeyboardKey('command');
   }
 
   // 特殊按键映射 - 使用 e.code (物理键码) 而不是 e.key (字符)
@@ -989,6 +1042,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   // 处理键盘事件
   const handleKeyDown = (e: KeyboardEvent) => {
+    const mappedKey = getKeyFromCode(e.code);
+    if (consumeSuppressedKeyboardEvent(e, 'down', mappedKey)) {
+      return;
+    }
 
     // 如果剪贴板模态框打开，不拦截键盘事件
     if (clipboardModalOpen()) return;
@@ -1000,30 +1057,24 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     // 检测拷贝/剪切/粘贴快捷键
     if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
       e.preventDefault();
-      // 发送 command up 事件以防止设备端按键卡住（因为弹出模态框会中断焦点）
-      // 注意：c 的 down 事件还没发送（被上面拦截了），只有 command down 发了
-      sendKeyCommandToCurrentDevice('command', 'up');
+      prepareClipboardShortcut('c');
       handleCopyFromDevice();
       return;
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'x') {
       e.preventDefault();
-      // 发送 command up 事件以防止设备端按键卡住
-      sendKeyCommandToCurrentDevice('command', 'up');
+      prepareClipboardShortcut('x');
       handleCutFromDevice();
       return;
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
       e.preventDefault();
-      // 发送 command up 事件以防止设备端按键卡住（因为弹出模态框会中断焦点）
-      // 注意：v 的 down 事件还没发送（被上面拦截了），只有 command down 发了
-      sendKeyCommandToCurrentDevice('command', 'up');
+      prepareClipboardShortcut('v');
       handlePasteToDevice();
       return;
     }
 
     // 使用 e.code 获取物理键码，这样 Shift+2 会正确发送 "2" 而不是 "@"
-    const mappedKey = getKeyFromCode(e.code);
     if (!mappedKey) return;
 
     e.preventDefault();
@@ -1033,16 +1084,18 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   };
 
   const handleKeyUp = (e: KeyboardEvent) => {
+    const mappedKey = getKeyFromCode(e.code);
+    if (consumeSuppressedKeyboardEvent(e, 'up', mappedKey)) {
+      return;
+    }
+
     // 如果剪贴板模态框打开，不拦截键盘事件
     if (clipboardModalOpen()) return;
     
     if (connectionState() !== 'connected') return;
     if (isTextInputTarget(document.activeElement)) return;
-    // 忽略拷贝粘贴快捷键的 key up 事件（已在 keydown 拦截）
-    if ((e.metaKey || e.ctrlKey) && (e.code === 'KeyC' || e.code === 'KeyV' || e.code === 'KeyX')) return;
 
     // 使用 e.code 获取物理键码
-    const mappedKey = getKeyFromCode(e.code);
     if (!mappedKey) return;
 
     e.preventDefault();
@@ -1415,6 +1468,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   onCleanup(() => {
     cleanupTouchState();
     stopStream();
+    forwardedKeyboardKeys.clear();
+    suppressedKeyboardKeys.clear();
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
     if (keyboardIndicatorTimeout) clearTimeout(keyboardIndicatorTimeout);
