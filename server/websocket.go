@@ -1086,6 +1086,11 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 
 	case "http/response-bin":
+		// 服务端内部截图请求也复用 http/response-bin，必须先拦截，避免再转发给控制端。
+		if handleInternalHTTPResponseBinMeta(conn, data) {
+			return nil
+		}
+
 		requestId := ""
 		bodySize := -1
 		if bodyMap, ok := data.Body.(map[string]interface{}); ok {
@@ -1247,6 +1252,9 @@ func handleBinaryMessage(conn *SafeConn, payload []byte) {
 	if !ok {
 		return
 	}
+	if handleInternalHTTPResponseBinChunk(conn, reqID, seq, total, payload[binaryHeaderSize:]) {
+		return
+	}
 
 	var (
 		deviceTargets   []*SafeConn
@@ -1391,6 +1399,7 @@ func handleDisconnection(conn *SafeConn) {
 
 	if disconnectedUDID != "" {
 		clearPendingScriptStart(disconnectedUDID)
+		abortInternalHTTPBinRequestsForDevice(disconnectedUDID, "device disconnected")
 	}
 
 	if disconnectUDID != "" && len(disconnectTargets) > 0 {

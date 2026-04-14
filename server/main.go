@@ -189,6 +189,7 @@ func main() {
 	r.GET("/api/config", configHandler)
 	r.GET("/api/control/info", controlInfoHandler)
 	r.GET("/api/download-bind-script", downloadBindScriptHandler)
+	r.POST("/api/devices/snapshot-save-batch", snapshotSaveBatchHandler)
 
 	// Server file management routes
 	r.GET("/api/server-files/list", serverFilesListHandler)

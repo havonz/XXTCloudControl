@@ -36,7 +36,8 @@ import {
   IconPowerOff,
   IconAnglesRight,
   IconLoader,
-  IconUpload
+  IconUpload,
+  IconCamera
 } from '../icons';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
@@ -45,11 +46,11 @@ import { useScriptConfigManager } from '../hooks/useScriptConfigManager';
 import ScriptConfigModal from './ScriptConfigModal';
 import { authFetch } from '../services/httpAuth';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
+import { buildBatchSnapshotFeedback, type BatchScreenshotSaveResult } from '../utils/batchSnapshotFeedback';
 import ContextMenu, { ContextMenuButton, ContextMenuDivider, ContextMenuSection } from './ContextMenu';
 import BrightnessModal from '../modals/domain/BrightnessModal';
 import VolumeModal from '../modals/domain/VolumeModal';
 import { DeviceControlService } from '../services/DeviceControlService';
-
 
 interface DeviceListProps {
   devices: Device[];
@@ -187,6 +188,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [showVolumeModal, setShowVolumeModal] = createSignal(false);
   const [volumeValue, setVolumeValue] = createSignal(50);
   const [isSettingVolume, setIsSettingVolume] = createSignal(false);
+  const [isBatchSnapshotting, setIsBatchSnapshotting] = createSignal(false);
   
   // DeviceControlService instance (lazily created when needed)
   let deviceControlService: DeviceControlService | null = null;
@@ -1190,6 +1192,56 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const handleCloseBatchRemoteControl = () => {
     setShowBatchRemoteModal(false);
   };
+
+  const handleBatchSnapshot = async () => {
+    const selectedDevices = props.selectedDevices();
+    if (selectedDevices.length === 0 || isBatchSnapshotting()) {
+      return;
+    }
+
+    const deviceIds = Array.from(new Set(selectedDevices.map((device) => device.udid).filter(Boolean)));
+    if (deviceIds.length === 0) {
+      return;
+    }
+
+    setIsBatchSnapshotting(true);
+    deviceIds.forEach((udid) => setDeviceMessage(udid, '正在截图...'));
+
+    try {
+      const response = await authFetch('/api/devices/snapshot-save-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceIds }),
+      });
+      const payload = await response.json().catch(() => ({} as { error?: string; results?: BatchScreenshotSaveResult[] }));
+      if (!response.ok) {
+        throw new Error(payload?.error || `HTTP ${response.status}`);
+      }
+
+      const feedback = buildBatchSnapshotFeedback(
+        deviceIds,
+        Array.isArray(payload.results) ? payload.results : [],
+      );
+
+      for (const [udid, message] of Object.entries(feedback.perDeviceMessages)) {
+        setDeviceMessage(udid, message);
+      }
+
+      if (feedback.toastType === 'success') {
+        toast.showSuccess(feedback.toastMessage);
+      } else if (feedback.toastType === 'warning') {
+        toast.showWarning(feedback.toastMessage);
+      } else {
+        toast.showError(feedback.toastMessage);
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      deviceIds.forEach((udid) => setDeviceMessage(udid, `截图失败: ${reason || '未知错误'}`));
+      toast.showError(`批量截图失败: ${reason || '未知错误'}`);
+    } finally {
+      setIsBatchSnapshotting(false);
+    }
+  };
   
   const handleDeviceBinding = () => {
     setShowDeviceBindingModal(true);
@@ -1560,6 +1612,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 >
                   <IconVolumeHigh size={14} />
                   <span>设置音量</span>
+                </button>
+                <button 
+                  class={styles.menuItem}
+                  onClick={() => {
+                    setShowMoreActions(false);
+                    void handleBatchSnapshot();
+                  }}
+                  disabled={props.selectedDevices().length === 0 || isBatchSnapshotting()}
+                >
+                  <IconCamera size={14} />
+                  <span>{isBatchSnapshotting() ? '批量截图中...' : '批量截图'}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
