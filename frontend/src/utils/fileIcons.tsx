@@ -91,6 +91,7 @@ export function renderFileIcon(name: string, options: FileIconOptions = {}): JSX
     case 'svg':
       return <IconImage size={size} />;
     case 'zip':
+    case 'xxtlca':
     case 'rar':
     case '7z':
     case 'tar':

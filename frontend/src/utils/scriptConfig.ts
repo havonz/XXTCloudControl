@@ -7,6 +7,7 @@ export interface ConfigItem {
 
 export interface ScriptInfo {
   Name?: string;
+  Version?: string;
   Developer?: string;
   BuyLink?: string;
   Instructions?: string;

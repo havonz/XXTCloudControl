@@ -63,7 +63,7 @@ export default function FormRunner(props: FormRunnerProps) {
   const hasScriptInfo = createMemo(() => {
     const info = props.scriptInfo;
     if (!info) return false;
-    return Boolean(info.Name || info.Developer || info.BuyLink || info.Instructions);
+    return Boolean(info.Name || info.Version || info.Developer || info.BuyLink || info.Instructions);
   });
 
   return (
@@ -248,6 +248,12 @@ export default function FormRunner(props: FormRunnerProps) {
                     <div class={styles.aboutField}>
                       <span class={styles.aboutLabel}>名称</span>
                       <span class={styles.aboutValue}>{props.scriptInfo?.Name}</span>
+                    </div>
+                  </Show>
+                  <Show when={props.scriptInfo?.Version}>
+                    <div class={styles.aboutField}>
+                      <span class={styles.aboutLabel}>版本</span>
+                      <span class={styles.aboutValue}>{props.scriptInfo?.Version}</span>
                     </div>
                   </Show>
                   <Show when={props.scriptInfo?.Developer}>

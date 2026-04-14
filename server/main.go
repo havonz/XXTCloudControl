@@ -209,6 +209,8 @@ func main() {
 	r.POST("/api/scripts/send-and-start", scriptsSendAndStartHandler)
 	r.POST("/api/scripts/send-and-start/cancel", scriptsSendAndStartCancelHandler)
 	r.GET("/api/scripts/start-state", scriptsStartStateHandler)
+	r.POST("/api/scripts/lancontrol-archive/inspect", lanControlArchiveInspectHandler)
+	r.POST("/api/scripts/lancontrol-archive/install", lanControlArchiveInstallHandler)
 	r.GET("/api/scripts/config-status", scriptConfigStatusHandler)
 	r.GET("/api/scripts/config", scriptConfigGetHandler)
 	r.POST("/api/scripts/config", scriptConfigSaveHandler)

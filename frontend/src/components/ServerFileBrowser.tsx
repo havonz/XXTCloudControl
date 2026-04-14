@@ -45,12 +45,29 @@ export interface ServerFileItem {
   isSymlink?: boolean;
 }
 
+type LanControlArchiveMeta = {
+  format?: string;
+  formatVersion?: number;
+  name?: string;
+  version?: string;
+  author?: string;
+  description?: string;
+  minXXTLCVersion?: string;
+  maxXXTLCVersion?: string;
+};
+
+type LanControlArchiveSource =
+  | { kind: 'managed'; category: 'scripts' | 'files' | 'reports'; path: string; displayName: string }
+  | { kind: 'upload'; file: File; displayName: string };
+
 export interface ServerFileBrowserProps {
   isOpen: boolean;
   onClose: () => void;
   serverBaseUrl: string;
   selectedDevices?: Device[];
 }
+
+const LANCONTROL_ARCHIVE_EXT = '.xxtlca';
 
 export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const dialog = useDialog();
@@ -63,9 +80,27 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [isUploading, setIsUploading] = createSignal(false);
   const [showHidden, setShowHidden] = createSignal(false);
   const [isLocal, setIsLocal] = createSignal(false);
+
+  // 中控脚本包安装
+  const [lanControlArchiveOpen, setLanControlArchiveOpen] = createSignal(false);
+  const [lanControlArchiveMeta, setLanControlArchiveMeta] = createSignal<LanControlArchiveMeta>({});
+  const [lanControlArchiveSource, setLanControlArchiveSource] = createSignal<LanControlArchiveSource | null>(null);
+  const [lanControlArchiveInstallName, setLanControlArchiveInstallName] = createSignal('');
+  const [lanControlArchiveExists, setLanControlArchiveExists] = createSignal(false);
+  const [lanControlArchiveOverwrite, setLanControlArchiveOverwrite] = createSignal(false);
+  const [lanControlArchiveDeletePackage, setLanControlArchiveDeletePackage] = createSignal(true);
+  const [lanControlArchiveInstalling, setLanControlArchiveInstalling] = createSignal(false);
+  const [lanControlArchiveError, setLanControlArchiveError] = createSignal('');
+  let lanControlArchiveResolve: ((installed: boolean) => void) | null = null;
+
   const mainBackdropClose = createBackdropClose(() => props.onClose());
   const editorBackdropClose = createBackdropClose(() => setShowEditorModal(false));
   const imagePreviewBackdropClose = createBackdropClose(() => setShowImagePreview(false));
+  const lanControlArchiveBackdropClose = createBackdropClose(() => {
+    if (!lanControlArchiveInstalling()) {
+      closeLanControlArchiveDialog(false);
+    }
+  });
 
   const loadConfig = async () => {
     try {
@@ -193,7 +228,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
-      if (contextMenuFile()) {
+      if (lanControlArchiveOpen()) {
+        if (!lanControlArchiveInstalling()) closeLanControlArchiveDialog(false);
+      } else if (contextMenuFile()) {
         setContextMenuFile(null);
       } else if (showImagePreview()) {
         setShowImagePreview(false);
@@ -275,7 +312,20 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const newPath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
       handleNavigate(newPath);
     }
-    // 文件点击不做处理，使用右键菜单操作
+    // 其它文件点击不处理，保留右键菜单操作语义。
+  };
+
+  const handleFileDoubleClick = (file: ServerFileItem) => {
+    if (isSelectMode()) return;
+    if (file.type === 'file' && isLanControlArchiveFile(file.name)) {
+      const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
+      void openLanControlArchiveInstallDialog({
+        kind: 'managed',
+        category: currentCategory(),
+        path: filePath,
+        displayName: file.name
+      });
+    }
   };
 
   const toggleSelection = (name: string, e?: MouseEvent) => {
@@ -395,6 +445,153 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       `${props.serverBaseUrl}/api/server-files/download/${currentCategory()}/${filePath}`
     );
     window.open(url, '_blank');
+  };
+
+  const isLanControlArchiveFile = (name: string) => name.trim().toLowerCase().endsWith(LANCONTROL_ARCHIVE_EXT);
+
+  const localizeLanControlArchiveError = (raw: unknown): string => {
+    const message = String(raw || '').trim();
+    if (!message) return '未知错误';
+
+    const existsMatch = message.match(/^script "(.+)" already exists$/);
+    if (existsMatch) {
+      return `脚本“${existsMatch[1]}”已存在`;
+    }
+
+    return message;
+  };
+
+  const buildLanControlArchiveFormData = (source: Extract<LanControlArchiveSource, { kind: 'upload' }>, extra?: Record<string, string>) => {
+    const formData = new FormData();
+    formData.append('file', source.file, source.displayName || source.file.name);
+    for (const [key, value] of Object.entries(extra || {})) {
+      formData.append(key, value);
+    }
+    return formData;
+  };
+
+  const inspectLanControlArchive = async (source: LanControlArchiveSource) => {
+    if (source.kind === 'managed') {
+      const params = new URLSearchParams({ category: source.category, path: source.path });
+      const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/inspect?${params}`, { method: 'POST' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.error) throw new Error(data.error || '读取中控脚本包失败');
+      return data;
+    }
+    const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/inspect`, {
+      method: 'POST',
+      body: buildLanControlArchiveFormData(source)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.error) throw new Error(data.error || '读取中控脚本包失败');
+    return data;
+  };
+
+  const installLanControlArchive = async (source: LanControlArchiveSource) => {
+    const installName = lanControlArchiveInstallName().trim();
+    const overwrite = lanControlArchiveOverwrite() ? 'true' : 'false';
+    if (source.kind === 'managed') {
+      const params = new URLSearchParams({
+        category: source.category,
+        path: source.path,
+        installName,
+        overwrite
+      });
+      const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/install?${params}`, { method: 'POST' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.error) throw new Error(data.error || '安装中控脚本包失败');
+      return data;
+    }
+    const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/install`, {
+      method: 'POST',
+      body: buildLanControlArchiveFormData(source, { installName, overwrite })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.error) throw new Error(data.error || '安装中控脚本包失败');
+    return data;
+  };
+
+  const deleteManagedLanControlArchivePackage = async (source: Extract<LanControlArchiveSource, { kind: 'managed' }>) => {
+    const params = new URLSearchParams({ category: source.category, path: source.path });
+    const response = await authFetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.error) throw new Error(data.error || '删除安装包失败');
+  };
+
+  const closeLanControlArchiveDialog = (installed: boolean) => {
+    setLanControlArchiveOpen(false);
+    setLanControlArchiveInstalling(false);
+    setLanControlArchiveSource(null);
+    setLanControlArchiveMeta({});
+    setLanControlArchiveInstallName('');
+    setLanControlArchiveExists(false);
+    setLanControlArchiveOverwrite(false);
+    setLanControlArchiveDeletePackage(true);
+    setLanControlArchiveError('');
+    const resolve = lanControlArchiveResolve;
+    lanControlArchiveResolve = null;
+    resolve?.(installed);
+  };
+
+  const openLanControlArchiveInstallDialog = async (source: LanControlArchiveSource): Promise<boolean> => {
+    if (lanControlArchiveOpen()) {
+      return false;
+    }
+    try {
+      const result = await inspectLanControlArchive(source);
+      const meta = (result?.meta || {}) as LanControlArchiveMeta;
+      setLanControlArchiveMeta(meta);
+      setLanControlArchiveSource(source);
+      setLanControlArchiveInstallName(String(result?.installName || meta.name || source.displayName.replace(/\.xxtlca$/i, '') || ''));
+      setLanControlArchiveExists(!!result?.exists);
+      setLanControlArchiveOverwrite(false);
+      setLanControlArchiveDeletePackage(true);
+      setLanControlArchiveError('');
+      setLanControlArchiveInstalling(false);
+      setLanControlArchiveOpen(true);
+      return await new Promise<boolean>((resolve) => {
+        lanControlArchiveResolve = resolve;
+      });
+    } catch (error) {
+      await dialog.alert(`读取中控脚本包失败: ${localizeLanControlArchiveError((error as Error).message)}`);
+      return false;
+    }
+  };
+
+  const confirmLanControlArchiveInstall = async () => {
+    const source = lanControlArchiveSource();
+    if (!source) {
+      closeLanControlArchiveDialog(false);
+      return;
+    }
+    if (!lanControlArchiveInstallName().trim()) {
+      setLanControlArchiveError('请输入安装名称');
+      return;
+    }
+    setLanControlArchiveInstalling(true);
+    setLanControlArchiveError('');
+    try {
+      const result = await installLanControlArchive(source);
+      const installedName = String(result?.installName || lanControlArchiveInstallName().trim());
+      if (source.kind === 'managed' && lanControlArchiveDeletePackage()) {
+        try {
+          await deleteManagedLanControlArchivePackage(source);
+        } catch (deleteError) {
+          console.error('Delete LanControl archive package failed:', deleteError);
+          toast.showError(`安装成功，但删除安装包失败: ${localizeLanControlArchiveError((deleteError as Error).message)}`);
+        }
+      }
+      toast.showSuccess(`已安装中控脚本: ${installedName}`);
+      closeLanControlArchiveDialog(true);
+      loadFiles();
+    } catch (error) {
+      const localizedMessage = localizeLanControlArchiveError((error as Error).message);
+      if (/已存在$/.test(localizedMessage) || /^script "(.+)" already exists$/.test(String((error as Error).message || ''))) {
+        setLanControlArchiveExists(true);
+      }
+      setLanControlArchiveError(`安装失败: ${localizedMessage}`);
+      setLanControlArchiveInstalling(false);
+    }
   };
 
   const getDeleteConfirmMessage = (file: ServerFileItem): string => {
@@ -698,6 +895,15 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     setIsUploading(true);
     try {
       for (const { file, relativePath } of filesToUpload) {
+        if (currentCategory() === 'scripts' && isLanControlArchiveFile(relativePath || file.name)) {
+          await openLanControlArchiveInstallDialog({
+            kind: 'upload',
+            file,
+            displayName: file.name || relativePath
+          });
+          continue;
+        }
+
         const formData = new FormData();
         formData.append('file', file);
         formData.append('category', currentCategory());
@@ -959,6 +1165,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                           }
                         }}
                         onClick={(e) => handleFileClick(file, e)}
+                        onDblClick={() => handleFileDoubleClick(file)}
                         onContextMenu={(e) => handleFileContextMenu(e, file)}
                         onTouchStart={() => handleFileTouchStart(file)}
                         onTouchEnd={handleFileTouchEnd}
@@ -1035,6 +1242,105 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         </div>
       </Show>
 
+      {/* 中控脚本包安装弹窗 */}
+      <Show when={lanControlArchiveOpen()}>
+        <div class={styles.archiveOverlay} onMouseDown={lanControlArchiveBackdropClose.onMouseDown} onMouseUp={lanControlArchiveBackdropClose.onMouseUp}>
+          <div class={styles.archiveModal} onMouseDown={(e) => e.stopPropagation()}>
+            <div class={styles.archiveHeader}>
+              <h3>安装中控脚本包</h3>
+              <button class={styles.closeButton} onClick={() => !lanControlArchiveInstalling() && closeLanControlArchiveDialog(false)}>
+                <IconXmark size={16} />
+              </button>
+            </div>
+            <div class={styles.archiveBody}>
+              <div class={styles.archiveInfo}>
+                <div class={styles.archiveInfoHeader}>
+                  <span class={styles.archiveInfoTitle}>脚本信息</span>
+                  <span class={styles.archiveInfoSubtitle}>{lanControlArchiveSource()?.displayName || lanControlArchiveMeta().name || '未命名脚本'}</span>
+                </div>
+                <div class={styles.archiveInfoContent}>
+                  <div class={styles.archiveInfoField}>
+                    <span class={styles.archiveInfoLabel}>名称</span>
+                    <span class={styles.archiveInfoValue}>{lanControlArchiveMeta().name || '未命名脚本'}</span>
+                  </div>
+                  <div class={styles.archiveInfoField}>
+                    <span class={styles.archiveInfoLabel}>版本</span>
+                    <span class={styles.archiveInfoValue}>{lanControlArchiveMeta().version || '未知'}</span>
+                  </div>
+                  <div class={styles.archiveInfoField}>
+                    <span class={styles.archiveInfoLabel}>开发者</span>
+                    <span class={styles.archiveInfoValue}>{lanControlArchiveMeta().author || '未知'}</span>
+                  </div>
+                  <div class={styles.archiveInfoField}>
+                    <span class={styles.archiveInfoLabel}>使用说明</span>
+                    <div class={styles.archiveInstructions}>{lanControlArchiveMeta().description || '未知'}</div>
+                  </div>
+                </div>
+              </div>
+
+              <label class={styles.archiveField}>
+                <span class={styles.archiveInfoLabel}>安装名称</span>
+                <input
+                  class={styles.archiveInput}
+                  value={lanControlArchiveInstallName()}
+                  disabled={lanControlArchiveInstalling()}
+                  onInput={(e) => {
+                    setLanControlArchiveInstallName(e.currentTarget.value);
+                    setLanControlArchiveError('');
+                  }}
+                />
+              </label>
+
+              <Show when={lanControlArchiveExists()}>
+                <label class={styles.archiveOption}>
+                  <input
+                    type="checkbox"
+                    class="themed-checkbox"
+                    checked={lanControlArchiveOverwrite()}
+                    disabled={lanControlArchiveInstalling()}
+                    onChange={(e) => setLanControlArchiveOverwrite(e.currentTarget.checked)}
+                  />
+                  <span>目标已存在，覆盖安装</span>
+                </label>
+              </Show>
+
+              <Show when={lanControlArchiveSource()?.kind === 'managed'}>
+                <label class={styles.archiveOption}>
+                  <input
+                    type="checkbox"
+                    class="themed-checkbox"
+                    checked={lanControlArchiveDeletePackage()}
+                    disabled={lanControlArchiveInstalling()}
+                    onChange={(e) => setLanControlArchiveDeletePackage(e.currentTarget.checked)}
+                  />
+                  <span>安装成功后删除安装包</span>
+                </label>
+              </Show>
+
+              <Show when={lanControlArchiveError()}>
+                <div class={styles.archiveError}>{lanControlArchiveError()}</div>
+              </Show>
+            </div>
+            <div class={styles.archiveFooter}>
+              <button
+                class={styles.cancelBtn}
+                disabled={lanControlArchiveInstalling()}
+                onClick={() => closeLanControlArchiveDialog(false)}
+              >
+                取消
+              </button>
+              <button
+                class={styles.confirmBtn}
+                disabled={lanControlArchiveInstalling()}
+                onClick={() => { void confirmLanControlArchiveInstall(); }}
+              >
+                {lanControlArchiveInstalling() ? '安装中...' : '安装'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+
       {/* 右键菜单 */}
       <ContextMenu
         isOpen={!!contextMenuFile()}
@@ -1043,6 +1349,24 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         label={contextMenuFile()?.name}
       >
         <>
+          <Show when={contextMenuFile()?.type === 'file' && isLanControlArchiveFile(contextMenuFile()!.name)}>
+            <ContextMenuButton
+              icon={<IconCode size={14} />}
+              onClick={() => {
+                const file = contextMenuFile()!;
+                const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
+                void openLanControlArchiveInstallDialog({
+                  kind: 'managed',
+                  category: currentCategory(),
+                  path: filePath,
+                  displayName: file.name
+                });
+                closeContextMenu();
+              }}
+            >
+              安装脚本包
+            </ContextMenuButton>
+          </Show>
           <Show when={contextMenuFile()?.type === 'file' && isTextFile(contextMenuFile()!.name)}>
             <ContextMenuButton icon={<IconICursor size={14} />} onClick={() => { handleEditFile(contextMenuFile()!); closeContextMenu(); }}>
               编辑

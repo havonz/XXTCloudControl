@@ -247,6 +247,28 @@ func serverFilesUploadHandler(c *gin.Context) {
 		return
 	}
 
+	if category == "scripts" && isLanControlArchiveFileName(fileName) {
+		result, err := installLanControlArchiveFromReader(serverConfig.DataDir, fileName, file, "", false)
+		if err != nil {
+			status := http.StatusBadRequest
+			if strings.Contains(err.Error(), "already exists") {
+				status = http.StatusConflict
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"success":     true,
+			"filename":    fileName,
+			"path":        result.ScriptPath,
+			"category":    category,
+			"installed":   true,
+			"installName": result.InstallName,
+			"scriptPath":  result.ScriptPath,
+		})
+		return
+	}
+
 	targetFilePath := filepath.Join(targetDir, fileName)
 
 	baseDir := filepath.Join(serverConfig.DataDir, category)
