@@ -76,3 +76,111 @@ func TestUnzipSecureRejectsPathTraversal(t *testing.T) {
 		t.Fatalf("expected unzipSecure to reject path traversal")
 	}
 }
+
+func TestReconcileStateOnStartupClearsAppliedDownloadArtifacts(t *testing.T) {
+	u := &UpdaterService{
+		state: UpdaterState{
+			Stage:              updateStageApplying,
+			LastError:          "old error",
+			HasUpdate:          true,
+			Ignored:            true,
+			DownloadedVersion:  Version,
+			DownloadedAsset:    "XXTCloudControl-vNext-linux-amd64.zip",
+			DownloadedFile:     "/tmp/update.zip",
+			StagingDir:         "/tmp/staging",
+			SourceBinary:       "/tmp/staging/xxtcloudserver-linux-amd64",
+			SourceFrontendDir:  "/tmp/staging/frontend",
+			DownloadedBytes:    12,
+			DownloadTotalBytes: 24,
+		},
+	}
+
+	u.reconcileStateOnStartup()
+
+	if u.state.Stage != updateStageIdle {
+		t.Fatalf("unexpected stage: %s", u.state.Stage)
+	}
+	if u.state.HasUpdate {
+		t.Fatalf("hasUpdate should be false after successful apply")
+	}
+	if u.state.Ignored {
+		t.Fatalf("ignored should be false after successful apply")
+	}
+	if u.state.DownloadedVersion != "" {
+		t.Fatalf("downloaded version should be cleared, got %q", u.state.DownloadedVersion)
+	}
+	if u.state.DownloadedAsset != "" {
+		t.Fatalf("downloaded asset should be cleared, got %q", u.state.DownloadedAsset)
+	}
+	if u.state.DownloadedFile != "" {
+		t.Fatalf("downloaded file should be cleared, got %q", u.state.DownloadedFile)
+	}
+	if u.state.StagingDir != "" {
+		t.Fatalf("staging dir should be cleared, got %q", u.state.StagingDir)
+	}
+	if u.state.SourceBinary != "" {
+		t.Fatalf("source binary should be cleared, got %q", u.state.SourceBinary)
+	}
+	if u.state.SourceFrontendDir != "" {
+		t.Fatalf("source frontend dir should be cleared, got %q", u.state.SourceFrontendDir)
+	}
+	if u.state.AppliedVersion != Version {
+		t.Fatalf("unexpected applied version: %s", u.state.AppliedVersion)
+	}
+}
+
+func TestCleanupUpdaterArtifactsPreservesCurrentDownload(t *testing.T) {
+	updaterDir := filepath.Join(t.TempDir(), "updater")
+	cacheDir := filepath.Join(updaterDir, "cache")
+	stagingDir := filepath.Join(updaterDir, "staging")
+	workerDir := filepath.Join(updaterDir, "worker")
+	for _, dir := range []string{cacheDir, stagingDir, workerDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir %s failed: %v", dir, err)
+		}
+	}
+
+	keepDownload := filepath.Join(cacheDir, "keep.zip")
+	oldDownload := filepath.Join(cacheDir, "old.zip")
+	keepStaging := filepath.Join(stagingDir, "keep")
+	oldStaging := filepath.Join(stagingDir, "old")
+	workerHelper := filepath.Join(workerDir, "xxtcc-worker-old")
+	workerJob := filepath.Join(workerDir, "job-old.json")
+
+	for _, path := range []string{keepDownload, oldDownload, workerHelper, workerJob} {
+		if err := os.WriteFile(path, []byte("x"), 0644); err != nil {
+			t.Fatalf("write %s failed: %v", path, err)
+		}
+	}
+	for _, path := range []string{keepStaging, oldStaging} {
+		if err := os.MkdirAll(path, 0755); err != nil {
+			t.Fatalf("mkdir %s failed: %v", path, err)
+		}
+	}
+
+	if err := cleanupUpdaterArtifacts(updaterDir, updaterCleanupKeep{
+		downloadedFile: keepDownload,
+		stagingDir:     keepStaging,
+	}); err != nil {
+		t.Fatalf("cleanup updater artifacts failed: %v", err)
+	}
+
+	if _, err := os.Stat(keepDownload); err != nil {
+		t.Fatalf("keep download should remain: %v", err)
+	}
+	if _, err := os.Stat(keepStaging); err != nil {
+		t.Fatalf("keep staging should remain: %v", err)
+	}
+	if _, err := os.Stat(oldDownload); !os.IsNotExist(err) {
+		t.Fatalf("old download should be removed, got: %v", err)
+	}
+	if _, err := os.Stat(oldStaging); !os.IsNotExist(err) {
+		t.Fatalf("old staging should be removed, got: %v", err)
+	}
+	if _, err := os.Stat(workerHelper); !os.IsNotExist(err) {
+		t.Fatalf("worker helper should be removed, got: %v", err)
+	}
+	if _, err := os.Stat(workerJob); !os.IsNotExist(err) {
+		t.Fatalf("worker job should be removed, got: %v", err)
+	}
+}

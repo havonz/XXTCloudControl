@@ -14,6 +14,7 @@ import (
 type updateWorkerJob struct {
 	ParentPID         int      `json:"parentPid"`
 	StateFile         string   `json:"stateFile"`
+	DownloadedFile    string   `json:"downloadedFile,omitempty"`
 	SourceBinary      string   `json:"sourceBinary"`
 	SourceFrontendDir string   `json:"sourceFrontendDir"`
 	StagingDir        string   `json:"stagingDir"`
@@ -90,10 +91,18 @@ func runUpdateWorker(jobPath string) error {
 		state.SourceFrontendDir = ""
 	})
 
+	if strings.TrimSpace(job.DownloadedFile) != "" {
+		_ = os.Remove(job.DownloadedFile)
+	}
+	_ = os.Remove(job.BackupBinary)
+	_ = os.RemoveAll(job.BackupFrontendDir)
 	if job.StagingDir != "" {
 		_ = os.RemoveAll(job.StagingDir)
 	}
 	_ = os.Remove(jobPath)
+	if helperPath, err := os.Executable(); err == nil {
+		_ = os.Remove(helperPath)
+	}
 	return nil
 }
 

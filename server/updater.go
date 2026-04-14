@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -103,6 +104,11 @@ type UpdaterService struct {
 	restartEnv     []string
 }
 
+type updaterCleanupKeep struct {
+	downloadedFile string
+	stagingDir     string
+}
+
 var updaterService *UpdaterService
 
 func initUpdaterService() error {
@@ -184,6 +190,14 @@ func newUpdaterService() (*UpdaterService, error) {
 	if err := service.saveState(); err != nil {
 		return nil, err
 	}
+	keep := updaterCleanupKeep{}
+	if service.state.Stage == updateStageDownloaded || service.state.Stage == updateStageApplying {
+		keep.downloadedFile = service.state.DownloadedFile
+		keep.stagingDir = service.state.StagingDir
+	}
+	if err := cleanupUpdaterArtifacts(service.updaterDir, keep); err != nil {
+		log.Printf("updater cleanup warning: %v", err)
+	}
 	return service, nil
 }
 
@@ -234,6 +248,12 @@ func (u *UpdaterService) reconcileStateOnStartup() {
 		u.state.DownloadTotalBytes = 0
 		u.state.DownloadedBytes = 0
 		u.state.AppliedVersion = Version
+		u.state.DownloadedVersion = ""
+		u.state.DownloadedAsset = ""
+		u.state.DownloadedFile = ""
+		u.state.StagingDir = ""
+		u.state.SourceBinary = ""
+		u.state.SourceFrontendDir = ""
 	}
 	if u.state.Stage != updateStageDownloading {
 		u.state.DownloadTotalBytes = 0
@@ -246,6 +266,47 @@ func (u *UpdaterService) reconcileStateOnStartup() {
 			u.state.SourceFrontendDir = ""
 		}
 	}
+}
+
+func cleanupUpdaterArtifacts(updaterDir string, keep updaterCleanupKeep) error {
+	var errs []error
+	if err := cleanupUpdaterEntries(filepath.Join(updaterDir, "cache"), keep.downloadedFile); err != nil {
+		errs = append(errs, err)
+	}
+	if err := cleanupUpdaterEntries(filepath.Join(updaterDir, "staging"), keep.stagingDir); err != nil {
+		errs = append(errs, err)
+	}
+	if err := cleanupUpdaterEntries(filepath.Join(updaterDir, "worker"), ""); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+func cleanupUpdaterEntries(dir string, keepPath string) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	keepPath = strings.TrimSpace(keepPath)
+	if keepPath != "" {
+		keepPath = filepath.Clean(keepPath)
+	}
+
+	var errs []error
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		if keepPath != "" && filepath.Clean(path) == keepPath {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, fmt.Errorf("cleanup %s failed: %w", path, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func readUpdaterStateFile(path string) (UpdaterState, error) {
@@ -536,6 +597,7 @@ func (u *UpdaterService) Apply() (UpdateStatusResponse, error) {
 	job := updateWorkerJob{
 		ParentPID:         os.Getpid(),
 		StateFile:         u.stateFile,
+		DownloadedFile:    u.state.DownloadedFile,
 		SourceBinary:      u.state.SourceBinary,
 		SourceFrontendDir: u.state.SourceFrontendDir,
 		StagingDir:        u.state.StagingDir,
@@ -558,6 +620,10 @@ func (u *UpdaterService) Apply() (UpdateStatusResponse, error) {
 	if isDockerRuntime() {
 		go u.applyInDocker(job)
 		return u.Status(), nil
+	}
+
+	if err := cleanupUpdaterEntries(u.workerDir, ""); err != nil {
+		log.Printf("updater worker cleanup warning: %v", err)
 	}
 
 	helperName := "xxtcc-worker-" + strconv.FormatInt(time.Now().UnixNano(), 10)
