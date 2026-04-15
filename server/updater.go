@@ -240,20 +240,37 @@ func (u *UpdaterService) reconcileStateOnStartup() {
 	if u.state.Stage == "" {
 		u.state.Stage = updateStageIdle
 	}
-	if u.state.Stage == updateStageApplying && u.state.DownloadedVersion == Version {
-		u.state.Stage = updateStageIdle
-		u.state.LastError = ""
-		u.state.HasUpdate = false
-		u.state.Ignored = false
-		u.state.DownloadTotalBytes = 0
-		u.state.DownloadedBytes = 0
-		u.state.AppliedVersion = Version
-		u.state.DownloadedVersion = ""
-		u.state.DownloadedAsset = ""
-		u.state.DownloadedFile = ""
-		u.state.StagingDir = ""
-		u.state.SourceBinary = ""
-		u.state.SourceFrontendDir = ""
+	if u.state.Stage == updateStageApplying {
+		if u.state.DownloadedVersion == Version {
+			u.state.Stage = updateStageIdle
+			u.state.LastError = ""
+			u.state.HasUpdate = false
+			u.state.Ignored = false
+			u.state.DownloadTotalBytes = 0
+			u.state.DownloadedBytes = 0
+			u.state.AppliedVersion = Version
+			u.state.DownloadedVersion = ""
+			u.state.DownloadedAsset = ""
+			u.state.DownloadedFile = ""
+			u.state.StagingDir = ""
+			u.state.SourceBinary = ""
+			u.state.SourceFrontendDir = ""
+		} else if hasUsableDownloadedUpdateArtifacts(u.state) {
+			// "applying" is a transient state. If the old version boots again with
+			// intact staged files, the previous apply was interrupted and can be retried.
+			u.state.Stage = updateStageDownloaded
+			if strings.TrimSpace(u.state.LastError) == "" {
+				u.state.LastError = "上次应用更新未完成，请重试应用更新"
+			}
+		} else {
+			u.state.Stage = updateStageFailed
+			if strings.TrimSpace(u.state.LastError) == "" {
+				u.state.LastError = "上次应用更新未完成，请重新下载后再试"
+			}
+			u.state.StagingDir = ""
+			u.state.SourceBinary = ""
+			u.state.SourceFrontendDir = ""
+		}
 	}
 	if u.state.Stage != updateStageDownloading {
 		u.state.DownloadTotalBytes = 0
@@ -266,6 +283,24 @@ func (u *UpdaterService) reconcileStateOnStartup() {
 			u.state.SourceFrontendDir = ""
 		}
 	}
+}
+
+func hasUsableDownloadedUpdateArtifacts(state UpdaterState) bool {
+	if strings.TrimSpace(state.StagingDir) == "" ||
+		strings.TrimSpace(state.SourceBinary) == "" ||
+		strings.TrimSpace(state.SourceFrontendDir) == "" {
+		return false
+	}
+	if info, err := os.Stat(state.StagingDir); err != nil || !info.IsDir() {
+		return false
+	}
+	if info, err := os.Stat(state.SourceBinary); err != nil || info.IsDir() {
+		return false
+	}
+	if info, err := os.Stat(state.SourceFrontendDir); err != nil || !info.IsDir() {
+		return false
+	}
+	return true
 }
 
 func cleanupUpdaterArtifacts(updaterDir string, keep updaterCleanupKeep) error {

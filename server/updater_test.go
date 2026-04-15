@@ -129,6 +129,80 @@ func TestReconcileStateOnStartupClearsAppliedDownloadArtifacts(t *testing.T) {
 	}
 }
 
+func TestReconcileStateOnStartupRestoresDownloadedStateAfterInterruptedApply(t *testing.T) {
+	stagingDir := t.TempDir()
+	sourceBinary := filepath.Join(stagingDir, "xxtcloudserver-linux-amd64")
+	sourceFrontendDir := filepath.Join(stagingDir, "frontend")
+	if err := os.WriteFile(sourceBinary, []byte("bin"), 0755); err != nil {
+		t.Fatalf("write source binary failed: %v", err)
+	}
+	if err := os.MkdirAll(sourceFrontendDir, 0755); err != nil {
+		t.Fatalf("mkdir frontend failed: %v", err)
+	}
+
+	u := &UpdaterService{
+		state: UpdaterState{
+			Stage:             updateStageApplying,
+			HasUpdate:         true,
+			DownloadedVersion: "v999999999999",
+			DownloadedAsset:   "XXTCloudControl-v999999999999-linux-amd64.zip",
+			StagingDir:        stagingDir,
+			SourceBinary:      sourceBinary,
+			SourceFrontendDir: sourceFrontendDir,
+		},
+	}
+
+	u.reconcileStateOnStartup()
+
+	if u.state.Stage != updateStageDownloaded {
+		t.Fatalf("unexpected stage: %s", u.state.Stage)
+	}
+	if u.state.LastError == "" {
+		t.Fatalf("expected retry guidance error message")
+	}
+	if u.state.StagingDir != stagingDir {
+		t.Fatalf("staging dir should be preserved, got %q", u.state.StagingDir)
+	}
+	if u.state.SourceBinary != sourceBinary {
+		t.Fatalf("source binary should be preserved, got %q", u.state.SourceBinary)
+	}
+	if u.state.SourceFrontendDir != sourceFrontendDir {
+		t.Fatalf("source frontend dir should be preserved, got %q", u.state.SourceFrontendDir)
+	}
+}
+
+func TestReconcileStateOnStartupMarksInterruptedApplyFailedWhenArtifactsMissing(t *testing.T) {
+	u := &UpdaterService{
+		state: UpdaterState{
+			Stage:             updateStageApplying,
+			HasUpdate:         true,
+			DownloadedVersion: "v999999999999",
+			DownloadedAsset:   "XXTCloudControl-v999999999999-linux-amd64.zip",
+			StagingDir:        filepath.Join(t.TempDir(), "missing-staging"),
+			SourceBinary:      filepath.Join(t.TempDir(), "missing-bin"),
+			SourceFrontendDir: filepath.Join(t.TempDir(), "missing-frontend"),
+		},
+	}
+
+	u.reconcileStateOnStartup()
+
+	if u.state.Stage != updateStageFailed {
+		t.Fatalf("unexpected stage: %s", u.state.Stage)
+	}
+	if u.state.LastError == "" {
+		t.Fatalf("expected failure message")
+	}
+	if u.state.StagingDir != "" {
+		t.Fatalf("staging dir should be cleared, got %q", u.state.StagingDir)
+	}
+	if u.state.SourceBinary != "" {
+		t.Fatalf("source binary should be cleared, got %q", u.state.SourceBinary)
+	}
+	if u.state.SourceFrontendDir != "" {
+		t.Fatalf("source frontend dir should be cleared, got %q", u.state.SourceFrontendDir)
+	}
+}
+
 func TestCleanupUpdaterArtifactsPreservesCurrentDownload(t *testing.T) {
 	updaterDir := filepath.Join(t.TempDir(), "updater")
 	cacheDir := filepath.Join(updaterDir, "cache")
