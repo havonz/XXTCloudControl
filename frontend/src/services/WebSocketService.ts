@@ -740,27 +740,25 @@ export class WebSocketService {
       }
       
       // 后端返回的格式是 {udid: deviceData, udid2: deviceData2, ...}
-      // 需要转换为数组格式
+      // 这里尽量复用未变化设备的引用，避免一次快照把整张表都变成“全量更新”
       const deviceArray: Device[] = [];
-      
       for (const [udid, deviceData] of Object.entries(message.body)) {
         if (deviceData && typeof deviceData === 'object') {
-          const nextDevice: Device = {
-            udid: udid,
-            ...deviceData as any
-          };
-          const scriptStartState = this.scriptStartStatesByUdid.get(udid);
-          if (scriptStartState) {
-            nextDevice.scriptStart = { ...scriptStartState };
-          }
-          deviceArray.push(nextDevice);
+          const existingIndex = this.getDeviceIndex(udid);
+          const existingDevice = existingIndex >= 0 ? this.devices[existingIndex] : undefined;
+          deviceArray.push(this.buildDeviceFromPayload(udid, deviceData, existingDevice, false));
         }
       }
-      
-      this.devices = deviceArray;
-      this.rebuildDeviceIndex();
+
+      const deviceListChanged = this.hasDeviceListChanged(deviceArray);
+      if (deviceListChanged) {
+        this.devices = deviceArray;
+        this.rebuildDeviceIndex();
+      }
       this.syncActiveLogSubscriptions();
-      this.flushDeviceUpdate();
+      if (deviceListChanged) {
+        this.flushDeviceUpdate();
+      }
       return;
     }
 
@@ -815,79 +813,144 @@ export class WebSocketService {
     // 可以在这里添加额外的逻辑，比如通知上层组件返回登录界面
   }
 
+  private isStructuredObject(value: unknown): value is Record<string, any> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  private mergeStructuredValue<T>(current: T, next: T): T {
+    if (current === next) {
+      return current;
+    }
+
+    if (Array.isArray(current) && Array.isArray(next)) {
+      if (current.length !== next.length) {
+        return next.map((item, index) => this.mergeStructuredValue(current[index], item)) as T;
+      }
+
+      let changed = false;
+      const merged = next.map((item, index) => {
+        const mergedItem = this.mergeStructuredValue(current[index], item);
+        if (mergedItem !== current[index]) {
+          changed = true;
+        }
+        return mergedItem;
+      });
+
+      return changed ? merged as T : current;
+    }
+
+    if (this.isStructuredObject(current) && this.isStructuredObject(next)) {
+      const currentKeys = Object.keys(current);
+      const nextKeys = Object.keys(next);
+
+      let changed = currentKeys.length !== nextKeys.length;
+      const merged: Record<string, any> = {};
+
+      for (const key of nextKeys) {
+        if (!changed && !Object.prototype.hasOwnProperty.call(current, key)) {
+          changed = true;
+        }
+        const mergedValue = this.mergeStructuredValue(current[key], next[key]);
+        merged[key] = mergedValue;
+        if (!changed && mergedValue !== current[key]) {
+          changed = true;
+        }
+      }
+
+      return changed ? merged as T : current;
+    }
+
+    return next;
+  }
+
+  private buildDeviceFromPayload(
+    udid: string,
+    rawDevice: any,
+    existingDevice?: Device,
+    preserveTransientSystemFields: boolean = false,
+  ): Device {
+    const nextDevice: Device = {
+      ...(rawDevice as Record<string, any>),
+      udid,
+    };
+
+    if (this.isStructuredObject(nextDevice.script)) {
+      nextDevice.script = { ...nextDevice.script };
+    }
+
+    let nextSystem = this.isStructuredObject(nextDevice.system)
+      ? { ...nextDevice.system }
+      : undefined;
+
+    if (preserveTransientSystemFields && existingDevice?.system) {
+      if (existingDevice.system.message !== undefined && nextSystem?.message === undefined) {
+        nextSystem = { ...(nextSystem || {}), message: existingDevice.system.message };
+      }
+
+      if (existingDevice.system.log !== undefined && nextSystem?.log === undefined) {
+        nextSystem = { ...(nextSystem || {}), log: existingDevice.system.log };
+      }
+    }
+
+    if (this.isStructuredObject(nextDevice.script)) {
+      nextSystem = {
+        ...(nextSystem || {}),
+        running: nextDevice.script.running === true,
+        paused: nextDevice.script.paused === true,
+      };
+      nextDevice.tempOldSelect = nextDevice.script.select;
+    }
+
+    if (nextSystem) {
+      nextDevice.system = nextSystem;
+    } else {
+      delete nextDevice.system;
+    }
+
+    const scriptStartState = this.scriptStartStatesByUdid.get(udid);
+    if (scriptStartState) {
+      nextDevice.scriptStart = { ...scriptStartState };
+    } else {
+      delete nextDevice.scriptStart;
+    }
+
+    return existingDevice
+      ? this.mergeStructuredValue(existingDevice, nextDevice)
+      : nextDevice;
+  }
+
+  private hasDeviceListChanged(nextDevices: Device[]): boolean {
+    if (nextDevices.length !== this.devices.length) {
+      return true;
+    }
+
+    for (let i = 0; i < nextDevices.length; i++) {
+      if (nextDevices[i] !== this.devices[i]) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private updateDevice(deviceData: any): void {
     const udid = deviceData.system?.udid;
     if (!udid) return;
 
     const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
-      // 提取现有的消息以便保留
-      const existingMsg = this.devices[existingIndex].system?.message;
-      // 提取现有的最后日志以便保留（app/state 可能不带 log 字段）
-      const existingLog = this.devices[existingIndex].system?.log;
-      
-      // 更新现有设备的数据，保持原有的 udid 字段
-      this.devices[existingIndex] = { 
-        udid: this.devices[existingIndex].udid,
-        ...deviceData 
-      };
-
-      // 如果新数据中没有消息但旧数据中有，则尝试恢复（防止心跳覆盖）
-      if (existingMsg && (!deviceData.system || deviceData.system.message === undefined)) {
-        if (!this.devices[existingIndex].system) {
-          this.devices[existingIndex].system = {};
-        }
-        this.devices[existingIndex].system.message = existingMsg;
+      const currentDevice = this.devices[existingIndex];
+      const nextDevice = this.buildDeviceFromPayload(udid, deviceData, currentDevice, true);
+      if (nextDevice === currentDevice) {
+        return;
       }
 
-      if (existingLog !== undefined && (!deviceData.system || deviceData.system.log === undefined)) {
-        if (!this.devices[existingIndex].system) {
-          this.devices[existingIndex].system = {};
-        }
-        this.devices[existingIndex].system.log = existingLog;
-      }
-
-      // 确保 script 对象完整同步
-      if (deviceData.script) {
-        this.devices[existingIndex].script = { ...deviceData.script };
-      }
-      
-      // 同步脚本状态到 system 中，以便界面正确显示
-      if (deviceData.script) {
-        if (!this.devices[existingIndex].system) {
-          this.devices[existingIndex].system = {};
-        }
-        this.devices[existingIndex].system.running = deviceData.script.running || false;
-        this.devices[existingIndex].system.paused = deviceData.script.paused || false;
-
-        // 如果选中脚本发生了变化，记录状态以便 UI 同步
-        this.devices[existingIndex].tempOldSelect = deviceData.script.select;
-      }
-
-      this.applyScriptStartStateToDevice(existingIndex);
-      
+      this.devices[existingIndex] = nextDevice;
       debugLog('ws', `设备 ${udid} 状态已更新`);
     } else {
       // 新设备，添加到列表
-      const newDevice = { udid, ...deviceData };
-      
-      // 确保新设备的 script 对象也正确同步
-      if (deviceData.script) {
-        newDevice.script = { ...deviceData.script };
-      }
-      
-      // 同步脚本状态到 system 中
-      if (deviceData.script) {
-        if (!newDevice.system) {
-          newDevice.system = {};
-        }
-        newDevice.system.running = deviceData.script.running || false;
-        newDevice.system.paused = deviceData.script.paused || false;
-        (newDevice as any).tempOldSelect = deviceData.script.select;
-      }
-      
+      const newDevice = this.buildDeviceFromPayload(udid, deviceData);
       this.devices.push(newDevice);
-      this.applyScriptStartStateToDevice(this.devices.length - 1);
       this.deviceIndexByUdid.set(udid, this.devices.length - 1);
       debugLog('ws', `新设备 ${udid} 已添加`);
     }
@@ -924,18 +987,29 @@ export class WebSocketService {
     const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
       const device = this.devices[existingIndex];
-      
-      // 更新脚本状态
-      if (!device.script) {
-        device.script = {};
+
+      const nextScript = device.script ? { ...device.script } : {};
+      const nextSystem = device.system ? { ...device.system } : {};
+      let changed = !device.script || !device.system;
+
+      if (nextSystem.running !== isRunning) {
+        nextSystem.running = isRunning;
+        changed = true;
       }
-      
-      // 更新运行状态
-      if (!device.system) {
-        device.system = {};
+      if (nextSystem.paused !== false) {
+        nextSystem.paused = false;
+        changed = true;
       }
-      device.system.running = isRunning;
-      device.system.paused = false; // 脚本开始运行时不是暂停状态
+
+      if (!changed) {
+        return;
+      }
+
+      this.devices[existingIndex] = {
+        ...device,
+        script: nextScript,
+        system: nextSystem,
+      };
       
       debugLog('ws', `设备 ${udid} 脚本状态已更新: ${isRunning ? '运行中' : '已停止'}`);
       
@@ -952,14 +1026,28 @@ export class WebSocketService {
     const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
       const device = this.devices[existingIndex];
-      
-      if (!device.script) {
-        device.script = {};
+
+      const nextScript = device.script ? { ...device.script } : {};
+      let changed = !device.script;
+
+      if (nextScript.select !== scriptName) {
+        nextScript.select = scriptName;
+        changed = true;
       }
-      device.script.select = scriptName;
-      
-      // 同步 tempOldSelect 以防心跳包触发多余消息逻辑
-      (device as any).tempOldSelect = scriptName;
+
+      if (device.tempOldSelect !== scriptName) {
+        changed = true;
+      }
+
+      if (!changed) {
+        return;
+      }
+
+      this.devices[existingIndex] = {
+        ...device,
+        script: nextScript,
+        tempOldSelect: scriptName,
+      };
       
       debugLog('ws', `设备 ${udid} 选中脚本已通过消息回复更新: ${scriptName}`);
       
