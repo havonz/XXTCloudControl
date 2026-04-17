@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onMount, onCleanup, For, Show, createMemo } from 'solid-js';
+import { createSignal, createEffect, onCleanup, For, Show, createMemo } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { createBackdropClose } from '../hooks/useBackdropClose';
@@ -89,12 +89,13 @@ export function ScriptUploadModal(props: ScriptUploadModalProps) {
     }
   };
 
-  onMount(() => {
-    window.addEventListener('keydown', handleKeyDown);
-  });
+  createEffect(() => {
+    if (!props.isOpen) return;
 
-  onCleanup(() => {
-    window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    onCleanup(() => {
+      window.removeEventListener('keydown', handleKeyDown);
+    });
   });
 
   const selectedDisplayName = createMemo(() => {
@@ -104,7 +105,7 @@ export function ScriptUploadModal(props: ScriptUploadModalProps) {
     return script ? script.name : name;
   });
 
-  const collection = () => createListCollection({ items: scripts().map(s => s.name) });
+  const collection = createMemo(() => createListCollection({ items: scripts().map(s => s.name) }));
 
   if (!props.isOpen) return null;
   

@@ -1,4 +1,4 @@
-import { createSignal, createEffect, For, Show, onMount, onCleanup, createMemo } from 'solid-js';
+import { createSignal, createEffect, For, Show, onCleanup, createMemo } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { FaSolidSquareArrowUpRight } from 'solid-icons/fa';
@@ -268,12 +268,13 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     setContextMenuFile(null);
   };
 
-  onMount(() => {
-    window.addEventListener('keydown', handleKeyDown);
-  });
+  createEffect(() => {
+    if (!props.isOpen) return;
 
-  onCleanup(() => {
-    window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    onCleanup(() => {
+      window.removeEventListener('keydown', handleKeyDown);
+    });
   });
 
   const sortedFiles = createMemo(() => {

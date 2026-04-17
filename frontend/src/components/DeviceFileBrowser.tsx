@@ -1,4 +1,4 @@
-import { createSignal, createEffect, For, Show, onMount, onCleanup, createMemo } from 'solid-js';
+import { createSignal, createEffect, For, Show, onCleanup, createMemo } from 'solid-js';
 import { useDialog } from './DialogContext';
 import { useToast } from './ToastContext';
 import {
@@ -200,12 +200,16 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     setContextMenuFile(null);
   };
 
-  onMount(() => {
+  createEffect(() => {
+    if (!props.isOpen) return;
+
     window.addEventListener('keydown', handleKeyDown);
+    onCleanup(() => {
+      window.removeEventListener('keydown', handleKeyDown);
+    });
   });
 
   onCleanup(() => {
-    window.removeEventListener('keydown', handleKeyDown);
     if (listRefreshTimer) {
       clearTimeout(listRefreshTimer);
       listRefreshTimer = null;

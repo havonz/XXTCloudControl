@@ -1,4 +1,4 @@
-import { Show, onMount, onCleanup } from 'solid-js';
+import { Show, createEffect, onCleanup } from 'solid-js';
 import { createBackdropClose } from '../../hooks/useBackdropClose';
 import { IconXmark } from '../../icons';
 import styles from '../../components/ScriptSelectionModal.module.css';
@@ -27,12 +27,13 @@ export default function BrightnessModal(props: BrightnessModalProps) {
     }
   };
 
-  onMount(() => {
-    window.addEventListener('keydown', handleKeyDown);
-  });
+  createEffect(() => {
+    if (!props.open) return;
 
-  onCleanup(() => {
-    window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    onCleanup(() => {
+      window.removeEventListener('keydown', handleKeyDown);
+    });
   });
 
   return (

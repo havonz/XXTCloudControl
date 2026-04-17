@@ -1,4 +1,4 @@
-import { createSignal, Show, onMount, onCleanup } from 'solid-js';
+import { createSignal, Show, createEffect, onCleanup } from 'solid-js';
 import { useDialog } from './DialogContext';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
@@ -65,12 +65,13 @@ export default function DictionaryModal(props: DictionaryModalProps) {
     }
   };
 
-  onMount(() => {
-    window.addEventListener('keydown', handleKeyDown);
-  });
+  createEffect(() => {
+    if (!props.isOpen) return;
 
-  onCleanup(() => {
-    window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    onCleanup(() => {
+      window.removeEventListener('keydown', handleKeyDown);
+    });
   });
 
   return (

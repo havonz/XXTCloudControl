@@ -113,6 +113,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const savedSettings = loadSettings() || {};
   const savedWheelSettings = normalizeRemoteWheelSettings(savedSettings?.wheel);
   let persistedSettings: BatchRemoteSettings = { ...savedSettings };
+  let persistSettingsTimer: ReturnType<typeof setTimeout> | null = null;
   const initialPanelWidth = savedSettings?.windowSize?.width ?? Math.round(window.innerWidth * 0.95);
   const [panelWidth, setPanelWidth] = createSignal(initialPanelWidth);
   const isCompactPanel = createMemo(() => !isViewportMobile() && !isFullscreen() && panelWidth() < COMPACT_PANEL_BREAKPOINT);
@@ -120,10 +121,28 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const getLayoutMaxColumns = () => (usesSidebarLayout() ? MOBILE_MAX_COLUMNS : DESKTOP_MAX_COLUMNS);
   const deviceByUdid = createMemo(() => new Map(cachedDevices().map((device) => [device.udid, device])));
 
+  const writePersistedSettings = () => {
+    if (persistSettingsTimer) {
+      clearTimeout(persistSettingsTimer);
+      persistSettingsTimer = null;
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedSettings));
+    } catch (e) {
+      console.error('[BatchRemote] Failed to save settings:', e);
+    }
+  };
+
   const saveSettings = (settings: Partial<BatchRemoteSettings>) => {
     try {
       persistedSettings = { ...persistedSettings, ...settings };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedSettings));
+      if (persistSettingsTimer) {
+        clearTimeout(persistSettingsTimer);
+      }
+      // 滑杆会持续触发 onInput，这里做短节流避免同步写入阻塞交互。
+      persistSettingsTimer = setTimeout(() => {
+        writePersistedSettings();
+      }, 120);
     } catch (e) {
       console.error('[BatchRemote] Failed to save settings:', e);
     }
@@ -273,6 +292,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       columns: columnPreference(),
       wheel: currentWheelSettings(),
     });
+    writePersistedSettings();
   };
 
   createEffect(() => {
@@ -1407,6 +1427,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       cancelAnimationFrame(scheduledIntersectionRefreshId);
       scheduledIntersectionRefreshId = null;
     }
+    writePersistedSettings();
     wheelBatcher.clear();
     setMobileSidebarOpen(false);
     // 确保发送 touch.up

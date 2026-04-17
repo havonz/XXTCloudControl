@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onMount, onCleanup, For, Show, createMemo } from 'solid-js';
+import { createSignal, createEffect, onCleanup, For, Show, createMemo } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { createBackdropClose } from '../hooks/useBackdropClose';
@@ -90,12 +90,13 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
     }
   };
 
-  onMount(() => {
-    window.addEventListener('keydown', handleKeyDown);
-  });
+  createEffect(() => {
+    if (!props.isOpen) return;
 
-  onCleanup(() => {
-    window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    onCleanup(() => {
+      window.removeEventListener('keydown', handleKeyDown);
+    });
   });
 
   // Get display name for selected script
@@ -107,7 +108,7 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
   });
 
   // Create collection for Ark UI Select - use path as the value
-  const collection = () => createListCollection({ items: scripts().map(s => s.path) });
+  const collection = createMemo(() => createListCollection({ items: scripts().map(s => s.path) }));
 
   if (!props.isOpen) return null;
   
