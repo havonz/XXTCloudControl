@@ -988,7 +988,6 @@ export class WebSocketService {
     if (existingIndex >= 0) {
       const device = this.devices[existingIndex];
 
-      const nextScript = device.script ? { ...device.script } : {};
       const nextSystem = device.system ? { ...device.system } : {};
       let changed = !device.script || !device.system;
 
@@ -1007,7 +1006,7 @@ export class WebSocketService {
 
       this.devices[existingIndex] = {
         ...device,
-        script: nextScript,
+        ...(device.script ? {} : { script: {} }),
         system: nextSystem,
       };
       
@@ -1027,25 +1026,15 @@ export class WebSocketService {
     if (existingIndex >= 0) {
       const device = this.devices[existingIndex];
 
-      const nextScript = device.script ? { ...device.script } : {};
-      let changed = !device.script;
-
-      if (nextScript.select !== scriptName) {
-        nextScript.select = scriptName;
-        changed = true;
-      }
-
-      if (device.tempOldSelect !== scriptName) {
-        changed = true;
-      }
-
-      if (!changed) {
+      const scriptChanged = device.script?.select !== scriptName;
+      const tempChanged = device.tempOldSelect !== scriptName;
+      if (!scriptChanged && !tempChanged) {
         return;
       }
 
       this.devices[existingIndex] = {
         ...device,
-        script: nextScript,
+        ...(scriptChanged ? { script: { ...(device.script || {}), select: scriptName } } : {}),
         tempOldSelect: scriptName,
       };
       
