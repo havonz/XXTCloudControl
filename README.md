@@ -7,7 +7,7 @@
 
 ## 发布地址
 
-- 官方发布下载页（GitHub Pages）：[https://havonz.github.io/XXTCloudControl/](https://havonz.github.io/XXTCloudControl/)
+- 官方发布下载页（GitHub Pages）：[https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)
 - 各平台发布版本列表：[https://github.com/havonz/XXTCloudControl/releases](https://github.com/havonz/XXTCloudControl/releases)
 - 推荐优先下载 Release 中的 `XXTCloudControl-<YYYYMMDDHHMM>.zip`，解压后直接运行对应系统二进制即可。
 
