@@ -3,6 +3,11 @@
 # - DOCKERHUB_TOKEN：Docker Hub Access Token
 # - DOCKERHUB_REPO：Docker Hub 仓库名（可选，默认 xxtcloudcontrol）
 # - GHCR_REPO：GHCR 仓库名（可选，默认 xxtcloudcontrol）
+# - PUBLIC_UPDATE_BASE_URL：R2 自定义公网域名根地址（固定为 https://xxtccc-packages.xxtouch.app）
+# - R2_ACCOUNT_ID：Cloudflare R2 Account ID
+# - R2_ACCESS_KEY_ID：Cloudflare R2 Access Key ID
+# - R2_SECRET_ACCESS_KEY：Cloudflare R2 Secret Access Key
+# - R2_BUCKET：Cloudflare R2 Bucket 名称（固定为 xxtccc-packages）
 
 name: Release (Manual)
 
@@ -96,6 +101,8 @@ jobs:
           npm run build
 
       - name: Build and package releases
+        env:
+          PUBLIC_UPDATE_BASE_URL: ${{ secrets.PUBLIC_UPDATE_BASE_URL }}
         run: |
           set -euo pipefail
           ROOT="$GITHUB_WORKSPACE"
@@ -107,7 +114,12 @@ jobs:
             exit 1
           fi
 
-          LDFLAGS="-X 'main.BuildTime=$BUILD_TIME' -X 'main.Version=$VERSION' -X 'main.Commit=$COMMIT'"
+          DEFAULT_UPDATE_MANIFEST_URLS="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/update-manifest.json"
+          if [ -n "${PUBLIC_UPDATE_BASE_URL:-}" ]; then
+            DEFAULT_UPDATE_MANIFEST_URLS="${PUBLIC_UPDATE_BASE_URL%/}/releases/latest/download/update-manifest.json,${DEFAULT_UPDATE_MANIFEST_URLS}"
+          fi
+
+          LDFLAGS="-X 'main.BuildTime=$BUILD_TIME' -X 'main.Version=$VERSION' -X 'main.Commit=$COMMIT' -X 'main.DefaultUpdateManifestURLsCSV=$DEFAULT_UPDATE_MANIFEST_URLS'"
 
           platforms=(
             "linux/amd64"
@@ -171,6 +183,9 @@ jobs:
           ls -la "$RELEASE_DIR"/*.tar
 
       - name: Generate update metadata (manifest/checksums/latest)
+        env:
+          PUBLIC_UPDATE_BASE_URL: ${{ secrets.PUBLIC_UPDATE_BASE_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           ROOT="$GITHUB_WORKSPACE"
@@ -180,8 +195,25 @@ jobs:
           LATEST_PATH="$RELEASE_DIR/latest.txt"
           REPO="$GITHUB_REPOSITORY"
           TAG="$VERSION"
-          DOWNLOAD_BASE_URL="https://github.com/$REPO/releases/download/$TAG"
-          LATEST_BASE_URL="https://github.com/$REPO/releases/latest/download"
+          GITHUB_VERSION_URL="https://github.com/$REPO/releases/download/$TAG"
+          GITHUB_LATEST_URL="https://github.com/$REPO/releases/latest/download"
+          UPDATE_BASE_URL=""
+          if [ "${DRY_RUN}" != "true" ]; then
+            : "${PUBLIC_UPDATE_BASE_URL:?PUBLIC_UPDATE_BASE_URL is required for non-dry-run releases}"
+            UPDATE_BASE_URL="${PUBLIC_UPDATE_BASE_URL%/}"
+          elif [ -n "${PUBLIC_UPDATE_BASE_URL:-}" ]; then
+            UPDATE_BASE_URL="${PUBLIC_UPDATE_BASE_URL%/}"
+          fi
+
+          DOWNLOAD_BASE_URL="$GITHUB_VERSION_URL"
+          LATEST_BASE_URL="$GITHUB_LATEST_URL"
+          USE_R2_PRIMARY="false"
+          if [ -n "$UPDATE_BASE_URL" ]; then
+            DOWNLOAD_BASE_URL="$UPDATE_BASE_URL/releases/download/$TAG"
+            LATEST_BASE_URL="$UPDATE_BASE_URL/releases/latest/download"
+            USE_R2_PRIMARY="true"
+          fi
+
           PUBLISHED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           LINUX_AMD64_ZIP="XXTCloudControl-$TAG-linux-amd64.zip"
           LINUX_ARM64_ZIP="XXTCloudControl-$TAG-linux-arm64.zip"
@@ -209,6 +241,15 @@ jobs:
             awk -v f="$file" '$2==f {print $1}' "$CHECKSUMS_PATH"
           }
 
+          fallback_or_empty() {
+            local file="$1"
+            if [ "$USE_R2_PRIMARY" = "true" ]; then
+              printf '%s' "$GITHUB_VERSION_URL/$file"
+            else
+              printf '%s' ""
+            fi
+          }
+
           cat > "$MANIFEST_PATH" <<EOF
           {
             "version": "$TAG",
@@ -224,7 +265,8 @@ jobs:
                 "arch": "amd64",
                 "name": "$LINUX_AMD64_ZIP",
                 "url": "$DOWNLOAD_BASE_URL/$LINUX_AMD64_ZIP",
-                "latestUrl": "$LATEST_BASE_URL/$LINUX_AMD64_ZIP",
+                "fallbackUrl": "$(fallback_or_empty "$LINUX_AMD64_ZIP")",
+                "latestUrl": "$GITHUB_LATEST_URL/$LINUX_AMD64_ZIP",
                 "sha256": "$(checksum_for "$LINUX_AMD64_ZIP")"
               },
               {
@@ -232,7 +274,8 @@ jobs:
                 "arch": "arm64",
                 "name": "$LINUX_ARM64_ZIP",
                 "url": "$DOWNLOAD_BASE_URL/$LINUX_ARM64_ZIP",
-                "latestUrl": "$LATEST_BASE_URL/$LINUX_ARM64_ZIP",
+                "fallbackUrl": "$(fallback_or_empty "$LINUX_ARM64_ZIP")",
+                "latestUrl": "$GITHUB_LATEST_URL/$LINUX_ARM64_ZIP",
                 "sha256": "$(checksum_for "$LINUX_ARM64_ZIP")"
               },
               {
@@ -240,7 +283,8 @@ jobs:
                 "arch": "amd64",
                 "name": "$WINDOWS_AMD64_ZIP",
                 "url": "$DOWNLOAD_BASE_URL/$WINDOWS_AMD64_ZIP",
-                "latestUrl": "$LATEST_BASE_URL/$WINDOWS_AMD64_ZIP",
+                "fallbackUrl": "$(fallback_or_empty "$WINDOWS_AMD64_ZIP")",
+                "latestUrl": "$GITHUB_LATEST_URL/$WINDOWS_AMD64_ZIP",
                 "sha256": "$(checksum_for "$WINDOWS_AMD64_ZIP")"
               },
               {
@@ -248,7 +292,8 @@ jobs:
                 "arch": "arm64",
                 "name": "$WINDOWS_ARM64_ZIP",
                 "url": "$DOWNLOAD_BASE_URL/$WINDOWS_ARM64_ZIP",
-                "latestUrl": "$LATEST_BASE_URL/$WINDOWS_ARM64_ZIP",
+                "fallbackUrl": "$(fallback_or_empty "$WINDOWS_ARM64_ZIP")",
+                "latestUrl": "$GITHUB_LATEST_URL/$WINDOWS_ARM64_ZIP",
                 "sha256": "$(checksum_for "$WINDOWS_ARM64_ZIP")"
               },
               {
@@ -256,7 +301,8 @@ jobs:
                 "arch": "amd64",
                 "name": "$DARWIN_AMD64_ZIP",
                 "url": "$DOWNLOAD_BASE_URL/$DARWIN_AMD64_ZIP",
-                "latestUrl": "$LATEST_BASE_URL/$DARWIN_AMD64_ZIP",
+                "fallbackUrl": "$(fallback_or_empty "$DARWIN_AMD64_ZIP")",
+                "latestUrl": "$GITHUB_LATEST_URL/$DARWIN_AMD64_ZIP",
                 "sha256": "$(checksum_for "$DARWIN_AMD64_ZIP")"
               },
               {
@@ -264,7 +310,8 @@ jobs:
                 "arch": "arm64",
                 "name": "$DARWIN_ARM64_ZIP",
                 "url": "$DOWNLOAD_BASE_URL/$DARWIN_ARM64_ZIP",
-                "latestUrl": "$LATEST_BASE_URL/$DARWIN_ARM64_ZIP",
+                "fallbackUrl": "$(fallback_or_empty "$DARWIN_ARM64_ZIP")",
+                "latestUrl": "$GITHUB_LATEST_URL/$DARWIN_ARM64_ZIP",
                 "sha256": "$(checksum_for "$DARWIN_ARM64_ZIP")"
               }
             ],
@@ -274,7 +321,7 @@ jobs:
                 "arch": "amd64",
                 "name": "$DOCKER_AMD64_TAR",
                 "url": "$DOWNLOAD_BASE_URL/$DOCKER_AMD64_TAR",
-                "latestUrl": "$LATEST_BASE_URL/$DOCKER_AMD64_TAR",
+                "latestUrl": "$GITHUB_LATEST_URL/$DOCKER_AMD64_TAR",
                 "sha256": "$(checksum_for "$DOCKER_AMD64_TAR")"
               },
               {
@@ -282,7 +329,7 @@ jobs:
                 "arch": "arm64",
                 "name": "$DOCKER_ARM64_TAR",
                 "url": "$DOWNLOAD_BASE_URL/$DOCKER_ARM64_TAR",
-                "latestUrl": "$LATEST_BASE_URL/$DOCKER_ARM64_TAR",
+                "latestUrl": "$GITHUB_LATEST_URL/$DOCKER_ARM64_TAR",
                 "sha256": "$(checksum_for "$DOCKER_ARM64_TAR")"
               }
             ]
@@ -297,6 +344,46 @@ jobs:
           EOF
 
           ls -la "$RELEASE_DIR"/update-manifest.json "$RELEASE_DIR"/checksums.txt "$RELEASE_DIR"/latest.txt
+
+      - name: Validate update metadata
+        env:
+          PUBLIC_UPDATE_BASE_URL: ${{ secrets.PUBLIC_UPDATE_BASE_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          ROOT="$GITHUB_WORKSPACE"
+          RELEASE_DIR="$ROOT/release"
+          cd "$RELEASE_DIR"
+
+          if [ "${DRY_RUN}" != "true" ]; then
+            R2_PREFIX="${PUBLIC_UPDATE_BASE_URL%/}/releases/download/${VERSION}/"
+            R2_LATEST_PREFIX="${PUBLIC_UPDATE_BASE_URL%/}/releases/latest/download/"
+            GH_PREFIX="https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/"
+
+            jq -e --arg r2 "$R2_PREFIX" '.checksumsUrl | startswith($r2)' update-manifest.json >/dev/null
+            jq -e --arg r2Latest "$R2_LATEST_PREFIX" '.latestChecksumsUrl | startswith($r2Latest)' update-manifest.json >/dev/null
+            jq -e \
+              --arg r2 "$R2_PREFIX" \
+              --arg gh "$GH_PREFIX" \
+              '.assets | length >= 6 and all(.[]; (.url | startswith($r2)) and (.fallbackUrl | startswith($gh)))' \
+              update-manifest.json >/dev/null
+          else
+            jq -e '.assets | length >= 6 and all(.[]; (.url | length) > 0)' update-manifest.json >/dev/null
+          fi
+
+      - name: Validate R2 publish config
+        if: ${{ inputs.dry_run != 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is required}"
+          : "${R2_ACCESS_KEY_ID:?R2_ACCESS_KEY_ID is required}"
+          : "${R2_SECRET_ACCESS_KEY:?R2_SECRET_ACCESS_KEY is required}"
+          : "${R2_BUCKET:?R2_BUCKET is required}"
 
       - name: Push docker images to Docker Hub + GHCR (amd64/arm64)
         if: ${{ inputs.dry_run != 'true' }}
@@ -360,6 +447,74 @@ jobs:
             "$IMAGE_GH:$VERSION-amd64" \
             "$IMAGE_GH:$VERSION-arm64"
           docker manifest push "$IMAGE_GH:latest"
+
+      - name: Upload Public Artifacts to R2
+        if: ${{ inputs.dry_run != 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is required}"
+          : "${R2_ACCESS_KEY_ID:?R2_ACCESS_KEY_ID is required}"
+          : "${R2_SECRET_ACCESS_KEY:?R2_SECRET_ACCESS_KEY is required}"
+          : "${R2_BUCKET:?R2_BUCKET is required}"
+
+          if ! command -v aws >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y awscli
+          fi
+
+          export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+          export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+          export AWS_REGION=auto
+          export AWS_DEFAULT_REGION=auto
+          export AWS_EC2_METADATA_DISABLED=true
+
+          ROOT="$GITHUB_WORKSPACE"
+          RELEASE_DIR="$ROOT/release"
+          cd "$RELEASE_DIR"
+
+          R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+          content_type_for() {
+            case "$1" in
+              *.json) printf '%s' 'application/json' ;;
+              *.txt) printf '%s' 'text/plain; charset=utf-8' ;;
+              *.zip) printf '%s' 'application/zip' ;;
+              *.tar) printf '%s' 'application/x-tar' ;;
+              *) printf '%s' 'application/octet-stream' ;;
+            esac
+          }
+
+          upload_object() {
+            local file="$1"
+            local key="$2"
+            local cache_control="$3"
+            aws s3 cp "$file" "s3://${R2_BUCKET}/${key}" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --region auto \
+              --only-show-errors \
+              --no-progress \
+              --content-type "$(content_type_for "$file")" \
+              --cache-control "$cache_control"
+          }
+
+          public_artifacts=(./*.zip ./*.tar)
+          immutable_cache='public, max-age=31536000, immutable'
+          latest_cache='no-cache, must-revalidate'
+
+          for f in "${public_artifacts[@]}" ./update-manifest.json ./checksums.txt ./latest.txt; do
+            upload_object "$f" "releases/download/${VERSION}/$(basename "$f")" "$immutable_cache"
+          done
+
+          upload_object ./update-manifest.json "releases/latest/download/update-manifest.json" "$latest_cache"
+          upload_object ./checksums.txt "releases/latest/download/checksums.txt" "$latest_cache"
+          upload_object ./latest.txt "releases/latest/download/latest.txt" "$latest_cache"
 
       - name: Create GitHub Release (auto notes)
         if: ${{ inputs.dry_run != 'true' && inputs.release_notes == '' }}

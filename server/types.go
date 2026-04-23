@@ -74,10 +74,11 @@ type UpdateConfig struct {
 
 // UpdateSourceConfig represents update feed source settings.
 type UpdateSourceConfig struct {
-	Repository                    string `json:"repository"`
-	ManifestURL                   string `json:"manifestUrl"`
-	RequestTimeoutSeconds         int    `json:"requestTimeoutSeconds"`
-	DownloadConnectTimeoutSeconds int    `json:"downloadConnectTimeoutSeconds"`
+	Repository                    string   `json:"repository"`
+	ManifestURLs                  []string `json:"manifestUrls"`
+	ManifestURL                   string   `json:"manifestUrl"`
+	RequestTimeoutSeconds         int      `json:"requestTimeoutSeconds"`
+	DownloadConnectTimeoutSeconds int      `json:"downloadConnectTimeoutSeconds"`
 }
 
 // DefaultConfig returns the default server configuration

@@ -183,7 +183,8 @@ function selectPlatformAssets(manifestAssets, releaseAssetMap) {
     return {
       platform: target.platform,
       name: asset.name,
-      downloadUrl: asset.latestUrl || asset.url || releaseAsset.browser_download_url,
+      // 下载页应与客户端默认源保持一致，优先展示 manifest 中的主下载地址。
+      downloadUrl: asset.url || asset.latestUrl || releaseAsset.browser_download_url,
       sizeBytes: releaseAsset.size,
       sha256: asset.sha256 || ''
     };

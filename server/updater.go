@@ -34,23 +34,25 @@ const (
 
 // UpdateAsset describes a single update artifact in update-manifest.json.
 type UpdateAsset struct {
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
-	Name      string `json:"name"`
-	URL       string `json:"url"`
-	LatestURL string `json:"latestUrl"`
-	SHA256    string `json:"sha256"`
+	OS          string `json:"os"`
+	Arch        string `json:"arch"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	FallbackURL string `json:"fallbackUrl,omitempty"`
+	LatestURL   string `json:"latestUrl"`
+	SHA256      string `json:"sha256"`
 }
 
 // UpdateManifest describes the release metadata used by updater.
 type UpdateManifest struct {
-	Version      string        `json:"version"`
-	Channel      string        `json:"channel"`
-	BuildTime    string        `json:"buildTime"`
-	Commit       string        `json:"commit"`
-	PublishedAt  string        `json:"publishedAt"`
-	ChecksumsURL string        `json:"checksumsUrl"`
-	Assets       []UpdateAsset `json:"assets"`
+	Version            string        `json:"version"`
+	Channel            string        `json:"channel"`
+	BuildTime          string        `json:"buildTime"`
+	Commit             string        `json:"commit"`
+	PublishedAt        string        `json:"publishedAt"`
+	ChecksumsURL       string        `json:"checksumsUrl"`
+	LatestChecksumsURL string        `json:"latestChecksumsUrl,omitempty"`
+	Assets             []UpdateAsset `json:"assets"`
 }
 
 // UpdaterState is persisted in data/updater/state.json.
@@ -108,6 +110,15 @@ type updaterCleanupKeep struct {
 	downloadedFile string
 	stagingDir     string
 }
+
+type manifestCandidate struct {
+	manifestURL string
+	manifest    UpdateManifest
+	asset       UpdateAsset
+}
+
+// DefaultUpdateManifestURLsCSV is injected by official release builds.
+var DefaultUpdateManifestURLsCSV = ""
 
 var updaterService *UpdaterService
 
@@ -386,20 +397,20 @@ func (u *UpdaterService) Check(ctx context.Context) (UpdateStatusResponse, error
 		return u.Status(), fmt.Errorf("update is disabled")
 	}
 
-	manifestURL := resolveManifestURL(serverConfig.Update.Source)
+	manifestURLs := resolveManifestURLs(serverConfig.Update.Source)
 	u.mu.Lock()
 	u.state.Stage = updateStageChecking
 	u.state.LastError = ""
 	u.state.DownloadTotalBytes = 0
 	u.state.DownloadedBytes = 0
-	u.state.ManifestURL = manifestURL
+	u.state.ManifestURL = ""
 	if err := u.saveStateLocked(); err != nil {
 		u.mu.Unlock()
 		return u.Status(), err
 	}
 	u.mu.Unlock()
 
-	manifest, err := u.fetchManifest(ctx, manifestURL)
+	candidate, err := u.selectBestManifestCandidate(ctx, manifestURLs)
 	nowUnix := time.Now().Unix()
 	if err != nil {
 		u.mu.Lock()
@@ -411,27 +422,17 @@ func (u *UpdaterService) Check(ctx context.Context) (UpdateStatusResponse, error
 		return u.Status(), err
 	}
 
-	asset, err := selectManifestAsset(manifest.Assets, runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		u.mu.Lock()
-		u.state.Stage = updateStageFailed
-		u.state.LastError = err.Error()
-		u.state.LastCheckedAt = nowUnix
-		_ = u.saveStateLocked()
-		u.mu.Unlock()
-		return u.Status(), err
-	}
-
-	cmp := compareVersionStrings(manifest.Version, Version)
-	ignored := isIgnoredVersion(serverConfig.Update.IgnoredVersions, manifest.Version)
+	cmp := compareVersionStrings(candidate.manifest.Version, Version)
+	ignored := isIgnoredVersion(serverConfig.Update.IgnoredVersions, candidate.manifest.Version)
 	hasUpdate := cmp > 0 && !ignored
 
 	u.mu.Lock()
 	u.state.LastCheckedAt = nowUnix
 	u.state.LastError = ""
-	u.state.LatestVersion = manifest.Version
-	u.state.LatestPublishedAt = manifest.PublishedAt
-	u.state.LatestAsset = asset
+	u.state.ManifestURL = candidate.manifestURL
+	u.state.LatestVersion = candidate.manifest.Version
+	u.state.LatestPublishedAt = candidate.manifest.PublishedAt
+	u.state.LatestAsset = candidate.asset
 	u.state.HasUpdate = hasUpdate
 	u.state.Ignored = ignored
 	if hasUpdate {
@@ -457,7 +458,7 @@ func (u *UpdaterService) Download() (UpdateStatusResponse, error) {
 	needCheck := u.state.LatestVersion == "" || u.state.LatestAsset.Name == ""
 	u.mu.RUnlock()
 	if needCheck {
-		checkCtx, cancel := context.WithTimeout(context.Background(), getUpdateCheckTimeout())
+		checkCtx, cancel := context.WithTimeout(context.Background(), getUpdateCheckTimeout(serverConfig.Update.Source))
 		_, err := u.Check(checkCtx)
 		cancel()
 		if err != nil {
@@ -489,13 +490,6 @@ func (u *UpdaterService) Download() (UpdateStatusResponse, error) {
 	if asset.Name == "" {
 		return u.markDownloadError("missing asset name")
 	}
-	assetURL := strings.TrimSpace(asset.URL)
-	if assetURL == "" {
-		assetURL = strings.TrimSpace(asset.LatestURL)
-	}
-	if assetURL == "" {
-		return u.markDownloadError("missing asset download url")
-	}
 
 	downloadCtx, cancel := context.WithCancel(context.Background())
 	u.mu.Lock()
@@ -504,11 +498,11 @@ func (u *UpdaterService) Download() (UpdateStatusResponse, error) {
 	u.downloadCancel = cancel
 	u.mu.Unlock()
 
-	go u.runDownloadJob(jobID, downloadCtx, cancel, asset, version, assetURL)
+	go u.runDownloadJob(jobID, downloadCtx, cancel, asset, version)
 	return u.Status(), nil
 }
 
-func (u *UpdaterService) runDownloadJob(jobID uint64, ctx context.Context, cancel context.CancelFunc, asset UpdateAsset, version string, assetURL string) {
+func (u *UpdaterService) runDownloadJob(jobID uint64, ctx context.Context, cancel context.CancelFunc, asset UpdateAsset, version string) {
 	defer func() {
 		cancel()
 		u.mu.Lock()
@@ -519,15 +513,11 @@ func (u *UpdaterService) runDownloadJob(jobID uint64, ctx context.Context, cance
 	}()
 
 	targetFile := filepath.Join(u.cacheDir, asset.Name)
-	if err := u.downloadFile(ctx, assetURL, targetFile, u.updateDownloadProgress); err != nil {
+	if err := u.downloadAssetWithFallback(ctx, asset, targetFile); err != nil {
 		if errors.Is(err, context.Canceled) {
 			_, _ = u.markDownloadError("download canceled")
 			return
 		}
-		_, _ = u.markDownloadError(err.Error())
-		return
-	}
-	if err := verifyFileSHA256(targetFile, asset.SHA256); err != nil {
 		_, _ = u.markDownloadError(err.Error())
 		return
 	}
@@ -846,6 +836,72 @@ func (u *UpdaterService) fetchManifest(ctx context.Context, manifestURL string) 
 	return manifest, nil
 }
 
+func (u *UpdaterService) selectBestManifestCandidate(ctx context.Context, manifestURLs []string) (manifestCandidate, error) {
+	var (
+		best    manifestCandidate
+		hasBest bool
+		errs    []string
+	)
+
+	for _, manifestURL := range manifestURLs {
+		manifest, err := u.fetchManifest(ctx, manifestURL)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", manifestURL, err))
+			continue
+		}
+		asset, err := selectManifestAsset(manifest.Assets, runtime.GOOS, runtime.GOARCH)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", manifestURL, err))
+			continue
+		}
+		candidate := manifestCandidate{
+			manifestURL: manifestURL,
+			manifest:    manifest,
+			asset:       asset,
+		}
+		if !hasBest || compareVersionStrings(candidate.manifest.Version, best.manifest.Version) > 0 {
+			best = candidate
+			hasBest = true
+		}
+	}
+
+	if hasBest {
+		return best, nil
+	}
+	if len(errs) == 0 {
+		return manifestCandidate{}, fmt.Errorf("no update manifest sources configured")
+	}
+	return manifestCandidate{}, fmt.Errorf("all update manifest sources failed: %s", strings.Join(errs, "; "))
+}
+
+func (u *UpdaterService) downloadAssetWithFallback(ctx context.Context, asset UpdateAsset, targetFile string) error {
+	urls := resolveAssetDownloadURLs(asset)
+	if len(urls) == 0 {
+		return fmt.Errorf("missing asset download url")
+	}
+
+	errs := make([]string, 0, len(urls))
+	for _, assetURL := range urls {
+		u.updateDownloadProgress(0, 0)
+		if err := u.downloadFile(ctx, assetURL, targetFile, u.updateDownloadProgress); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			errs = append(errs, fmt.Sprintf("%s: %v", assetURL, err))
+			_ = os.Remove(targetFile)
+			continue
+		}
+		if err := verifyFileSHA256(targetFile, asset.SHA256); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", assetURL, err))
+			_ = os.Remove(targetFile)
+			continue
+		}
+		return nil
+	}
+
+	return fmt.Errorf("all asset download sources failed: %s", strings.Join(errs, "; "))
+}
+
 func (u *UpdaterService) downloadFile(ctx context.Context, url string, target string, onProgress func(downloadedBytes int64, totalBytes int64)) error {
 	tempFile := target + ".part"
 	_ = os.Remove(tempFile)
@@ -991,20 +1047,62 @@ func releaseBinaryNameForPlatform(goos, goarch string) string {
 	return name
 }
 
-func resolveManifestURL(source UpdateSourceConfig) string {
+func resolveManifestURLs(source UpdateSourceConfig) []string {
+	if urls := normalizeUpdateURLs(source.ManifestURLs); len(urls) > 0 {
+		return urls
+	}
+
 	manifestURL := strings.TrimSpace(source.ManifestURL)
 	if manifestURL != "" {
-		return manifestURL
+		return []string{manifestURL}
 	}
+
+	if urls := normalizeUpdateURLs(splitCSVList(DefaultUpdateManifestURLsCSV)); len(urls) > 0 {
+		return urls
+	}
+
 	repo := strings.TrimSpace(source.Repository)
 	if repo == "" {
 		repo = "havonz/XXTCloudControl"
 	}
-	return "https://github.com/" + repo + "/releases/latest/download/update-manifest.json"
+	return []string{"https://github.com/" + repo + "/releases/latest/download/update-manifest.json"}
 }
 
-func getUpdateCheckTimeout() time.Duration {
-	timeoutSeconds := serverConfig.Update.Source.RequestTimeoutSeconds
+func resolveAssetDownloadURLs(asset UpdateAsset) []string {
+	return normalizeUpdateURLs([]string{asset.URL, asset.FallbackURL, asset.LatestURL})
+}
+
+func normalizeUpdateURLs(urls []string) []string {
+	out := make([]string, 0, len(urls))
+	seen := make(map[string]struct{}, len(urls))
+	for _, raw := range urls {
+		url := strings.TrimSpace(raw)
+		if url == "" {
+			continue
+		}
+		if _, ok := seen[url]; ok {
+			continue
+		}
+		seen[url] = struct{}{}
+		out = append(out, url)
+	}
+	return out
+}
+
+func splitCSVList(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func getUpdateCheckTimeout(source UpdateSourceConfig) time.Duration {
+	timeoutSeconds := source.RequestTimeoutSeconds
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 60
 	}

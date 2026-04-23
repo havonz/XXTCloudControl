@@ -20,7 +20,7 @@ func updateCheckHandler(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updater not initialized"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), getUpdateCheckTimeout())
+	ctx, cancel := context.WithTimeout(c.Request.Context(), getUpdateCheckTimeout(serverConfig.Update.Source))
 	defer cancel()
 	status, err := updaterService.Check(ctx)
 	if err != nil {

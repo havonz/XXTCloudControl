@@ -317,6 +317,10 @@ func applyEnvOverrides() {
 		serverConfig.Update.Source.Repository = strings.TrimSpace(value)
 	}
 
+	if value, ok := envString("XXTCC_UPDATE_MANIFEST_URLS"); ok {
+		serverConfig.Update.Source.ManifestURLs = splitCSVList(value)
+	}
+
 	if value, ok := envString("XXTCC_UPDATE_MANIFEST_URL"); ok {
 		serverConfig.Update.Source.ManifestURL = strings.TrimSpace(value)
 	}
