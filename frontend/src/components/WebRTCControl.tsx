@@ -38,6 +38,8 @@ const RC_WHEEL_DUR_BASE_KEY = 'xxt_remote_ws_wheel_dur_base_ms';
 const RC_WHEEL_RELEASE_DELAY_KEY = 'xxt_remote_ws_wheel_release_delay_ms';
 const RC_WHEEL_BRAKE_ENABLED_KEY = 'xxt_remote_ws_wheel_brake_enabled';
 const RC_WHEEL_BRAKE_REVERSE_PX_KEY = 'xxt_remote_ws_wheel_brake_reverse_px';
+const CLIPBOARD_SHORTCUT_MODIFIER_GRACE_MS = 120;
+const CLIPBOARD_SHORTCUT_MODIFIER_STALE_MS = 2000;
 
 function loadSavedWheelBoolean(key: string, fallback: boolean): boolean {
   try {
@@ -232,10 +234,12 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   let videoRef: HTMLVideoElement | undefined;
   let videoContainerRef: HTMLDivElement | undefined;
+  let clipboardTextareaRef: HTMLTextAreaElement | undefined;
   let cachedVideoRect: DOMRect | null = null;
   let webrtcService: WebRTCService | null = null;
   let statsInterval: number | undefined;
   let resizeObserver: ResizeObserver | undefined;
+  let clipboardTextareaFocusFrame: number | undefined;
   let lastBytesReceived = 0;
   let lastFramesDecoded = 0;
   let lastTimestamp = 0;
@@ -243,6 +247,9 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   let lastAppliedFrameRate = 0;
   const forwardedKeyboardKeys = new Set<string>();
   const suppressedKeyboardKeys = new Set<string>();
+  const clipboardShortcutModifierCodes = new Set<string>();
+  let lastClipboardShortcutModifierDownAt = 0;
+  let lastClipboardShortcutModifierUpAt = 0;
   const wheelBatcher = createRemoteWheelBatcher((payload) => {
     if (webrtcService) {
       webrtcService.sendWheelCommand({
@@ -939,6 +946,94 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     releaseForwardedKeyboardKey('command');
   }
 
+  function isClipboardShortcutModifierCode(code: string): boolean {
+    return code === 'MetaLeft' || code === 'MetaRight' || code === 'ControlLeft' || code === 'ControlRight';
+  }
+
+  function trackClipboardShortcutModifier(e: KeyboardEvent, action: 'down' | 'up'): void {
+    if (!isClipboardShortcutModifierCode(e.code)) {
+      return;
+    }
+
+    if (action === 'down') {
+      clipboardShortcutModifierCodes.add(e.code);
+      lastClipboardShortcutModifierDownAt = Date.now();
+      return;
+    }
+
+    clipboardShortcutModifierCodes.delete(e.code);
+    lastClipboardShortcutModifierUpAt = Date.now();
+  }
+
+  function hasClipboardShortcutModifier(e: KeyboardEvent): boolean {
+    if (e.metaKey || e.ctrlKey) {
+      return true;
+    }
+
+    const now = Date.now();
+    if (clipboardShortcutModifierCodes.size > 0 && now - lastClipboardShortcutModifierDownAt <= CLIPBOARD_SHORTCUT_MODIFIER_STALE_MS) {
+      return true;
+    }
+
+    return now - lastClipboardShortcutModifierUpAt <= CLIPBOARD_SHORTCUT_MODIFIER_GRACE_MS;
+  }
+
+  function getClipboardShortcutKey(e: KeyboardEvent): 'c' | 'x' | 'v' | null {
+    const key = e.key.toLowerCase();
+    if (key === 'c' || key === 'x' || key === 'v') {
+      return key;
+    }
+
+    if (e.code === 'KeyC') return 'c';
+    if (e.code === 'KeyX') return 'x';
+    if (e.code === 'KeyV') return 'v';
+    return null;
+  }
+
+  function handleClipboardShortcut(shortcutKey: 'c' | 'x' | 'v'): void {
+    prepareClipboardShortcut(shortcutKey);
+    if (shortcutKey === 'c') {
+      handleCopyFromDevice();
+      return;
+    }
+    if (shortcutKey === 'x') {
+      handleCutFromDevice();
+      return;
+    }
+    handlePasteToDevice();
+  }
+
+  function cleanupSuppressedKeyboardKey(key: string | null): boolean {
+    if (!key || !suppressedKeyboardKeys.has(key)) {
+      return false;
+    }
+
+    suppressedKeyboardKeys.delete(key);
+    forwardedKeyboardKeys.delete(key);
+    return true;
+  }
+
+  function focusClipboardTextarea(): void {
+    const textarea = clipboardTextareaRef;
+    if (!textarea || !clipboardModalOpen() || clipboardMode() !== 'write' || clipboardImageData()) {
+      return;
+    }
+
+    textarea.focus({ preventScroll: true });
+  }
+
+  function scheduleClipboardTextareaFocus(): void {
+    focusClipboardTextarea();
+    if (clipboardTextareaFocusFrame !== undefined) {
+      cancelAnimationFrame(clipboardTextareaFocusFrame);
+    }
+
+    clipboardTextareaFocusFrame = requestAnimationFrame(() => {
+      clipboardTextareaFocusFrame = undefined;
+      focusClipboardTextarea();
+    });
+  }
+
   // 特殊按键映射 - 使用 e.code (物理键码) 而不是 e.key (字符)
   // 这样 Shift+2 会发送 Shift 和 "2"，而不是发送 "@"
   const codeMapping: Record<string, string> = {
@@ -1043,9 +1138,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   // 处理键盘事件
   const handleKeyDown = (e: KeyboardEvent) => {
     const mappedKey = getKeyFromCode(e.code);
-    if (consumeSuppressedKeyboardEvent(e, 'down', mappedKey)) {
-      return;
-    }
+    trackClipboardShortcutModifier(e, 'down');
 
     // 如果剪贴板模态框打开，不拦截键盘事件
     if (clipboardModalOpen()) return;
@@ -1055,22 +1148,14 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (isTextInputTarget(document.activeElement)) return;
 
     // 检测拷贝/剪切/粘贴快捷键
-    if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+    const clipboardShortcutKey = getClipboardShortcutKey(e);
+    if (clipboardShortcutKey && hasClipboardShortcutModifier(e)) {
       e.preventDefault();
-      prepareClipboardShortcut('c');
-      handleCopyFromDevice();
+      handleClipboardShortcut(clipboardShortcutKey);
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'x') {
-      e.preventDefault();
-      prepareClipboardShortcut('x');
-      handleCutFromDevice();
-      return;
-    }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
-      e.preventDefault();
-      prepareClipboardShortcut('v');
-      handlePasteToDevice();
+
+    if (consumeSuppressedKeyboardEvent(e, 'down', mappedKey)) {
       return;
     }
 
@@ -1085,13 +1170,17 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   const handleKeyUp = (e: KeyboardEvent) => {
     const mappedKey = getKeyFromCode(e.code);
+    trackClipboardShortcutModifier(e, 'up');
+
+    if (clipboardModalOpen()) {
+      cleanupSuppressedKeyboardKey(mappedKey);
+      return;
+    }
+
     if (consumeSuppressedKeyboardEvent(e, 'up', mappedKey)) {
       return;
     }
 
-    // 如果剪贴板模态框打开，不拦截键盘事件
-    if (clipboardModalOpen()) return;
-    
     if (connectionState() !== 'connected') return;
     if (isTextInputTarget(document.activeElement)) return;
 
@@ -1161,11 +1250,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     setClipboardImageData(null);
     setClipboardLoading(false);
     setClipboardModalOpen(true);
-    // 延迟聚焦到文本框
-    setTimeout(() => {
-      const textarea = document.querySelector('.' + styles.clipboardTextarea) as HTMLTextAreaElement;
-      if (textarea) textarea.focus();
-    }, 100);
+    scheduleClipboardTextareaFocus();
   };
 
   // 剪贴板模态框 - 发送到设备
@@ -1267,13 +1352,14 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   };
 
   // 处理粘贴事件 (在写入模式下)
-  const handleClipboardPaste = async (e: ClipboardEvent) => {
-    e.preventDefault();
+  const handleClipboardPaste = (e: ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
     
     for (const item of items) {
       if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        e.stopPropagation();
         const blob = item.getAsFile();
         if (blob) {
           const reader = new FileReader();
@@ -1287,15 +1373,13 @@ export default function WebRTCControl(props: WebRTCControlProps) {
           reader.readAsDataURL(blob);
           return;
         }
-      } else if (item.type === 'text/plain') {
-        const text = await new Promise<string>((resolve) => {
-          item.getAsString(resolve);
-        });
-        setClipboardContent(text);
-        setClipboardImageData(null);
-        return;
       }
     }
+  };
+
+  const handleClearClipboardImage = () => {
+    setClipboardImageData(null);
+    scheduleClipboardTextareaFocus();
   };
 
   // 设置旋转角度
@@ -1361,6 +1445,12 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       debugLog('webrtc', '[WebRTC] Applying stream to video element:', stream.id);
       videoRef.srcObject = stream;
       videoRef.play().catch(e => console.error('[WebRTC] Video play error:', e));
+    }
+  });
+
+  createEffect(() => {
+    if (clipboardModalOpen() && clipboardMode() === 'write' && !clipboardImageData()) {
+      scheduleClipboardTextareaFocus();
     }
   });
 
@@ -1470,6 +1560,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     stopStream();
     forwardedKeyboardKeys.clear();
     suppressedKeyboardKeys.clear();
+    clipboardShortcutModifierCodes.clear();
+    if (clipboardTextareaFocusFrame !== undefined) {
+      cancelAnimationFrame(clipboardTextareaFocusFrame);
+    }
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
     if (keyboardIndicatorTimeout) clearTimeout(keyboardIndicatorTimeout);
@@ -1917,6 +2011,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 <div class={styles.clipboardInputArea} onPaste={handleClipboardPaste}>
                   <Show when={!clipboardImageData()}>
                     <textarea 
+                      ref={clipboardTextareaRef}
                       class={styles.clipboardTextarea}
                       placeholder="在此处粘贴文字或图片..."
                       value={clipboardContent()}
@@ -1928,7 +2023,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   <Show when={clipboardImageData()}>
                     <div class={styles.clipboardImagePreview}>
                       <img src={`data:image/png;base64,${clipboardImageData()}`} alt="要发送的图片" />
-                      <button class={styles.clipboardClearImage} onClick={() => { setClipboardImageData(null); setTimeout(() => { const textarea = document.querySelector('.' + styles.clipboardTextarea) as HTMLTextAreaElement; if (textarea) textarea.focus(); }, 50); }}>✕ 清除</button>
+                      <button class={styles.clipboardClearImage} onClick={handleClearClipboardImage}>✕ 清除</button>
                     </div>
                   </Show>
                 </div>
