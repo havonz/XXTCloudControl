@@ -288,6 +288,15 @@ func configHandler(c *gin.Context) {
 			"autoReconnect":     true,
 			"reconnectInterval": 3000,
 		},
+		"protocol": gin.H{
+			"version": 2,
+		},
+		"features": gin.H{
+			"controlHttp":             true,
+			"controlHttpBin":          true,
+			"controlHttpTimeout":      true,
+			"deviceCapabilitiesProbe": true,
+		},
 		"ui": gin.H{
 			"screenCaptureScale":    30,
 			"maxScreenshotWaitTime": 500,
@@ -330,6 +339,15 @@ func controlInfoHandler(c *gin.Context) {
 			"path":              "/api/ws",
 			"autoReconnect":     true,
 			"reconnectInterval": 3000,
+		},
+		"protocol": gin.H{
+			"version": 2,
+		},
+		"features": gin.H{
+			"controlHttp":             true,
+			"controlHttpBin":          true,
+			"controlHttpTimeout":      true,
+			"deviceCapabilitiesProbe": true,
 		},
 		"ui": gin.H{
 			"screenCaptureScale":    30,

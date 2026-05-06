@@ -193,6 +193,7 @@ type HTTPProxyRequest struct {
 	Headers   map[string]string      `json:"headers,omitempty"`
 	Body      string                 `json:"body,omitempty"` // base64 encoded
 	Port      int                    `json:"port,omitempty"` // target HTTP port (default: 46952)
+	TimeoutMs int                    `json:"timeoutMs,omitempty"`
 }
 
 // HTTPProxyRequestBin represents an HTTP proxy request with binary body
@@ -206,6 +207,7 @@ type HTTPProxyRequestBin struct {
 	Port      int                    `json:"port,omitempty"`     // target HTTP port (default: 46952)
 	BodySize  int                    `json:"bodySize,omitempty"` // raw body length
 	ChunkSize int                    `json:"chunkSize,omitempty"`
+	TimeoutMs int                    `json:"timeoutMs,omitempty"`
 }
 
 // BinaryRoute tracks binary http forwarding routes

@@ -74,6 +74,7 @@ func TestParseHTTPProxyRequestBody(t *testing.T) {
 		"headers":   map[string]interface{}{"Content-Type": "application/json"},
 		"body":      "eyJmb28iOiJiYXIifQ==",
 		"port":      float64(46952),
+		"timeoutMs": float64(45000),
 	}
 
 	got, err := parseHTTPProxyRequestBody(body)
@@ -85,6 +86,9 @@ func TestParseHTTPProxyRequestBody(t *testing.T) {
 	}
 	if got.Port != 46952 {
 		t.Fatalf("unexpected port: %d", got.Port)
+	}
+	if got.TimeoutMs != 45000 {
+		t.Fatalf("unexpected timeoutMs: %d", got.TimeoutMs)
 	}
 	if got.Headers["Content-Type"] != "application/json" {
 		t.Fatalf("unexpected headers: %+v", got.Headers)
@@ -98,10 +102,11 @@ func TestParseHTTPProxyRequestBinBody(t *testing.T) {
 		"method":"POST",
 		"path":"/api/a",
 		"headers":{"X-Test":"1"},
-		"port":46952,
-		"bodySize":1024,
-		"chunkSize":256
-	}`)
+			"port":46952,
+			"bodySize":1024,
+			"chunkSize":256,
+			"timeoutMs":45000
+		}`)
 
 	got, err := parseHTTPProxyRequestBinBody(raw)
 	if err != nil {
@@ -112,6 +117,9 @@ func TestParseHTTPProxyRequestBinBody(t *testing.T) {
 	}
 	if got.Port != 46952 || got.BodySize != 1024 || got.ChunkSize != 256 {
 		t.Fatalf("unexpected numeric fields: %+v", got)
+	}
+	if got.TimeoutMs != 45000 {
+		t.Fatalf("unexpected timeoutMs: %d", got.TimeoutMs)
 	}
 }
 

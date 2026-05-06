@@ -335,6 +335,11 @@ func parseHTTPProxyRequestBody(body interface{}) (HTTPProxyRequest, error) {
 	} else if _, exists := bodyMap["port"]; exists {
 		return HTTPProxyRequest{}, fmt.Errorf("invalid port in control/http")
 	}
+	if timeoutMs, ok := toInt(bodyMap["timeoutMs"]); ok {
+		out.TimeoutMs = timeoutMs
+	} else if _, exists := bodyMap["timeoutMs"]; exists {
+		return HTTPProxyRequest{}, fmt.Errorf("invalid timeoutMs in control/http")
+	}
 
 	return out, nil
 }
@@ -391,6 +396,11 @@ func parseHTTPProxyRequestBinBody(body interface{}) (HTTPProxyRequestBin, error)
 		out.ChunkSize = chunkSize
 	} else if _, exists := bodyMap["chunkSize"]; exists {
 		return HTTPProxyRequestBin{}, fmt.Errorf("invalid chunkSize in control/http-bin")
+	}
+	if timeoutMs, ok := toInt(bodyMap["timeoutMs"]); ok {
+		out.TimeoutMs = timeoutMs
+	} else if _, exists := bodyMap["timeoutMs"]; exists {
+		return HTTPProxyRequestBin{}, fmt.Errorf("invalid timeoutMs in control/http-bin")
 	}
 
 	return out, nil
@@ -888,6 +898,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 			"body":      httpReq.Body,
 			"port":      httpReq.Port,
 		}
+		if httpReq.TimeoutMs > 0 {
+			httpBody["timeoutMs"] = httpReq.TimeoutMs
+		}
 
 		// 如果是 WebRTC start 请求，注入 TURN 服务器配置
 		if httpReq.Path == "/api/webrtc/start" && httpReq.Method == "POST" {
@@ -976,6 +989,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 			"port":      httpReq.Port,
 			"bodySize":  httpReq.BodySize,
 			"chunkSize": httpReq.ChunkSize,
+		}
+		if httpReq.TimeoutMs > 0 {
+			httpBody["timeoutMs"] = httpReq.TimeoutMs
 		}
 
 		httpMsg := Message{
