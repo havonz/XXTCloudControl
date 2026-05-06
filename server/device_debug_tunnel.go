@@ -22,11 +22,23 @@ func cloudDeviceDebugTunnelHandler(c *gin.Context) {
 	udid := c.Param("udid")
 
 	var deviceConn *SafeConn
+	var supportsDebugTunnel bool
 	mu.RLock()
 	deviceConn = deviceLinks[udid]
+	if stateMap, ok := deviceTable[udid].(map[string]interface{}); ok {
+		if cloudControl, ok := stateMap["cloudControl"].(map[string]interface{}); ok {
+			if features, ok := cloudControl["features"].(map[string]interface{}); ok {
+				supportsDebugTunnel, _ = features["debugTunnel"].(bool)
+			}
+		}
+	}
 	mu.RUnlock()
 	if deviceConn == nil {
 		c.String(http.StatusNotFound, "device not found")
+		return
+	}
+	if !supportsDebugTunnel {
+		c.String(http.StatusPreconditionFailed, "device cloud control client does not support debug tunnel")
 		return
 	}
 
