@@ -1163,6 +1163,37 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 		return nil
 
+	case "debug-tunnel/ready", "debug-tunnel/close":
+		requestID := ""
+		if bodyMap, ok := data.Body.(map[string]interface{}); ok {
+			if rid, ok := bodyMap["requestId"].(string); ok {
+				requestID = rid
+			}
+		}
+		if requestID == "" {
+			return nil
+		}
+
+		var routeController *SafeConn
+		mu.RLock()
+		if route, exists := binaryRoutes[requestID]; exists && route.Controller != nil {
+			routeController = route.Controller
+		}
+		mu.RUnlock()
+		if routeController != nil {
+			encodedData, err := json.Marshal(data)
+			if err != nil {
+				return err
+			}
+			_ = writeTextMessage(routeController, encodedData)
+		}
+		if data.Type == "debug-tunnel/close" {
+			mu.Lock()
+			delete(binaryRoutes, requestID)
+			mu.Unlock()
+		}
+		return nil
+
 	case "app/state":
 		bodyMap, ok := data.Body.(map[string]interface{})
 		if !ok {

@@ -296,6 +296,7 @@ func configHandler(c *gin.Context) {
 			"controlHttpBin":          true,
 			"controlHttpTimeout":      true,
 			"deviceCapabilitiesProbe": true,
+			"deviceDebugTunnel":       true,
 		},
 		"ui": gin.H{
 			"screenCaptureScale":    30,
