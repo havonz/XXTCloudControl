@@ -441,12 +441,7 @@ func staticFileHandler(c *gin.Context) {
 	fullPath := filepath.Join(serverConfig.FrontendDir, path)
 
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		if path != "/" {
-			fullPath = filepath.Join(serverConfig.FrontendDir, "index.html")
-		} else {
-			c.Status(http.StatusNotFound)
-			return
-		}
+		fullPath = filepath.Join(serverConfig.FrontendDir, "index.html")
 	}
 
 	setContentTypeAndCache(c, fullPath)

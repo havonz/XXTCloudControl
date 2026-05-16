@@ -99,6 +99,12 @@ const App: Component = () => {
     if (visible === null) return devices(); // Show all devices
     return devices().filter(d => visible.has(d.udid));
   });
+
+  const fileBrowserSelectedScript = createMemo(() => {
+    const browserDevice = fileBrowserDevice();
+    if (!browserDevice) return null;
+    return devices().find(d => d.udid === browserDevice.udid)?.script?.select ?? null;
+  });
   
   let wsService: WebSocketService | null = null;
   const pendingFileGets = new Map<string, PendingFileGet[]>();
@@ -489,16 +495,7 @@ const App: Component = () => {
       // 构建 WebSocket URL
       const wsUrl = authService.getWebSocketUrl(credentials.server, credentials.port);
       
-      // 处理存储的密码hash
-      let actualPassword = credentials.password;
-      if (credentials.password.startsWith('__STORED_PASSHASH__')) {
-        // 使用存储的passhash，直接传递给WebSocketService
-        // AuthService会识别这个前缀并直接使用存储的passhash
-        actualPassword = credentials.password; // 保持前缀，让AuthService处理
-
-      } else {
-
-      }
+      const actualPassword = credentials.password;
       
       // 创建 WebSocket 服务实例
       wsService = new WebSocketService(wsUrl, actualPassword);
@@ -1301,7 +1298,7 @@ const App: Component = () => {
         onCopyFile={handleCopyFile}
         onReadFile={handleReadFile}
         onSelectScript={handleSelectScript}
-        selectedScript={fileBrowserDevice() ? devices().find(d => d.udid === fileBrowserDevice()?.udid)?.script?.select : null}
+        selectedScript={fileBrowserSelectedScript()}
         files={fileList()}
         isLoading={isLoadingFiles()}
         fileContent={fileContent()}

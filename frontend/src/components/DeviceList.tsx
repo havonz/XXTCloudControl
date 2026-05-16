@@ -114,6 +114,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   let resizingColumn: string | null = null;
   let startX = 0;
   let startWidth = 0;
+  let lastAppliedWidth = 0;
 
   const [isMobile, setIsMobile] = createSignal(
     window.matchMedia('(max-width: 768px)').matches
@@ -126,6 +127,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     resizingColumn = colId;
     startX = e.pageX;
     startWidth = columnWidths()[colId] || DEFAULT_WIDTHS[colId];
+    lastAppliedWidth = startWidth;
     
     document.addEventListener('mousemove', handleResizeMove);
     document.addEventListener('mouseup', handleResizeStop);
@@ -140,6 +142,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     if (Math.abs(delta) > 3) {
       document.body.classList.add('resizing');
       const newWidth = Math.max(50, startWidth + delta);
+      if (newWidth === lastAppliedWidth) return;
+      lastAppliedWidth = newWidth;
       setColumnWidths(prev => ({
         ...prev,
         [resizingColumn!]: newWidth
@@ -968,8 +972,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     const devices = filteredDevices();
     
     if (e?.shiftKey && lastSelectedUdid()) {
-      const lastIndex = devices.findIndex(d => d.udid === lastSelectedUdid());
-      const currentIndex = devices.findIndex(d => d.udid === device.udid);
+      const lastUdid = lastSelectedUdid();
+      let lastIndex = -1;
+      let currentIndex = -1;
+      for (let i = 0; i < devices.length; i++) {
+        const udid = devices[i].udid;
+        if (udid === lastUdid) lastIndex = i;
+        if (udid === device.udid) currentIndex = i;
+        if (lastIndex !== -1 && currentIndex !== -1) break;
+      }
       
       if (lastIndex !== -1 && currentIndex !== -1) {
         const start = Math.min(lastIndex, currentIndex);
@@ -1030,12 +1041,13 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   };
 
   const toggleColumn = (col: string) => {
-    if (visibleColumns().includes(col)) {
-      if (visibleColumns().length > 1) {
-        setVisibleColumns(visibleColumns().filter(c => c !== col));
+    const columns = visibleColumns();
+    if (columns.includes(col)) {
+      if (columns.length > 1) {
+        setVisibleColumns(columns.filter(c => c !== col));
       }
     } else {
-      setVisibleColumns([...visibleColumns(), col]);
+      setVisibleColumns([...columns, col]);
     }
   };
 
@@ -1907,18 +1919,20 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 <div class={styles.tableBody}>
                   <For each={filteredDevices()}>
                     {(device) => {
-                    const info = formatDeviceInfo(device);
-                    const isSelected = () => selectedUdidSet().has(device.udid);
+                      const info = formatDeviceInfo(device);
+                      const isSelected = createMemo(() => selectedUdidSet().has(device.udid));
+                      const displayMessage = createMemo(() => getDisplayMessage(device));
+                      const displayLog = createMemo(() => getDisplayLog(device));
                     
-                    return (
-                      <div 
-                        class={`${styles.tableRow} ${isSelected() ? styles.selected : ''}`}
-                        style={{ 
-                          'grid-template-columns': gridTemplateColumns()
-                        }}
-                        onClick={(e) => handleDeviceToggle(device, e)}
-                        onContextMenu={(e) => handleDeviceContextMenu(e, device)}
-                      >
+                      return (
+                        <div 
+                          class={`${styles.tableRow} ${isSelected() ? styles.selected : ''}`}
+                          style={{ 
+                            'grid-template-columns': gridTemplateColumns()
+                          }}
+                          onClick={(e) => handleDeviceToggle(device, e)}
+                          onContextMenu={(e) => handleDeviceContextMenu(e, device)}
+                        >
                         <div class={styles.tableCell}>
                           <div 
                             class={`${styles.deviceCheckbox} ${isSelected() ? styles.checked : ''}`}
@@ -1985,9 +1999,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                           <div class={styles.tableCell}>
                             <div 
                               class={styles.deviceMessage}
-                              title={getDisplayMessage(device) || '无消息'}
+                              title={displayMessage() || '无消息'}
                             >
-                              {getDisplayMessage(device)}
+                              {displayMessage()}
                             </div>
                           </div>
                         </Show>
@@ -1996,9 +2010,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                           <div class={styles.tableCell}>
                             <div
                               class={styles.lastLog}
-                              title={getDisplayLog(device) || '无日志'}
+                              title={displayLog() || '无日志'}
                             >
-                              {formatLogPreview(getDisplayLog(device))}
+                              {formatLogPreview(displayLog())}
                             </div>
                           </div>
                         </Show>
@@ -2015,7 +2029,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               <For each={filteredDevices()}>
                 {(device) => {
                   const info = formatDeviceInfo(device);
-                  const isSelected = () => selectedUdidSet().has(device.udid);
+                  const isSelected = createMemo(() => selectedUdidSet().has(device.udid));
+                  const displayMessage = createMemo(() => getDisplayMessage(device));
+                  const displayLog = createMemo(() => getDisplayLog(device));
                   return (
                     <div 
                       class={styles.deviceCard}
@@ -2060,15 +2076,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         </div>
                       </div>
                       
-                      <Show when={getDisplayMessage(device)}>
+                      <Show when={displayMessage()}>
                         <div class={styles.cardMessageArea}>
-                          <div class={styles.cardMessageText}>{getDisplayMessage(device)}</div>
+                          <div class={styles.cardMessageText}>{displayMessage()}</div>
                         </div>
                       </Show>
                       
-                      <Show when={getDisplayLog(device)}>
+                      <Show when={displayLog()}>
                         <div class={styles.cardLogArea}>
-                          {getDisplayLog(device)}
+                          {displayLog()}
                         </div>
                       </Show>
                     </div>
@@ -2194,32 +2210,22 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         />
         
         {/* 脚本选择弹窗 */}
-        {(() => {
-          const isOpen = showScriptSelectionModal(); // 必要的响应式读取
-          return (
-            <ScriptSelectionModal
-              isOpen={isOpen}
-              onClose={() => setShowScriptSelectionModal(false)}
-              onSelectScript={handleSelectScript}
-              selectedDeviceCount={props.selectedDevices().length}
-              serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
-            />
-          );
-        })()}
+        <ScriptSelectionModal
+          isOpen={showScriptSelectionModal()}
+          onClose={() => setShowScriptSelectionModal(false)}
+          onSelectScript={handleSelectScript}
+          selectedDeviceCount={props.selectedDevices().length}
+          serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
+        />
 
         {/* 脚本上传弹窗 */}
-        {(() => {
-          const isOpen = showScriptUploadModal(); // 必要的响应式读取
-          return (
-            <ScriptUploadModal
-              isOpen={isOpen}
-              onClose={() => setShowScriptUploadModal(false)}
-              onUploadScript={handleUploadScript}
-              selectedDeviceCount={props.selectedDevices().length}
-              serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
-            />
-          );
-        })()}
+        <ScriptUploadModal
+          isOpen={showScriptUploadModal()}
+          onClose={() => setShowScriptUploadModal(false)}
+          onUploadScript={handleUploadScript}
+          selectedDeviceCount={props.selectedDevices().length}
+          serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
+        />
         
         {/* 设备绑定弹窗 */}
         <DeviceBindingModal 

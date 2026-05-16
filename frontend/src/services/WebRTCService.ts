@@ -202,8 +202,6 @@ export class WebRTCService {
           }
         };
 
-        this.peerConnection.onicegatheringstatechange = () => {};
-
         this.peerConnection.onicecandidateerror = (event) => {
           const detail = {
             errorCode: event.errorCode,
@@ -384,9 +382,6 @@ export class WebRTCService {
         }
         break;
 
-      case 'connected':
-        break;
-
       case 'disconnected':
       case 'disconnect':
         this.stopPolling();
@@ -529,10 +524,6 @@ export class WebRTCService {
   private setupDataChannel() {
     if (!this.dataChannel) return;
 
-    this.dataChannel.onopen = () => {};
-
-    this.dataChannel.onclose = () => {};
-
     this.dataChannel.onerror = (error) => {
       console.error('DataChannel error:', error);
     };
@@ -556,21 +547,22 @@ export class WebRTCService {
     };
   }
 
-  private clipboardChunks: Map<string, { chunks: string[], total: number }> = new Map();
+  private clipboardChunks: Map<string, { chunks: string[], total: number, received: number }> = new Map();
 
   private handleClipboardChunk(data: { messageId: string; chunkIndex: number; totalChunks: number; data: string; contentType: string }) {
     const { messageId, chunkIndex, totalChunks, data: chunkData, contentType } = data;
     
     if (!this.clipboardChunks.has(messageId)) {
-      this.clipboardChunks.set(messageId, { chunks: new Array(totalChunks).fill(''), total: totalChunks });
+      this.clipboardChunks.set(messageId, { chunks: new Array(totalChunks).fill(''), total: totalChunks, received: 0 });
     }
     
     const entry = this.clipboardChunks.get(messageId)!;
+    if (entry.chunks[chunkIndex] === '' && chunkData !== '') {
+      entry.received++;
+    }
     entry.chunks[chunkIndex] = chunkData;
     
-    // 检查是否所有分块都已接收
-    const received = entry.chunks.filter(c => c !== '').length;
-    if (received === entry.total) {
+    if (entry.received === entry.total) {
       const fullContent = entry.chunks.join('');
       this.clipboardChunks.delete(messageId);
       this.events.onClipboard?.(contentType as 'text' | 'image', fullContent);

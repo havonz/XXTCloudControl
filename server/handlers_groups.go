@@ -154,8 +154,6 @@ func groupsReorderHandler(c *gin.Context) {
 	}
 
 	deviceGroupsMu.Lock()
-	backupGroups := cloneGroupInfos(deviceGroups)
-
 	if len(req.Order) != len(deviceGroups) {
 		deviceGroupsMu.Unlock()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Order must include all groups"})
@@ -185,6 +183,7 @@ func groupsReorderHandler(c *gin.Context) {
 		reorderedGroups = append(reorderedGroups, group)
 	}
 
+	backupGroups := cloneGroupInfos(deviceGroups)
 	deviceGroups = reorderedGroups
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups

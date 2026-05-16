@@ -303,6 +303,14 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     return result;
   });
 
+  const filesByName = createMemo(() => {
+    const map = new Map<string, ServerFileItem>();
+    for (const file of files()) {
+      map.set(file.name, file);
+    }
+    return map;
+  });
+
   const handleCategoryChange = (category: 'scripts' | 'files' | 'reports') => {
     batch(() => {
       setCurrentCategory(category);
@@ -621,9 +629,18 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   };
 
   const getBatchDeleteConfirmMessage = (selected: Set<string>): string => {
-    const selectedFiles = files().filter((file) => selected.has(file.name));
-    const dirCount = selectedFiles.filter((file) => file.type === 'dir' && file.isSymlink !== true).length;
-    const dirSymlinkCount = selectedFiles.filter((file) => file.type === 'dir' && file.isSymlink === true).length;
+    let dirCount = 0;
+    let dirSymlinkCount = 0;
+    for (const file of files()) {
+      if (!selected.has(file.name) || file.type !== 'dir') {
+        continue;
+      }
+      if (file.isSymlink === true) {
+        dirSymlinkCount++;
+      } else {
+        dirCount++;
+      }
+    }
 
     const detailParts: string[] = [];
     if (dirCount > 0) {
@@ -734,7 +751,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       
       for (const fileName of selectedFileNames) {
         const filePath = currentPath() ? `${currentPath()}/${fileName}` : fileName;
-        const file = files().find(f => f.name === fileName);
+        const file = filesByName().get(fileName);
         
         if (!file) continue;
         
@@ -960,11 +977,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   };
 
   // 面包屑导航
-  const breadcrumbs = () => {
+  const breadcrumbs = createMemo(() => {
     const path = currentPath();
     if (!path) return [];
     return path.split('/').filter(p => p);
-  };
+  });
 
   return (
     <Show when={props.isOpen}>
@@ -1170,52 +1187,55 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                   }
                 >
                   <For each={sortedFiles()}>
-                    {(file) => (
-                      <div
-                        class={`${styles.tableRow} ${selectedItems().has(file.name) ? styles.selected : ''}`}
-                        onMouseDown={(e) => {
-                          if (isSelectMode() && e.button === 0) {
-                            e.preventDefault(); // Prevent text selection on shift-click
-                          }
-                        }}
-                        onClick={(e) => handleFileClick(file, e)}
-                        onDblClick={() => handleFileDoubleClick(file)}
-                        onContextMenu={(e) => handleFileContextMenu(e, file)}
-                        onTouchStart={() => handleFileTouchStart(file)}
-                        onTouchEnd={handleFileTouchEnd}
-                        onTouchMove={handleFileTouchEnd}
-                      >
-                        <Show when={isSelectMode()}>
-                          <div class={styles.tableCell} style={{ width: '40px' }}>
-                            <input
-                              type="checkbox"
-                              class="themed-checkbox"
-                              checked={selectedItems().has(file.name)}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => toggleSelection(file.name, e as any)}
-                            />
-                          </div>
-                        </Show>
-                        <div class={`${styles.tableCell} ${styles.typeColumn}`}>
-                          <span class={styles.fileIconWrap}>
-                            <span class={styles.fileIcon}>
-                              {renderFileIcon(file.name, { isDirectory: file.type === 'dir' })}
-                            </span>
-                            <Show when={file.isSymlink === true}>
-                              <span class={styles.symlinkBadge} aria-hidden="true">
-                                <FaSolidSquareArrowUpRight class={styles.symlinkBadgeIcon} size={7} />
+                    {(file) => {
+                      const isSelected = createMemo(() => selectedItems().has(file.name));
+                      return (
+                        <div
+                          class={`${styles.tableRow} ${isSelected() ? styles.selected : ''}`}
+                          onMouseDown={(e) => {
+                            if (isSelectMode() && e.button === 0) {
+                              e.preventDefault(); // Prevent text selection on shift-click
+                            }
+                          }}
+                          onClick={(e) => handleFileClick(file, e)}
+                          onDblClick={() => handleFileDoubleClick(file)}
+                          onContextMenu={(e) => handleFileContextMenu(e, file)}
+                          onTouchStart={() => handleFileTouchStart(file)}
+                          onTouchEnd={handleFileTouchEnd}
+                          onTouchMove={handleFileTouchEnd}
+                        >
+                          <Show when={isSelectMode()}>
+                            <div class={styles.tableCell} style={{ width: '40px' }}>
+                              <input
+                                type="checkbox"
+                                class="themed-checkbox"
+                                checked={isSelected()}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => toggleSelection(file.name, e as any)}
+                              />
+                            </div>
+                          </Show>
+                          <div class={`${styles.tableCell} ${styles.typeColumn}`}>
+                            <span class={styles.fileIconWrap}>
+                              <span class={styles.fileIcon}>
+                                {renderFileIcon(file.name, { isDirectory: file.type === 'dir' })}
                               </span>
-                            </Show>
-                          </span>
+                              <Show when={file.isSymlink === true}>
+                                <span class={styles.symlinkBadge} aria-hidden="true">
+                                  <FaSolidSquareArrowUpRight class={styles.symlinkBadgeIcon} size={7} />
+                                </span>
+                              </Show>
+                            </span>
+                          </div>
+                          <div class={`${styles.tableCell} ${styles.nameColumn}`}>
+                            <span class={styles.fileName}>{file.name}</span>
+                          </div>
+                          <div class={`${styles.tableCell} ${styles.sizeColumn}`}>
+                            {file.type === 'file' ? formatSize(file.size) : '-'}
+                          </div>
                         </div>
-                        <div class={`${styles.tableCell} ${styles.nameColumn}`}>
-                          <span class={styles.fileName}>{file.name}</span>
-                        </div>
-                        <div class={`${styles.tableCell} ${styles.sizeColumn}`}>
-                          {file.type === 'file' ? formatSize(file.size) : '-'}
-                        </div>
-                      </div>
-                    )}
+                      );
+                    }}
                   </For>
                 </Show>
               </div>
@@ -1425,7 +1445,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
               <div class={`${styles.fileList} scroll-standard`} style={{ 'max-height': '120px', 'min-height': 'auto', 'border': '1px solid var(--border)', 'border-radius': '6px', 'padding': '8px' }}>
                 <For each={Array.from(selectedItems()).slice(0, 10)}>
                   {(name) => {
-                    const file = files().find(f => f.name === name);
+                    const file = filesByName().get(name);
                     return (
                       <div style={{ 'display': 'flex', 'align-items': 'center', 'gap': '8px', 'padding': '4px 0', 'font-size': '13px', 'color': 'var(--text)' }}>
                         <span class={`${styles.fileIconWrap} ${styles.previewFileIconWrap}`}>

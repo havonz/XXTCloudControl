@@ -713,13 +713,6 @@ func scanScriptFilesForPackage(scriptRootPath string, scriptName string, isDir b
 	return hex.EncodeToString(signatureHash.Sum(nil)), files, nil
 }
 
-// buildScriptSourceSignature computes a content signature using relative path + size + mtime.
-// It avoids reading full file contents, and is used for cache invalidation.
-func buildScriptSourceSignature(scriptRootPath string, isDir bool) (string, error) {
-	signature, _, err := scanScriptFilesForPackage(scriptRootPath, "", isDir, false)
-	return signature, err
-}
-
 func collectScannedScriptFiles(scannedFiles []scriptFileData) ([]scriptFileData, error) {
 	filesToSend := make([]scriptFileData, len(scannedFiles))
 	copy(filesToSend, scannedFiles)
@@ -813,14 +806,6 @@ func getSelectableScriptPath(basePath string, name string, isDir bool) (string, 
 	return "", false
 }
 
-func collectScriptFiles(scriptRootPath string, scriptName string, isDir bool, isPiled bool) ([]scriptFileData, error) {
-	_, scannedFiles, err := scanScriptFilesForPackage(scriptRootPath, scriptName, isDir, isPiled)
-	if err != nil {
-		return nil, err
-	}
-	return collectScannedScriptFiles(scannedFiles)
-}
-
 func calculateLargeFileMD5(filesToSend []scriptFileData) map[string]md5Result {
 	largeFileMD5 := make(map[string]md5Result)
 	for _, f := range filesToSend {
@@ -861,12 +846,6 @@ func buildFilePutPayload(path string, data string) ([]byte, error) {
 			"data": data,
 		},
 	})
-}
-
-// isSelectableScript checks if a file/directory is a selectable script
-func isSelectableScript(basePath string, name string, isDir bool) bool {
-	_, selectable := getSelectableScriptPath(basePath, name, isDir)
-	return selectable
 }
 
 func resolveEntryIsDir(basePath string, entry os.DirEntry) bool {
@@ -1404,15 +1383,19 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		file      scriptFileData
 		requestID string
 	}
+	largeScriptFiles := make([]scriptFileData, 0, largeFilesCount)
+	for _, f := range filesToSend {
+		if f.Data == "" {
+			largeScriptFiles = append(largeScriptFiles, f)
+		}
+	}
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
-			plannedLargeFetches := make([]plannedLargeFetch, 0, largeFilesCount)
-			for _, f := range filesToSend {
-				if f.Data == "" {
-					plannedLargeFetches = append(plannedLargeFetches, plannedLargeFetch{
-						file:      f,
-						requestID: uuid.New().String(),
-					})
+			plannedLargeFetches := make([]plannedLargeFetch, len(largeScriptFiles))
+			for i, f := range largeScriptFiles {
+				plannedLargeFetches[i] = plannedLargeFetch{
+					file:      f,
+					requestID: uuid.New().String(),
 				}
 			}
 			pendingFetchRequests := make([]pendingScriptFetchRequest, 0, len(plannedLargeFetches))
@@ -1490,8 +1473,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			}
 
 			if len(pendingFetchRequests) > 0 {
-				updateScriptStartSessionPhase(udid, generation, scriptStartPhaseWaitingTransfer, true)
-				if hasPendingScriptStart(udid) {
+				if updateScriptStartSessionPhase(udid, generation, scriptStartPhaseWaitingTransfer, true) {
 					broadcastDeviceMessage(udid, fmt.Sprintf("等待大文件传输完成后启动脚本 (%d)", len(pendingFetchRequests)))
 				}
 				continue

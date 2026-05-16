@@ -92,7 +92,6 @@ export function createGroupStore(): GroupStoreState {
     const map = groupById();
     
     for (const gid of checked) {
-      if (gid === '__all__') continue;
       const group = map.get(gid);
       if (group?.deviceIds) {
         for (const deviceId of group.deviceIds) {

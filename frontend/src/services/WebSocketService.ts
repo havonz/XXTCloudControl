@@ -25,9 +25,6 @@ type RemoteWheelCommandPayload = RemoteWheelSettings & {
 type DeviceLogWatcher = (chunk: string) => void;
 type LastLogUpdateCallback = (udid: string, lastLine: string) => void;
 
-// Pending file list request callback type
-type FileListCallback = (files: Array<{name: string; type: 'file' | 'directory'; size?: number}>) => void;
-
 // Pending request for requestId-based matching
 interface PendingRequest<T = any> {
   resolve: (value: T) => void;
@@ -66,9 +63,6 @@ export class WebSocketService {
   private messageCallbacks: ((message: any) => void)[] = [];
   private deviceCallbacks: ((devices: Device[]) => void)[] = [];
   private authCallbacks: ((success: boolean, error?: string) => void)[] = [];
-  
-  // Pending file list requests by deviceUdid (legacy, kept for compatibility)
-  private pendingFileListCallbacks: Map<string, FileListCallback[]> = new Map();
   
   // Pending requests by requestId for precise request-response matching
   private pendingRequestsById: Map<string, PendingRequest> = new Map();
@@ -804,33 +798,7 @@ export class WebSocketService {
     // 处理文件操作响应
     if (message.type === 'file/list' || message.type === 'file/put' || message.type === 'file/delete') {
       debugLog('ws', '文件操作响应:', message);
-      
-      // 处理 file/list 的异步回调
-      if (message.type === 'file/list' && message.udid) {
-        const callbacks = this.pendingFileListCallbacks.get(message.udid);
-        if (callbacks && callbacks.length > 0) {
-          const callback = callbacks.shift();
-          if (callbacks.length === 0) {
-            this.pendingFileListCallbacks.delete(message.udid);
-          }
-          if (callback) {
-            // 清除超时
-            if ((callback as any)._timeout) {
-              clearTimeout((callback as any)._timeout);
-            }
-            // 转换文件类型
-            const files = (message.body && Array.isArray(message.body)) 
-              ? message.body.map((f: any) => ({
-                  name: f.name,
-                  type: f.type === 'dir' ? 'directory' as const : 'file' as const,
-                  size: f.size
-                }))
-              : [];
-            callback(files);
-          }
-        }
-      }
-      
+
       // 文件操作响应转发给回调处理
       this.notifyMessage(message);
       return;
