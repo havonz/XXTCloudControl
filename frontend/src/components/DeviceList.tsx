@@ -197,6 +197,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
     return deviceControlService;
   };
+
+  onCleanup(() => {
+    deviceControlService?.destroy();
+    deviceControlService = null;
+  });
   
   // Device messages: local immediate write, then backend message overwrites on arrival.
   const [localDeviceMessages, setLocalDeviceMessages] = createSignal<Record<string, string>>({}, { equals: false });
