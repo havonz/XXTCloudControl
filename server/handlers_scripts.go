@@ -599,6 +599,17 @@ func scriptPackageCacheKey(scriptRootPath string, scriptName string, isDir bool,
 	return fmt.Sprintf("%s|%s|%t|%t", scriptRootPath, scriptName, isDir, isPiled)
 }
 
+func appendScriptSourceFile(files []scriptFileData, targetPath string, sourcePath string, size int64) []scriptFileData {
+	normalizedPath := normalizeScriptPath(targetPath)
+	return append(files, scriptFileData{
+		Path:           targetPath,
+		NormalizedPath: normalizedPath,
+		SourcePath:     sourcePath,
+		Size:           size,
+		IsMainJSON:     isMainJSONPath(normalizedPath),
+	})
+}
+
 // walkScriptFiles visits files under scriptRootPath.
 // Directory symlinks are skipped; file symlinks are treated as files (using resolved metadata).
 func walkScriptFiles(scriptRootPath string, visit func(path string, info os.FileInfo) error) error {
@@ -657,24 +668,24 @@ func walkScriptFiles(scriptRootPath string, visit func(path string, info os.File
 	return walkDir(scriptRootPath)
 }
 
-// buildScriptSourceSignature computes a content signature using relative path + size + mtime.
-// It avoids reading full file contents, and is used for cache invalidation.
-func buildScriptSourceSignature(scriptRootPath string, isDir bool) (string, error) {
+func scanScriptFilesForPackage(scriptRootPath string, scriptName string, isDir bool, isPiled bool) (string, []scriptFileData, error) {
 	signatureHash := sha256.New()
 	writePart := func(value string) {
 		_, _ = signatureHash.Write([]byte(value))
 		_, _ = signatureHash.Write([]byte{0})
 	}
 
+	files := make([]scriptFileData, 0)
 	if !isDir {
 		info, err := os.Stat(scriptRootPath)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		writePart("file")
 		writePart(strconv.FormatInt(info.Size(), 10))
 		writePart(strconv.FormatInt(info.ModTime().UnixNano(), 10))
-		return hex.EncodeToString(signatureHash.Sum(nil)), nil
+		files = appendScriptSourceFile(files, "lua/scripts/"+scriptName, scriptRootPath, info.Size())
+		return hex.EncodeToString(signatureHash.Sum(nil)), files, nil
 	}
 
 	walkErr := walkScriptFiles(scriptRootPath, func(path string, info os.FileInfo) error {
@@ -682,16 +693,48 @@ func buildScriptSourceSignature(scriptRootPath string, isDir bool) (string, erro
 		if relErr != nil {
 			return relErr
 		}
-		writePart(normalizeScriptPath(relPath))
+		normalizedRelPath := normalizeScriptPath(relPath)
+		writePart(normalizedRelPath)
 		writePart(strconv.FormatInt(info.Size(), 10))
 		writePart(strconv.FormatInt(info.ModTime().UnixNano(), 10))
+
+		targetPath := normalizedRelPath
+		if !isPiled {
+			targetPath = "lua/scripts/" + scriptName + "/" + normalizedRelPath
+		}
+
+		files = appendScriptSourceFile(files, targetPath, path, info.Size())
 		return nil
 	})
 	if walkErr != nil {
-		return "", walkErr
+		return "", nil, walkErr
 	}
 
-	return hex.EncodeToString(signatureHash.Sum(nil)), nil
+	return hex.EncodeToString(signatureHash.Sum(nil)), files, nil
+}
+
+// buildScriptSourceSignature computes a content signature using relative path + size + mtime.
+// It avoids reading full file contents, and is used for cache invalidation.
+func buildScriptSourceSignature(scriptRootPath string, isDir bool) (string, error) {
+	signature, _, err := scanScriptFilesForPackage(scriptRootPath, "", isDir, false)
+	return signature, err
+}
+
+func collectScannedScriptFiles(scannedFiles []scriptFileData) ([]scriptFileData, error) {
+	filesToSend := make([]scriptFileData, len(scannedFiles))
+	copy(filesToSend, scannedFiles)
+	for i := range filesToSend {
+		if filesToSend[i].Size >= scriptLargeFileThreshold {
+			continue
+		}
+
+		content, err := os.ReadFile(filesToSend[i].SourcePath)
+		if err != nil {
+			return nil, err
+		}
+		filesToSend[i].Data = base64.StdEncoding.EncodeToString(content)
+	}
+	return filesToSend, nil
 }
 
 func trimScriptPackageCacheLocked() {
@@ -712,7 +755,7 @@ func trimScriptPackageCacheLocked() {
 }
 
 func collectScriptFilesCached(scriptRootPath string, scriptName string, isDir bool, isPiled bool) ([]scriptFileData, error) {
-	signature, err := buildScriptSourceSignature(scriptRootPath, isDir)
+	signature, scannedFiles, err := scanScriptFilesForPackage(scriptRootPath, scriptName, isDir, isPiled)
 	if err != nil {
 		return nil, err
 	}
@@ -725,7 +768,7 @@ func collectScriptFilesCached(scriptRootPath string, scriptName string, isDir bo
 		return cloneScriptFileDataSlice(entry.files), nil
 	}
 
-	filesToSend, err := collectScriptFiles(scriptRootPath, scriptName, isDir, isPiled)
+	filesToSend, err := collectScannedScriptFiles(scannedFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -771,64 +814,11 @@ func getSelectableScriptPath(basePath string, name string, isDir bool) (string, 
 }
 
 func collectScriptFiles(scriptRootPath string, scriptName string, isDir bool, isPiled bool) ([]scriptFileData, error) {
-	filesToSend := make([]scriptFileData, 0)
-
-	appendFile := func(targetPath string, sourcePath string, size int64, encodedData string) {
-		normalizedPath := normalizeScriptPath(targetPath)
-		filesToSend = append(filesToSend, scriptFileData{
-			Path:           targetPath,
-			NormalizedPath: normalizedPath,
-			SourcePath:     sourcePath,
-			Data:           encodedData,
-			Size:           size,
-			IsMainJSON:     isMainJSONPath(normalizedPath),
-		})
+	_, scannedFiles, err := scanScriptFilesForPackage(scriptRootPath, scriptName, isDir, isPiled)
+	if err != nil {
+		return nil, err
 	}
-
-	if !isDir {
-		content, err := os.ReadFile(scriptRootPath)
-		if err != nil {
-			return nil, err
-		}
-
-		fileSize := int64(len(content))
-		encodedData := ""
-		if fileSize < scriptLargeFileThreshold {
-			encodedData = base64.StdEncoding.EncodeToString(content)
-		}
-
-		appendFile("lua/scripts/"+scriptName, scriptRootPath, fileSize, encodedData)
-		return filesToSend, nil
-	}
-
-	walkErr := walkScriptFiles(scriptRootPath, func(path string, info os.FileInfo) error {
-		relPath, _ := filepath.Rel(scriptRootPath, path)
-		normalizedRelPath := normalizeScriptPath(relPath)
-
-		targetPath := normalizedRelPath
-		if !isPiled {
-			targetPath = "lua/scripts/" + scriptName + "/" + normalizedRelPath
-		}
-
-		fileSize := info.Size()
-		encodedData := ""
-		if fileSize < scriptLargeFileThreshold {
-			content, readErr := os.ReadFile(path)
-			if readErr != nil {
-				return readErr
-			}
-			encodedData = base64.StdEncoding.EncodeToString(content)
-		}
-
-		appendFile(targetPath, path, fileSize, encodedData)
-		return nil
-	})
-
-	if walkErr != nil {
-		return nil, walkErr
-	}
-
-	return filesToSend, nil
+	return collectScannedScriptFiles(scannedFiles)
 }
 
 func calculateLargeFileMD5(filesToSend []scriptFileData) map[string]md5Result {

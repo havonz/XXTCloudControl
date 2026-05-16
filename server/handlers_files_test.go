@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -58,6 +59,34 @@ func performJSONHandlerRequest(t *testing.T, method, target string, payload any,
 	}
 	handler(c)
 	return w
+}
+
+type serverFilesBatchTestResponse struct {
+	Success      bool     `json:"success"`
+	SuccessCount int      `json:"successCount"`
+	TotalCount   int      `json:"totalCount"`
+	Errors       []string `json:"errors"`
+}
+
+func decodeServerFilesBatchTestResponse(t *testing.T, w *httptest.ResponseRecorder) serverFilesBatchTestResponse {
+	t.Helper()
+
+	var resp serverFilesBatchTestResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode batch response: %v", err)
+	}
+	return resp
+}
+
+func requireBatchErrorContains(t *testing.T, errors []string, needle string) {
+	t.Helper()
+
+	for _, msg := range errors {
+		if strings.Contains(msg, needle) {
+			return
+		}
+	}
+	t.Fatalf("expected batch error containing %q, got %v", needle, errors)
 }
 
 func TestServerFilesListHandler_MetaParam(t *testing.T) {
@@ -641,19 +670,14 @@ func TestServerFilesBatchCopyHandler_RejectsTraversalItem(t *testing.T) {
 		t.Fatalf("unexpected status: %d", w.Code)
 	}
 
-	var resp struct {
-		SuccessCount int      `json:"successCount"`
-		Errors       []string `json:"errors"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	resp := decodeServerFilesBatchTestResponse(t, w)
 	if resp.SuccessCount != 0 {
 		t.Fatalf("expected no copied files, got %d", resp.SuccessCount)
 	}
 	if len(resp.Errors) == 0 {
 		t.Fatalf("expected traversal errors")
 	}
+	requireBatchErrorContains(t, resp.Errors, "traversal")
 
 	dstPath := filepath.Join(dataDir, "files", "scripts2", "leak.txt")
 	if _, err := os.Stat(dstPath); !os.IsNotExist(err) {
@@ -704,19 +728,14 @@ func TestServerFilesBatchMoveHandler_RejectsTraversalItem(t *testing.T) {
 		t.Fatalf("unexpected status: %d", w.Code)
 	}
 
-	var resp struct {
-		SuccessCount int      `json:"successCount"`
-		Errors       []string `json:"errors"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	resp := decodeServerFilesBatchTestResponse(t, w)
 	if resp.SuccessCount != 0 {
 		t.Fatalf("expected no moved files, got %d", resp.SuccessCount)
 	}
 	if len(resp.Errors) == 0 {
 		t.Fatalf("expected traversal errors")
 	}
+	requireBatchErrorContains(t, resp.Errors, "traversal")
 
 	after, err := os.ReadFile(leakPath)
 	if err != nil {
@@ -967,6 +986,137 @@ func TestServerFilesBatchCopyHandler_PartialSuccess(t *testing.T) {
 	copiedOk := filepath.Join(dataDir, "files", "ok.txt")
 	if _, err := os.Stat(copiedOk); err != nil {
 		t.Fatalf("expected ok item to be copied: %v", err)
+	}
+}
+
+func TestServerFilesBatchMoveHandler_PartialSuccess(t *testing.T) {
+	dataDir := setupFileHandlersTestDataDir(t)
+
+	okFile := filepath.Join(dataDir, "scripts", "ok-move.txt")
+	content := []byte("ok-move")
+	if err := os.WriteFile(okFile, content, 0o644); err != nil {
+		t.Fatalf("write ok move file: %v", err)
+	}
+
+	siblingDir := filepath.Join(dataDir, "scripts2")
+	if err := os.MkdirAll(siblingDir, 0o755); err != nil {
+		t.Fatalf("mkdir sibling dir: %v", err)
+	}
+	evilFile := filepath.Join(siblingDir, "evil.txt")
+	evilContent := []byte("evil")
+	if err := os.WriteFile(evilFile, evilContent, 0o644); err != nil {
+		t.Fatalf("write traversal source: %v", err)
+	}
+
+	payload := map[string]any{
+		"srcCategory": "scripts",
+		"dstCategory": "files",
+		"items":       []string{"ok-move.txt", "missing.txt", "../scripts2/evil.txt"},
+		"srcPath":     "",
+		"dstPath":     "",
+	}
+	w := performJSONHandlerRequest(t, "POST", "/api/server-files/batch-move", payload, serverFilesBatchMoveHandler)
+	if w.Code != http.StatusOK {
+		t.Fatalf("move status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	resp := decodeServerFilesBatchTestResponse(t, w)
+	if resp.Success {
+		t.Fatalf("expected partial failure")
+	}
+	if resp.SuccessCount != 1 || resp.TotalCount != 3 {
+		t.Fatalf("unexpected counts: success=%d total=%d", resp.SuccessCount, resp.TotalCount)
+	}
+	if len(resp.Errors) != 2 {
+		t.Fatalf("expected 2 errors, got %d (%v)", len(resp.Errors), resp.Errors)
+	}
+	requireBatchErrorContains(t, resp.Errors, "not found")
+	requireBatchErrorContains(t, resp.Errors, "traversal")
+
+	if _, err := os.Stat(okFile); !os.IsNotExist(err) {
+		t.Fatalf("expected moved source to be removed")
+	}
+	movedOk := filepath.Join(dataDir, "files", "ok-move.txt")
+	got, err := os.ReadFile(movedOk)
+	if err != nil {
+		t.Fatalf("expected ok item to be moved: %v", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Fatalf("moved content mismatch")
+	}
+	evilAfter, err := os.ReadFile(evilFile)
+	if err != nil {
+		t.Fatalf("traversal source should remain: %v", err)
+	}
+	if !bytes.Equal(evilAfter, evilContent) {
+		t.Fatalf("traversal source content changed unexpectedly")
+	}
+}
+
+func TestServerFilesBatchHandlers_TargetExists(t *testing.T) {
+	cases := []struct {
+		name    string
+		target  string
+		handler func(*gin.Context)
+	}{
+		{
+			name:    "copy",
+			target:  "/api/server-files/batch-copy",
+			handler: serverFilesBatchCopyHandler,
+		},
+		{
+			name:    "move",
+			target:  "/api/server-files/batch-move",
+			handler: serverFilesBatchMoveHandler,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dataDir := setupFileHandlersTestDataDir(t)
+
+			srcFile := filepath.Join(dataDir, "scripts", "exists.txt")
+			if err := os.WriteFile(srcFile, []byte("source"), 0o644); err != nil {
+				t.Fatalf("write source file: %v", err)
+			}
+			dstFile := filepath.Join(dataDir, "files", "exists.txt")
+			dstContent := []byte("destination")
+			if err := os.WriteFile(dstFile, dstContent, 0o644); err != nil {
+				t.Fatalf("write destination file: %v", err)
+			}
+
+			payload := map[string]any{
+				"srcCategory": "scripts",
+				"dstCategory": "files",
+				"items":       []string{"exists.txt"},
+				"srcPath":     "",
+				"dstPath":     "",
+			}
+			w := performJSONHandlerRequest(t, "POST", tc.target, payload, tc.handler)
+			if w.Code != http.StatusOK {
+				t.Fatalf("%s status=%d body=%s", tc.name, w.Code, w.Body.String())
+			}
+
+			resp := decodeServerFilesBatchTestResponse(t, w)
+			if resp.Success {
+				t.Fatalf("expected target exists failure")
+			}
+			if resp.SuccessCount != 0 || resp.TotalCount != 1 {
+				t.Fatalf("unexpected counts: success=%d total=%d", resp.SuccessCount, resp.TotalCount)
+			}
+			requireBatchErrorContains(t, resp.Errors, "already exists at destination")
+
+			if _, err := os.Stat(srcFile); err != nil {
+				t.Fatalf("source should remain after target exists failure: %v", err)
+			}
+			gotDst, err := os.ReadFile(dstFile)
+			if err != nil {
+				t.Fatalf("destination should remain after target exists failure: %v", err)
+			}
+			if !bytes.Equal(gotDst, dstContent) {
+				t.Fatalf("destination content changed unexpectedly: %q", string(gotDst))
+			}
+		})
 	}
 }
 

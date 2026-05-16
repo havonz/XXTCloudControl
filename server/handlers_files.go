@@ -793,28 +793,42 @@ func copyFile(src, dst string) error {
 	return os.Chmod(dst, srcInfo.Mode())
 }
 
-// serverFilesBatchCopyHandler handles POST /api/server-files/batch-copy
-func serverFilesBatchCopyHandler(c *gin.Context) {
-	var req struct {
-		Category    string   `json:"category"`    // Deprecated: for backwards compatibility
-		SrcCategory string   `json:"srcCategory"` // Source category (scripts/files/reports)
-		DstCategory string   `json:"dstCategory"` // Destination category
-		Items       []string `json:"items"`       // Items to copy (relative paths in source)
-		SrcPath     string   `json:"srcPath"`     // Source directory
-		DstPath     string   `json:"dstPath"`     // Destination directory
-	}
+type serverFilesBatchRequest struct {
+	Category    string   `json:"category"`
+	SrcCategory string   `json:"srcCategory"`
+	DstCategory string   `json:"dstCategory"`
+	Items       []string `json:"items"`
+	SrcPath     string   `json:"srcPath"`
+	DstPath     string   `json:"dstPath"`
+}
 
+type serverFilesBatchContext struct {
+	req           serverFilesBatchRequest
+	srcCategory   string
+	dstCategory   string
+	srcDir        string
+	dstDir        string
+	absSrcBaseDir string
+	absDstBaseDir string
+}
+
+type serverFilesBatchItem struct {
+	srcPath string
+	dstPath string
+}
+
+func resolveServerFilesBatchContext(c *gin.Context, action string) (serverFilesBatchContext, bool) {
+	var req serverFilesBatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
-		return
+		return serverFilesBatchContext{}, false
 	}
 
 	if len(req.Items) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no items to copy"})
-		return
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no items to " + action})
+		return serverFilesBatchContext{}, false
 	}
 
-	// Support both old (category) and new (srcCategory/dstCategory) API
 	srcCategory := req.SrcCategory
 	dstCategory := req.DstCategory
 	if srcCategory == "" {
@@ -827,85 +841,92 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 	srcDir, err := validatePath(srcCategory, req.SrcPath)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+		return serverFilesBatchContext{}, false
 	}
 
 	dstDir, err := validatePath(dstCategory, req.DstPath)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+		return serverFilesBatchContext{}, false
 	}
 
-	// Ensure destination directory exists
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create destination directory"})
-		return
+		return serverFilesBatchContext{}, false
 	}
 
-	srcBaseDir := filepath.Join(serverConfig.DataDir, srcCategory)
-	absSrcBaseDir, err := filepath.Abs(srcBaseDir)
+	absSrcBaseDir, err := filepath.Abs(filepath.Join(serverConfig.DataDir, srcCategory))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve source base path"})
-		return
+		return serverFilesBatchContext{}, false
 	}
-	dstBaseDir := filepath.Join(serverConfig.DataDir, dstCategory)
-	absDstBaseDir, err := filepath.Abs(dstBaseDir)
+	absDstBaseDir, err := filepath.Abs(filepath.Join(serverConfig.DataDir, dstCategory))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve destination base path"})
-		return
+		return serverFilesBatchContext{}, false
 	}
 
+	return serverFilesBatchContext{
+		req:           req,
+		srcCategory:   srcCategory,
+		dstCategory:   dstCategory,
+		srcDir:        srcDir,
+		dstDir:        dstDir,
+		absSrcBaseDir: absSrcBaseDir,
+		absDstBaseDir: absDstBaseDir,
+	}, true
+}
+
+func prepareServerFilesBatchItem(ctx serverFilesBatchContext, item string) (serverFilesBatchItem, error) {
+	cleanItem, err := sanitizeRelativeItemPath(item)
+	if err != nil {
+		return serverFilesBatchItem{}, err
+	}
+
+	srcPath := filepath.Join(ctx.srcDir, cleanItem)
+	dstPath := filepath.Join(ctx.dstDir, cleanItem)
+
+	absSrcPath, err := filepath.Abs(srcPath)
+	if err != nil {
+		return serverFilesBatchItem{}, fmt.Errorf("failed to resolve source path")
+	}
+	if !isPathWithinAbsBase(ctx.absSrcBaseDir, absSrcPath) {
+		return serverFilesBatchItem{}, fmt.Errorf("source path traversal detected")
+	}
+
+	absDstPath, err := filepath.Abs(dstPath)
+	if err != nil {
+		return serverFilesBatchItem{}, fmt.Errorf("failed to resolve destination path")
+	}
+	if !isPathWithinAbsBase(ctx.absDstBaseDir, absDstPath) {
+		return serverFilesBatchItem{}, fmt.Errorf("destination path traversal detected")
+	}
+
+	if _, err := os.Lstat(srcPath); os.IsNotExist(err) {
+		return serverFilesBatchItem{}, fmt.Errorf("not found")
+	} else if err != nil {
+		return serverFilesBatchItem{}, err
+	}
+
+	if _, err := os.Lstat(dstPath); !os.IsNotExist(err) {
+		return serverFilesBatchItem{}, fmt.Errorf("already exists at destination")
+	}
+
+	return serverFilesBatchItem{srcPath: srcPath, dstPath: dstPath}, nil
+}
+
+func runServerFilesBatch(ctx serverFilesBatchContext, operate func(serverFilesBatchItem) error) (int, []string) {
 	successCount := 0
 	var errors []string
 
-	for _, item := range req.Items {
-		cleanItem, cleanErr := sanitizeRelativeItemPath(item)
-		if cleanErr != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", item, cleanErr))
-			continue
-		}
-		srcPath := filepath.Join(srcDir, cleanItem)
-		dstPath := filepath.Join(dstDir, cleanItem)
-
-		// Validate source path doesn't escape
-		absSrcPath, err := filepath.Abs(srcPath)
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: failed to resolve source path", item))
-			continue
-		}
-		if !isPathWithinAbsBase(absSrcBaseDir, absSrcPath) {
-			errors = append(errors, fmt.Sprintf("%s: source path traversal detected", item))
-			continue
-		}
-
-		// Validate destination path doesn't escape
-		absDstPath, err := filepath.Abs(dstPath)
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: failed to resolve destination path", item))
-			continue
-		}
-		if !isPathWithinAbsBase(absDstBaseDir, absDstPath) {
-			errors = append(errors, fmt.Sprintf("%s: destination path traversal detected", item))
-			continue
-		}
-
-		_, err = os.Lstat(srcPath)
-		if os.IsNotExist(err) {
-			errors = append(errors, fmt.Sprintf("%s: not found", item))
-			continue
-		}
+	for _, item := range ctx.req.Items {
+		batchItem, err := prepareServerFilesBatchItem(ctx, item)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", item, err))
 			continue
 		}
 
-		// Check if destination already exists
-		if _, err := os.Lstat(dstPath); !os.IsNotExist(err) {
-			errors = append(errors, fmt.Sprintf("%s: already exists at destination", item))
-			continue
-		}
-
-		if err := copyPathPreserveSymlink(srcPath, dstPath); err != nil {
+		if err := operate(batchItem); err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", item, err))
 			continue
 		}
@@ -913,172 +934,82 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 		successCount++
 	}
 
-	debugLogf("📋 Batch copy: %d/%d items copied from %s/%s to %s/%s", successCount, len(req.Items), srcCategory, req.SrcPath, dstCategory, req.DstPath)
+	return successCount, errors
+}
 
+func respondServerFilesBatch(c *gin.Context, totalCount, successCount int, errors []string) {
 	c.JSON(http.StatusOK, gin.H{
-		"success":      successCount == len(req.Items),
+		"success":      successCount == totalCount,
 		"successCount": successCount,
-		"totalCount":   len(req.Items),
+		"totalCount":   totalCount,
 		"errors":       errors,
 	})
 }
 
+func copyServerFilesBatchItem(item serverFilesBatchItem) error {
+	return copyPathPreserveSymlink(item.srcPath, item.dstPath)
+}
+
+func moveServerFilesBatchItem(item serverFilesBatchItem) error {
+	if err := os.Rename(item.srcPath, item.dstPath); err != nil {
+		return movePathPreserveSymlink(item.srcPath, item.dstPath, err)
+	}
+	return nil
+}
+
+func movePathPreserveSymlink(srcPath, dstPath string, renameErr error) error {
+	srcInfo, statErr := os.Lstat(srcPath)
+	if os.IsNotExist(statErr) {
+		return fmt.Errorf("not found")
+	}
+	if statErr != nil {
+		return renameErr
+	}
+	if copyErr := copyPathPreserveSymlink(srcPath, dstPath); copyErr != nil {
+		return copyErr
+	}
+
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		if removeErr := os.Remove(srcPath); removeErr != nil {
+			return fmt.Errorf("failed to remove source symlink: %v", removeErr)
+		}
+	} else if srcInfo.IsDir() {
+		if removeErr := os.RemoveAll(srcPath); removeErr != nil {
+			return fmt.Errorf("failed to remove source directory: %v", removeErr)
+		}
+	} else {
+		if removeErr := os.Remove(srcPath); removeErr != nil {
+			return fmt.Errorf("failed to remove source file: %v", removeErr)
+		}
+	}
+
+	return nil
+}
+
+// serverFilesBatchCopyHandler handles POST /api/server-files/batch-copy
+func serverFilesBatchCopyHandler(c *gin.Context) {
+	ctx, ok := resolveServerFilesBatchContext(c, "copy")
+	if !ok {
+		return
+	}
+
+	successCount, errors := runServerFilesBatch(ctx, copyServerFilesBatchItem)
+
+	debugLogf("📋 Batch copy: %d/%d items copied from %s/%s to %s/%s", successCount, len(ctx.req.Items), ctx.srcCategory, ctx.req.SrcPath, ctx.dstCategory, ctx.req.DstPath)
+
+	respondServerFilesBatch(c, len(ctx.req.Items), successCount, errors)
+}
+
 // serverFilesBatchMoveHandler handles POST /api/server-files/batch-move
 func serverFilesBatchMoveHandler(c *gin.Context) {
-	var req struct {
-		Category    string   `json:"category"`    // Deprecated: for backwards compatibility
-		SrcCategory string   `json:"srcCategory"` // Source category (scripts/files/reports)
-		DstCategory string   `json:"dstCategory"` // Destination category
-		Items       []string `json:"items"`       // Items to move (relative paths in source)
-		SrcPath     string   `json:"srcPath"`     // Source directory
-		DstPath     string   `json:"dstPath"`     // Destination directory
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	ctx, ok := resolveServerFilesBatchContext(c, "move")
+	if !ok {
 		return
 	}
 
-	if len(req.Items) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no items to move"})
-		return
-	}
+	successCount, errors := runServerFilesBatch(ctx, moveServerFilesBatchItem)
 
-	// Support both old (category) and new (srcCategory/dstCategory) API
-	srcCategory := req.SrcCategory
-	dstCategory := req.DstCategory
-	if srcCategory == "" {
-		srcCategory = req.Category
-	}
-	if dstCategory == "" {
-		dstCategory = req.Category
-	}
+	debugLogf("✂️ Batch move: %d/%d items moved from %s/%s to %s/%s", successCount, len(ctx.req.Items), ctx.srcCategory, ctx.req.SrcPath, ctx.dstCategory, ctx.req.DstPath)
 
-	srcDir, err := validatePath(srcCategory, req.SrcPath)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	dstDir, err := validatePath(dstCategory, req.DstPath)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Ensure destination directory exists
-	if err := os.MkdirAll(dstDir, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create destination directory"})
-		return
-	}
-
-	srcBaseDir := filepath.Join(serverConfig.DataDir, srcCategory)
-	absSrcBaseDir, err := filepath.Abs(srcBaseDir)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve source base path"})
-		return
-	}
-	dstBaseDir := filepath.Join(serverConfig.DataDir, dstCategory)
-	absDstBaseDir, err := filepath.Abs(dstBaseDir)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve destination base path"})
-		return
-	}
-
-	successCount := 0
-	var errors []string
-
-	for _, item := range req.Items {
-		cleanItem, cleanErr := sanitizeRelativeItemPath(item)
-		if cleanErr != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", item, cleanErr))
-			continue
-		}
-		srcPath := filepath.Join(srcDir, cleanItem)
-		dstPath := filepath.Join(dstDir, cleanItem)
-
-		// Validate source path doesn't escape
-		absSrcPath, err := filepath.Abs(srcPath)
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: failed to resolve source path", item))
-			continue
-		}
-		if !isPathWithinAbsBase(absSrcBaseDir, absSrcPath) {
-			errors = append(errors, fmt.Sprintf("%s: source path traversal detected", item))
-			continue
-		}
-
-		// Validate destination path doesn't escape
-		absDstPath, err := filepath.Abs(dstPath)
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: failed to resolve destination path", item))
-			continue
-		}
-		if !isPathWithinAbsBase(absDstBaseDir, absDstPath) {
-			errors = append(errors, fmt.Sprintf("%s: destination path traversal detected", item))
-			continue
-		}
-
-		_, err = os.Lstat(srcPath)
-		if os.IsNotExist(err) {
-			errors = append(errors, fmt.Sprintf("%s: not found", item))
-			continue
-		}
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", item, err))
-			continue
-		}
-
-		// Check if destination already exists
-		if _, err := os.Lstat(dstPath); !os.IsNotExist(err) {
-			errors = append(errors, fmt.Sprintf("%s: already exists at destination", item))
-			continue
-		}
-
-		// Move the file/directory (use copy+delete for cross-filesystem moves)
-		if err := os.Rename(srcPath, dstPath); err != nil {
-			// os.Rename may fail across filesystems, so try copy+delete while preserving symlinks.
-			srcInfo, statErr := os.Lstat(srcPath)
-			if os.IsNotExist(statErr) {
-				errors = append(errors, fmt.Sprintf("%s: not found", item))
-				continue
-			}
-			if statErr != nil {
-				errors = append(errors, fmt.Sprintf("%s: %v", item, err))
-				continue
-			}
-			if copyErr := copyPathPreserveSymlink(srcPath, dstPath); copyErr != nil {
-				errors = append(errors, fmt.Sprintf("%s: %v", item, copyErr))
-				continue
-			}
-			// Remove source after successful copy.
-			if srcInfo.Mode()&os.ModeSymlink != 0 {
-				if removeErr := os.Remove(srcPath); removeErr != nil {
-					errors = append(errors, fmt.Sprintf("%s: failed to remove source symlink: %v", item, removeErr))
-					continue
-				}
-			} else if srcInfo.IsDir() {
-				if removeErr := os.RemoveAll(srcPath); removeErr != nil {
-					errors = append(errors, fmt.Sprintf("%s: failed to remove source directory: %v", item, removeErr))
-					continue
-				}
-			} else {
-				if removeErr := os.Remove(srcPath); removeErr != nil {
-					errors = append(errors, fmt.Sprintf("%s: failed to remove source file: %v", item, removeErr))
-					continue
-				}
-			}
-		}
-
-		successCount++
-	}
-
-	debugLogf("✂️ Batch move: %d/%d items moved from %s/%s to %s/%s", successCount, len(req.Items), srcCategory, req.SrcPath, dstCategory, req.DstPath)
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":      successCount == len(req.Items),
-		"successCount": successCount,
-		"totalCount":   len(req.Items),
-		"errors":       errors,
-	})
+	respondServerFilesBatch(c, len(ctx.req.Items), successCount, errors)
 }

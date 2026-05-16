@@ -333,8 +333,6 @@ const LoginForm: Component<LoginFormProps> = (props) => {
         }
         
         setValidationError('');
-        // 传递特殊标记表示使用存储的passhash
-        console.log('使用存储的passhash登录:', storedPasswordHash);
         props.onLogin({ ...credentials, password: `__STORED_PASSHASH__${storedPasswordHash}` });
         return;
       }

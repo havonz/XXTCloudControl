@@ -59,6 +59,8 @@ export class WebSocketService {
   private maxReconnectAttempts = 5;
   private reconnectInterval = 3000;
   private reconnectTimer: number | null = null;
+  private authTimeoutTimer: number | null = null;
+  private authAttemptToken = 0;
   private shouldReconnect = true;
   private statusCallbacks: ((status: ConnectionStatus) => void)[] = [];
   private messageCallbacks: ((message: any) => void)[] = [];
@@ -108,22 +110,10 @@ export class WebSocketService {
         this.reconnectAttempts = 0;
         this.notifyStatusChange('connected');
         
-        // 连接成功后，立即发送设备列表请求来验证认证
-        this.isAuthenticating = true;
-        this.hasReceivedDeviceList = false;
+        this.beginAuthentication();
         
         // 立即发送设备列表请求
         this.requestDeviceList();
-        
-        // 设置超时，如果5秒内没有收到设备列表响应，认为认证失败
-        setTimeout(() => {
-          if (this.isAuthenticating && !this.hasReceivedDeviceList) {
-
-            this.isAuthenticating = false;
-            this.notifyAuthResult(false, '认证超时，请检查密码是否正确');
-            this.disconnect();
-          }
-        }, 5000);
       };
 
       this.ws.onmessage = (event) => {
@@ -140,9 +130,11 @@ export class WebSocketService {
       this.ws.onclose = (event) => {
 
         this.notifyStatusChange('disconnected');
+        this.rejectPendingRequests(new Error('WebSocket连接已断开'));
         
         // 如果在认证期间被关闭，认为是密码错误或连接被拒绝
         if (this.isAuthenticating) {
+          this.clearAuthTimeout();
           this.isAuthenticating = false;
           
           // 如果是首次登录且未收到设备列表响应，清除密码并踢回登录界面
@@ -168,8 +160,10 @@ export class WebSocketService {
       this.ws.onerror = (error) => {
         console.error('WebSocket 错误:', error);
         this.notifyStatusChange('disconnected');
+        this.rejectPendingRequests(new Error('WebSocket连接错误'));
         
         if (this.isAuthenticating) {
+          this.clearAuthTimeout();
           this.isAuthenticating = false;
           this.notifyAuthResult(false, '连接失败');
         }
@@ -178,7 +172,9 @@ export class WebSocketService {
     } catch (error) {
       console.error('WebSocket 连接失败:', error);
       this.notifyStatusChange('disconnected');
+      this.rejectPendingRequests(new Error('WebSocket连接失败'));
       if (this.isAuthenticating) {
+        this.clearAuthTimeout();
         this.isAuthenticating = false;
         this.notifyAuthResult(false, '连接失败');
       }
@@ -192,6 +188,10 @@ export class WebSocketService {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.authAttemptToken++;
+    this.clearAuthTimeout();
+    this.isAuthenticating = false;
+    this.rejectPendingRequests(new Error('WebSocket已断开连接'));
     if (this.ws) {
       this.ws.close(1000, 'User disconnected');
       this.ws = null;
@@ -201,6 +201,44 @@ export class WebSocketService {
     this.deviceIndexByUdid.clear();
     this.clearDeviceUpdateTimer();
     this.notifyDeviceUpdate([]);
+  }
+
+  private beginAuthentication(): void {
+    this.authAttemptToken++;
+    const token = this.authAttemptToken;
+
+    this.isAuthenticating = true;
+    this.hasReceivedDeviceList = false;
+    this.clearAuthTimeout();
+
+    // 认证结果只以本次连接的设备列表响应为准，避免旧计时器影响新连接。
+    this.authTimeoutTimer = window.setTimeout(() => {
+      this.authTimeoutTimer = null;
+      if (token !== this.authAttemptToken) {
+        return;
+      }
+
+      if (this.isAuthenticating && !this.hasReceivedDeviceList) {
+        this.isAuthenticating = false;
+        this.notifyAuthResult(false, '认证超时，请检查密码是否正确');
+        this.disconnect();
+      }
+    }, 5000);
+  }
+
+  private clearAuthTimeout(): void {
+    if (this.authTimeoutTimer) {
+      clearTimeout(this.authTimeoutTimer);
+      this.authTimeoutTimer = null;
+    }
+  }
+
+  private rejectPendingRequests(reason: Error): void {
+    for (const [, pending] of this.pendingRequestsById) {
+      clearTimeout(pending.timeout);
+      pending.reject(reason);
+    }
+    this.pendingRequestsById.clear();
   }
 
   send(message: string | object): boolean {
@@ -734,6 +772,7 @@ export class WebSocketService {
       // 如果正在认证中，认为认证成功
       if (this.isAuthenticating) {
         debugLog('ws', '认证成功，收到设备列表响应');
+        this.clearAuthTimeout();
         this.isAuthenticating = false;
         this.isInitialLogin = false; // 标记为非首次登录
         this.notifyAuthResult(true);

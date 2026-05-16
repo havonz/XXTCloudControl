@@ -711,21 +711,6 @@ const App: Component = () => {
     }
   };
 
-  const handleRespring = () => {
-    if (wsService) {
-      wsService.disconnect();
-      wsService = null;
-    }
-    pendingFileGets.clear();
-    pendingLargeDownloads.clear();
-    
-    setIsAuthenticated(false);
-    setDevices([]);
-    setSelectedDevices([]);
-    setLoginError('');
-    authService.respring();
-  };
-
   const handleDeviceSelect = (devices: Device[]) => {
     setSelectedDevices(devices);
 
@@ -895,40 +880,6 @@ const App: Component = () => {
     } else {
       console.warn('WebSocket服务未连接');
     }
-  };
-
-  // 处理读取剪贴板
-  const handleReadClipboard = () => {
-    if (!wsService) {
-      console.warn('WebSocket服务未连接');
-      return;
-    }
-
-    if (selectedDevices().length === 0) {
-      console.warn('未选择设备');
-      return;
-    }
-
-    const deviceUdids = selectedDevices().map(device => device.udid);
-    wsService.readClipboard(deviceUdids);
-
-  };
-
-  // 处理写入剪贴板
-  const handleWriteClipboard = (uti: string, data: string) => {
-    if (!wsService) {
-      console.warn('WebSocket服务未连接');
-      return;
-    }
-
-    if (selectedDevices().length === 0) {
-      console.warn('未选择设备');
-      return;
-    }
-
-    const deviceUdids = selectedDevices().map(device => device.udid);
-    wsService.writeClipboard(deviceUdids, uti, data);
-
   };
 
   // File browser handlers
@@ -1280,21 +1231,16 @@ const App: Component = () => {
               devices={filteredDevices()}
               onDeviceSelect={handleDeviceSelect}
               selectedDevices={selectedDevices}
-              onRespring={handleRespring}
               onRefresh={handleRefreshDevices}
               onStartScript={handleStartScript}
               onStopScript={handleStopScript}
               onRespringDevices={handleRespringDevices}
               onUploadFiles={handleUploadFiles}
               onOpenFileBrowser={handleOpenFileBrowser}
-              onReadClipboard={handleReadClipboard}
-              onWriteClipboard={handleWriteClipboard}
               webSocketService={wsService}
               isLoading={isLoadingDevices()}
               serverHost={serverHost()}
               serverPort={serverPort()}
-              checkedGroups={groupStore.checkedGroups}
-              getPreferredGroupScript={groupStore.getPreferredGroupScript}
               getGroupedDevicesForLaunch={groupStore.getGroupedDevicesForLaunch}
               onOpenAddToGroupModal={() => setShowAddToGroupModal(true)}
               isMobileMenuOpen={isMobileMenuOpen()}

@@ -4,7 +4,7 @@
  */
 
 import type { WebSocketService } from './WebSocketService';
-import { AuthService } from './AuthService';
+import { ControlHttpClient } from './ControlHttpClient';
 import { debugLog, debugWarn } from '../utils/debugLogger';
 import type { RemoteWheelSettings } from '../utils/remoteWheel';
 
@@ -41,40 +41,15 @@ export interface WebRTCServiceEvents {
   onClipboardError?: (error: string) => void;
 }
 
-// 生成唯一请求ID
-let requestIdCounter = 0;
-function generateRequestId(): string {
-  return `webrtc-${Date.now()}-${++requestIdCounter}`;
-}
-
-// Base64 编解码
-function encodeBody(data: string): string {
-  return btoa(unescape(encodeURIComponent(data)));
-}
-
-function decodeBody(base64: string): string {
-  try {
-    return decodeURIComponent(escape(atob(base64)));
-  } catch {
-    return atob(base64);
-  }
-}
-
 export class WebRTCService {
-  private wsService: WebSocketService;
   private deviceUdid: string;
-  private password: string;
   private httpPort?: number;
   private events: WebRTCServiceEvents;
-  private pendingRequests: Map<string, {
-    resolve: (value: any) => void;
-    reject: (reason: any) => void;
-    timeout: number;
-  }> = new Map();
-  private unsubscribe: (() => void) | null = null;
+  private httpClient: ControlHttpClient;
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private isPolling = false;
+  private pollTimer: number | null = null;
   private pendingCandidates: RTCIceCandidateInit[] = [];
   private isDestroyed = false;
   private loggedIceCandidateWarnings: Set<string> = new Set();
@@ -86,52 +61,15 @@ export class WebRTCService {
     events: WebRTCServiceEvents = {},
     httpPort?: number
   ) {
-    this.wsService = wsService;
     this.deviceUdid = deviceUdid;
-    this.password = password;
     this.events = events;
     this.httpPort = httpPort;
-    this.setupMessageHandler();
-  }
-
-  private setupMessageHandler() {
-    this.unsubscribe = this.wsService.onMessage((message) => {
-      
-      // 处理 http/response 消息
-      if (message.type === 'http/response') {
-        // 检查 UDID 匹配
-        if (message.udid !== this.deviceUdid) {
-          return;
-        }
-        
-        const body = message.body;
-        if (!body || !body.requestId) {
-          return;
-        }
-
-        const pending = this.pendingRequests.get(body.requestId);
-        if (pending) {
-          clearTimeout(pending.timeout);
-          this.pendingRequests.delete(body.requestId);
-
-          // 解码响应体
-          let responseBody: any = null;
-          if (body.body) {
-            try {
-              const decoded = decodeBody(body.body);
-              responseBody = JSON.parse(decoded);
-            } catch {
-              responseBody = body.body;
-            }
-          }
-
-          if (body.statusCode >= 200 && body.statusCode < 300) {
-            pending.resolve(responseBody);
-          } else {
-            pending.reject(responseBody?.error || `HTTP ${body.statusCode}`);
-          }
-        }
-      }
+    this.httpClient = new ControlHttpClient({
+      wsService,
+      password,
+      requestIdPrefix: 'webrtc',
+      defaultTimeoutMs: 30000,
+      responseFilter: (message) => message.udid === this.deviceUdid,
     });
   }
 
@@ -148,34 +86,20 @@ export class WebRTCService {
       return Promise.reject(new Error('Service destroyed'));
     }
 
-    const requestId = generateRequestId();
-    const authService = AuthService.getInstance();
-
-    return new Promise((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        this.pendingRequests.delete(requestId);
-        reject(new Error('Request timeout'));
-      }, 30000);
-
-      this.pendingRequests.set(requestId, { resolve, reject, timeout });
-
-      const message = authService.createControlMessage(
-        this.password,
-        'control/http',
-        {
-          devices: [this.deviceUdid],
-          requestId,
-          method,
-          path,
-          query: query || {},
-          headers: { 'Content-Type': 'application/json' },
-          body: body ? encodeBody(JSON.stringify(body)) : undefined,
-          port: this.httpPort
-        }
-      );
-
-      this.wsService.send(message);
+    const response = await this.httpClient.send({
+      devices: [this.deviceUdid],
+      method,
+      path,
+      query,
+      body,
+      port: this.httpPort,
     });
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.body;
+    }
+
+    throw response.body?.error || `HTTP ${response.statusCode}`;
   }
 
   /**
@@ -371,6 +295,10 @@ export class WebRTCService {
    */
   private stopPolling(): void {
     this.isPolling = false;
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
   }
 
   /**
@@ -393,8 +321,7 @@ export class WebRTCService {
 
       // 继续轮询
       if (this.isPolling && this.peerConnection && this.peerConnection.connectionState !== 'closed') {
-        // 使用 setTimeout 而不是立即递归，避免堆栈溢出
-        setTimeout(() => this.pollForCandidates(), 100);
+        this.schedulePoll(100);
       }
     } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -409,9 +336,25 @@ export class WebRTCService {
       
       // 错误后稍等重试
       if (this.isPolling && this.peerConnection) {
-        setTimeout(() => this.pollForCandidates(), 1000);
+        this.schedulePoll(1000);
       }
     }
+  }
+
+  private schedulePoll(delayMs: number): void {
+    if (!this.isPolling || !this.peerConnection || this.isDestroyed) {
+      return;
+    }
+
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+    }
+
+    // 轮询请求本身可能长挂，下一轮必须可被 stopPolling/cleanup 明确取消。
+    this.pollTimer = window.setTimeout(() => {
+      this.pollTimer = null;
+      void this.pollForCandidates();
+    }, delayMs);
   }
 
   /**
@@ -665,16 +608,6 @@ export class WebRTCService {
       this.peerConnection = null;
     }
 
-    if (this.unsubscribe) {
-      this.unsubscribe();
-      this.unsubscribe = null;
-    }
-
-    // 清理待处理请求
-    for (const [, pending] of this.pendingRequests) {
-      clearTimeout(pending.timeout);
-      pending.reject(new Error('Service destroyed'));
-    }
-    this.pendingRequests.clear();
+    this.httpClient.destroy(new Error('Service destroyed'));
   }
 }

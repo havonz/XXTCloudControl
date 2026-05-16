@@ -1,4 +1,4 @@
-import { createSignal, createEffect, For, Show, onCleanup, createMemo } from 'solid-js';
+import { batch, createSignal, createEffect, For, Show, onCleanup, createMemo } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { FaSolidSquareArrowUpRight } from 'solid-icons/fa';
@@ -189,20 +189,25 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     createListCollection({ items: targetPathOptions.map(opt => opt.value) })
   );
 
+  let loadFilesRequestId = 0;
+
   // 加载文件列表
-  const loadFiles = async () => {
+  const loadFiles = async (category = currentCategory(), path = currentPath()) => {
+    const requestId = ++loadFilesRequestId;
     setIsLoading(true);
     setError('');
     
     try {
       const params = new URLSearchParams({
-        category: currentCategory(),
-        path: currentPath(),
+        category,
+        path,
         meta: '1',
       });
       
       const response = await authFetch(`${props.serverBaseUrl}/api/server-files/list?${params}`);
       const data = await response.json();
+
+      if (requestId !== loadFilesRequestId) return;
       
       if (data.error) {
         setError(data.error);
@@ -211,19 +216,25 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         setFiles(data.files || []);
       }
     } catch (err) {
+      if (requestId !== loadFilesRequestId) return;
       setError('加载失败: ' + (err as Error).message);
       setFiles([]);
     } finally {
-      setIsLoading(false);
+      if (requestId === loadFilesRequestId) {
+        setIsLoading(false);
+      }
     }
   };
 
   createEffect(() => {
-    if (props.isOpen) {
-      loadFiles();
-      setIsSelectMode(false);
-      setSelectedItems(new Set<string>());
-    }
+    if (!props.isOpen) return;
+
+    const category = currentCategory();
+    const path = currentPath();
+
+    setIsSelectMode(false);
+    setSelectedItems(new Set<string>());
+    void loadFiles(category, path);
   });
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -293,16 +304,18 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   });
 
   const handleCategoryChange = (category: 'scripts' | 'files' | 'reports') => {
-    setCurrentCategory(category);
-    setCurrentPath('');
-    setSelectedItems(new Set<string>());
-    loadFiles();
+    batch(() => {
+      setCurrentCategory(category);
+      setCurrentPath('');
+      setSelectedItems(new Set<string>());
+    });
   };
 
   const handleNavigate = (path: string) => {
-    setCurrentPath(path);
-    setSelectedItems(new Set<string>());
-    loadFiles();
+    batch(() => {
+      setCurrentPath(path);
+      setSelectedItems(new Set<string>());
+    });
   };
 
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
-set -u
-set -o pipefail
+set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVER_DIR="$ROOT_DIR/server"
@@ -62,6 +61,7 @@ echo
 mkdir -p "$BUILD_DIR"
 
 built_outputs=()
+failed_platforms=()
 
 for platform in "${platforms[@]}"; do
     platform_split=(${platform//\// })
@@ -83,9 +83,16 @@ for platform in "${platforms[@]}"; do
         built_outputs+=("$BUILD_DIR/$websocket_output")
     else
         echo "  Failed to build for $GOOS/$GOARCH"
+        failed_platforms+=("$GOOS/$GOARCH")
     fi
     echo
 done
+
+if [ "${#failed_platforms[@]}" -gt 0 ] && [ "${ALLOW_PARTIAL:-0}" != "1" ]; then
+    echo "Error: backend build failed for: ${failed_platforms[*]}" >&2
+    echo "Set ALLOW_PARTIAL=1 to package only successful platforms." >&2
+    exit 1
+fi
 
 if [ "${#built_outputs[@]}" -eq 0 ]; then
     echo "Error: no backend builds succeeded; aborting package." >&2

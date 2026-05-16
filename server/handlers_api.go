@@ -271,15 +271,8 @@ func sanitizeBindHost(host string) (string, error) {
 	return host, nil
 }
 
-// configHandler handles the /api/config endpoint
-// This is the cloud control server's configuration API, returning server version, time, and WebSocket settings.
-// Note: This is NOT the same as the device-side XXT service's /api/config endpoint (e.g., http://127.0.0.1:46952/api/config),
-// which is used to configure device cloud control binding settings via PUT requests.
-// This endpoint does not require authentication and is used by the frontend before login.
-func configHandler(c *gin.Context) {
-	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-
-	config := gin.H{
+func buildControlConfigResponse(c *gin.Context) gin.H {
+	return gin.H{
 		"version":    Version,
 		"serverTime": time.Now().Unix(),
 		"websocket": gin.H{
@@ -305,6 +298,17 @@ func configHandler(c *gin.Context) {
 			"isLocal":               isLocalRequest(c),
 		},
 	}
+}
+
+// configHandler handles the /api/config endpoint
+// This is the cloud control server's configuration API, returning server version, time, and WebSocket settings.
+// Note: This is NOT the same as the device-side XXT service's /api/config endpoint (e.g., http://127.0.0.1:46952/api/config),
+// which is used to configure device cloud control binding settings via PUT requests.
+// This endpoint does not require authentication and is used by the frontend before login.
+func configHandler(c *gin.Context) {
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+
+	config := buildControlConfigResponse(c)
 
 	if c.Query("format") == "json" || strings.Contains(c.GetHeader("Accept"), "application/json") {
 		c.JSON(http.StatusOK, config)
@@ -332,31 +336,7 @@ console.log('Server config loaded (port: %d):', window.XXTConfig);`, string(conf
 // No authentication required.
 func controlInfoHandler(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-	c.JSON(http.StatusOK, gin.H{
-		"version":    Version,
-		"serverTime": time.Now().Unix(),
-		"websocket": gin.H{
-			"port":              serverConfig.Port,
-			"path":              "/api/ws",
-			"autoReconnect":     true,
-			"reconnectInterval": 3000,
-		},
-		"protocol": gin.H{
-			"version": 2,
-		},
-		"features": gin.H{
-			"controlHttp":             true,
-			"controlHttpBin":          true,
-			"controlHttpTimeout":      true,
-			"deviceCapabilitiesProbe": true,
-		},
-		"ui": gin.H{
-			"screenCaptureScale":    30,
-			"maxScreenshotWaitTime": 500,
-			"fpsUpdateInterval":     1000,
-			"isLocal":               isLocalRequest(c),
-		},
-	})
+	c.JSON(http.StatusOK, buildControlConfigResponse(c))
 }
 
 // downloadBindScriptHandler handles the /api/download-bind-script endpoint

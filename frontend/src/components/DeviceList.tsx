@@ -56,21 +56,16 @@ interface DeviceListProps {
   devices: Device[];
   onDeviceSelect: (devices: Device[]) => void;
   selectedDevices: Accessor<Device[]>;
-  onRespring: () => void;
   onRefresh: () => void;
   onStartScript: (scriptName: string) => void;
   onStopScript: () => void;
   onRespringDevices: () => void;
   onUploadFiles: (files: ScannedFile[], uploadPath: string) => Promise<void>;
   onOpenFileBrowser: (deviceUdid: string, deviceName: string) => void;
-  onReadClipboard: () => void;
-  onWriteClipboard: (uti: string, data: string) => void;
   webSocketService: WebSocketService | null;
   isLoading: boolean;
   serverHost: string;
   serverPort: string;
-  checkedGroups?: Accessor<Set<string>>; // 选中的分组ID列表
-  getPreferredGroupScript?: () => { scriptPath: string; groupId: string } | null; // 获取分组绑定脚本
   getGroupedDevicesForLaunch?: (selectedDeviceIds: string[]) => Array<{ groupId: string; groupName: string; scriptPath: string | undefined; deviceIds: string[] }>; // 获取按分组分配的设备列表
   onOpenAddToGroupModal?: () => void; // 打开添加到分组弹窗
   sidebar?: JSX.Element;
@@ -166,7 +161,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // Upload modal state
   const [showDeviceBindingModal, setShowDeviceBindingModal] = createSignal(false);
   const [showDictionaryModal, setShowDictionaryModal] = createSignal(false);
-  const [showRespringConfirm, setShowRespringConfirm] = createSignal(false);
   const [showScriptSelectionModal, setShowScriptSelectionModal] = createSignal(false);
   const [showScriptUploadModal, setShowScriptUploadModal] = createSignal(false);
   const [showServerFileBrowser, setShowServerFileBrowser] = createSignal(false);
@@ -832,7 +826,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const copyToClipboard = async (text: string, type: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      console.log(`${type} copied to clipboard: ${text}`);
       showToastMessage(`${type} 已拷贝到剪贴板`);
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
@@ -844,7 +837,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         textArea.select();
         document.execCommand('copy');
         document.body.removeChild(textArea);
-        console.log(`${type} copied to clipboard (fallback): ${text}`);
         showToastMessage(`${type} 已拷贝到剪贴板`);
       } catch (fallbackErr) {
         console.error('Fallback copy failed:', fallbackErr);
@@ -1091,13 +1083,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   };
 
   const handleConfirmRespring = () => {
-    console.log('注销选中设备:', props.selectedDevices().map(d => d.udid));
     props.onRespringDevices();
-    setShowRespringConfirm(false);
-  };
-
-  const handleCancelRespring = () => {
-    setShowRespringConfirm(false);
   };
 
   // Modal upload functions
@@ -1308,7 +1294,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       return;
     }
     
-    console.log('停止脚本在选中设备:', props.selectedDevices().map(d => d.udid));
     props.onStopScript();
   };
   
@@ -2235,35 +2220,6 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             />
           );
         })()}
-        
-        {/* 注销设备确认弹窗 */}
-        <Show when={showRespringConfirm()}>
-          <div class={styles.modalOverlay} onClick={handleCancelRespring}>
-            <div class={styles.confirmModal} onClick={(e) => e.stopPropagation()}>
-              <div class={styles.confirmHeader}>
-                <h3>确认注销设备</h3>
-              </div>
-              <div class={styles.confirmBody}>
-                <p>确定要注销选中的 {props.selectedDevices().length} 台设备吗？</p>
-                <p class={styles.warningText}>注销后设备将重新启动SpringBoard，所有运行中的应用将被关闭。</p>
-              </div>
-              <div class={styles.confirmFooter}>
-                <button 
-                  onClick={handleCancelRespring}
-                  class={styles.cancelButton}
-                >
-                  取消
-                </button>
-                <button 
-                  onClick={handleConfirmRespring}
-                  class={styles.confirmButton}
-                >
-                  确认注销
-                </button>
-              </div>
-            </div>
-          </div>
-        </Show>
         
         {/* 设备绑定弹窗 */}
         <DeviceBindingModal 
