@@ -41,6 +41,20 @@ export interface WebRTCServiceEvents {
   onClipboardError?: (error: string) => void;
 }
 
+interface ClipboardChunkMessage {
+  messageId: string;
+  chunkIndex: number;
+  totalChunks: number;
+  data: string;
+  contentType: string;
+}
+
+interface ClipboardChunkState {
+  chunks: string[];
+  total: number;
+  received: number;
+}
+
 export class WebRTCService {
   private deviceUdid: string;
   private httpPort?: number;
@@ -83,7 +97,7 @@ export class WebRTCService {
     query?: Record<string, string | number | boolean>
   ): Promise<any> {
     if (this.isDestroyed) {
-      return Promise.reject(new Error('Service destroyed'));
+      throw new Error('Service destroyed');
     }
 
     const response = await this.httpClient.send({
@@ -434,67 +448,60 @@ export class WebRTCService {
    * @param x 相对宽度比例 (0.0 - 1.0)
    * @param y 相对高度比例 (0.0 - 1.0)
    */
-  sendTouchCommand(action: 'down' | 'move' | 'up', x: number, y: number, fingerId?: number) {
-    if (this.dataChannel?.readyState === 'open') {
-      const command: {
-        type: 'touch';
-        action: 'down' | 'move' | 'up';
-        x: number;
-        y: number;
-        fingerId?: number;
-      } = {
-        type: 'touch',
-        action,
-        x: Number(x.toFixed(4)),
-        y: Number(y.toFixed(4))
-      };
-      if (Number.isInteger(fingerId)) {
-        command.fingerId = fingerId;
-      }
-      this.dataChannel.send(JSON.stringify(command));
+  sendTouchCommand(action: 'down' | 'move' | 'up', x: number, y: number, fingerId?: number): void {
+    if (!this.isDataChannelOpen()) {
+      return;
     }
+
+    const command: {
+      type: 'touch';
+      action: 'down' | 'move' | 'up';
+      x: number;
+      y: number;
+      fingerId?: number;
+    } = {
+      type: 'touch',
+      action,
+      x: Number(x.toFixed(4)),
+      y: Number(y.toFixed(4))
+    };
+    if (Number.isInteger(fingerId)) {
+      command.fingerId = fingerId;
+    }
+    this.sendDataChannelCommand(command);
   }
 
   /**
    * 通过 DataChannel 发送按键命令
    * @param action 动作类型: 'press', 'down', 'up'，默认为 'press'
    */
-  sendKeyCommand(key: string, action: 'press' | 'down' | 'up' = 'press') {
-    if (this.dataChannel?.readyState === 'open') {
-      const command = {
-        type: 'key',
-        key,
-        action
-      };
-      this.dataChannel.send(JSON.stringify(command));
-    }
+  sendKeyCommand(key: string, action: 'press' | 'down' | 'up' = 'press'): void {
+    this.sendDataChannelCommand({
+      type: 'key',
+      key,
+      action
+    });
   }
 
   /**
    * 通过 DataChannel 发送粘贴命令
    */
-  sendPasteCommand(text: string) {
-    if (this.dataChannel?.readyState === 'open') {
-      const command = {
-        type: 'paste',
-        text
-      };
-      this.dataChannel.send(JSON.stringify(command));
-    }
+  sendPasteCommand(text: string): void {
+    this.sendDataChannelCommand({
+      type: 'paste',
+      text
+    });
   }
 
   /**
    * 通过 DataChannel 发送剪贴板请求（拷贝或剪切）
    * @param operation 'copy' 或 'cut'
    */
-  sendClipboardRequest(operation: 'copy' | 'cut') {
-    if (this.dataChannel?.readyState === 'open') {
-      const command = {
-        type: 'clipboard_request',
-        operation
-      };
-      this.dataChannel.send(JSON.stringify(command));
-    }
+  sendClipboardRequest(operation: 'copy' | 'cut'): void {
+    this.sendDataChannelCommand({
+      type: 'clipboard_request',
+      operation
+    });
   }
 
   /**
@@ -506,22 +513,34 @@ export class WebRTCService {
     deltaY: number;
     rotateQuarter: number;
     settings: RemoteWheelSettings;
-  }) {
-    if (this.dataChannel?.readyState === 'open') {
-      const command = {
-        type: 'wheel',
-        x: Number(payload.x.toFixed(4)),
-        y: Number(payload.y.toFixed(4)),
-        norm: true,
-        deltaY: payload.deltaY,
-        rotateQuarter: payload.rotateQuarter,
-        ...payload.settings,
-      };
-      this.dataChannel.send(JSON.stringify(command));
+  }): void {
+    if (!this.isDataChannelOpen()) {
+      return;
+    }
+
+    this.sendDataChannelCommand({
+      type: 'wheel',
+      x: Number(payload.x.toFixed(4)),
+      y: Number(payload.y.toFixed(4)),
+      norm: true,
+      deltaY: payload.deltaY,
+      rotateQuarter: payload.rotateQuarter,
+      ...payload.settings,
+    });
+  }
+
+  private isDataChannelOpen(): boolean {
+    return this.dataChannel?.readyState === 'open';
+  }
+
+  private sendDataChannelCommand(command: object): void {
+    const channel = this.dataChannel;
+    if (channel?.readyState === 'open') {
+      channel.send(JSON.stringify(command));
     }
   }
 
-  private setupDataChannel() {
+  private setupDataChannel(): void {
     if (!this.dataChannel) return;
 
     this.dataChannel.onerror = (error) => {
@@ -547,9 +566,9 @@ export class WebRTCService {
     };
   }
 
-  private clipboardChunks: Map<string, { chunks: string[], total: number, received: number }> = new Map();
+  private clipboardChunks: Map<string, ClipboardChunkState> = new Map();
 
-  private handleClipboardChunk(data: { messageId: string; chunkIndex: number; totalChunks: number; data: string; contentType: string }) {
+  private handleClipboardChunk(data: ClipboardChunkMessage): void {
     const { messageId, chunkIndex, totalChunks, data: chunkData, contentType } = data;
     
     if (!this.clipboardChunks.has(messageId)) {
@@ -579,7 +598,7 @@ export class WebRTCService {
   /**
    * 清理资源
    */
-  cleanup() {
+  cleanup(): void {
     if (this.isDestroyed) {
       return;
     }

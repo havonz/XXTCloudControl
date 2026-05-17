@@ -91,7 +91,7 @@ for platform in "${platforms[@]}"; do
         rm -f "$OUTPUT_TAR_TMP"
         exit 1
     fi
- done
+done
 
 if [ "${#docker_outputs[@]}" -gt 0 ]; then
     echo "Docker images:"

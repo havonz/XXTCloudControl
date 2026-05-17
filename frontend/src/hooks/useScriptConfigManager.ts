@@ -21,13 +21,18 @@ export function useScriptConfigManager() {
   const [scriptInfo, setScriptInfo] = createSignal<ScriptInfo | null>(null);
   let openRequestVersion = 0;
 
-  const nextOpenRequest = () => ++openRequestVersion;
-  const isCurrentOpenRequest = (version: number) => version === openRequestVersion;
+  function nextOpenRequest(): number {
+    openRequestVersion++;
+    return openRequestVersion;
+  }
 
-  const openGlobalConfig = async (scriptName: string) => {
+  function isCurrentOpenRequest(version: number): boolean {
+    return version === openRequestVersion;
+  }
+
+  const openGlobalConfig = async (scriptName: string): Promise<void> => {
     const requestVersion = nextOpenRequest();
     try {
-      // 1. Get main.json structure and current global config
       const response = await authFetch(`/api/scripts/config?name=${encodeURIComponent(scriptName)}`);
       if (!isCurrentOpenRequest(requestVersion)) return;
       if (!response.ok) throw new Error('Failed to load config');
@@ -47,24 +52,21 @@ export function useScriptConfigManager() {
     }
   };
 
-  const openGroupConfig = async (groupId: string, groupName: string, scriptPath: string) => {
+  const openGroupConfig = async (groupId: string, groupName: string, scriptPath: string): Promise<void> => {
     const requestVersion = nextOpenRequest();
     try {
-      // 1. Get main.json structure (script defaults)
       const scriptResp = await authFetch(`/api/scripts/config?name=${encodeURIComponent(scriptPath)}`);
       if (!isCurrentOpenRequest(requestVersion)) return;
       if (!scriptResp.ok) throw new Error('Failed to load script structure');
       const mainJson: MainJson = await scriptResp.json();
       if (!isCurrentOpenRequest(requestVersion)) return;
 
-      // 2. Get group-specific overrides
       const groupResp = await authFetch(`/api/groups/${groupId}/script-config?script=${encodeURIComponent(scriptPath)}`);
       if (!isCurrentOpenRequest(requestVersion)) return;
       const groupConfig = groupResp.ok ? await groupResp.json() : {};
       if (!isCurrentOpenRequest(requestVersion)) return;
 
       setUiItems(mainJson.UI || []);
-      // Merge global defaults with group overrides
       setInitialValues({ ...(mainJson.Config || {}), ...groupConfig });
       setScriptInfo(mainJson.ScriptInfo || null);
       setConfigTitle(`分组配置: ${groupName} (${scriptPath})`);
@@ -77,7 +79,7 @@ export function useScriptConfigManager() {
     }
   };
 
-  const submitConfig = async (values: Record<string, any>) => {
+  const submitConfig = async (values: Record<string, any>): Promise<void> => {
     const ctx = activeContext();
     if (!ctx) return;
 
@@ -115,7 +117,7 @@ export function useScriptConfigManager() {
     }
   };
 
-  const closeConfig = () => {
+  const closeConfig = (): void => {
     openRequestVersion++;
     setIsOpen(false);
   };

@@ -73,6 +73,14 @@ interface DeviceListProps {
   onCloseMobileMenu?: () => void;
 }
 
+interface DeviceDisplayInfo {
+  name: string;
+  version: string;
+  battery: number;
+  running: boolean;
+  paused: boolean;
+}
+
 const DeviceList: Component<DeviceListProps> = (props) => {
   const dialog = useDialog();
   const toast = useToast();
@@ -1056,14 +1064,41 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
   };
 
-  const formatDeviceInfo = (device: Device) => {
+  const getSelectAllIndicatorClass = (): string => {
+    if (isAllSelected()) {
+      return styles.checked;
+    }
+    if (isPartiallySelected()) {
+      return styles.indeterminate;
+    }
+    return '';
+  };
+
+  const getSelectAllIndicatorText = (): string => {
+    if (isAllSelected()) {
+      return '✓';
+    }
+    if (isPartiallySelected()) {
+      return '−';
+    }
+    return '';
+  };
+
+  const getSortIndicator = (field: string): string => {
+    if (sortField() !== field) {
+      return '';
+    }
+    return sortDirection() === 'asc' ? ' ↑' : ' ↓';
+  };
+
+  const formatDeviceInfo = (device: Device): DeviceDisplayInfo => {
     if (device.system) {
       return {
         name: device.system.name || '未知设备',
         version: device.system.version || '未知版本',
-        battery: Math.round((device.system.battery || 0) * 100), // 转换为 0-100 百分比
-        running: device.system.running || false, // 从 device.system 读取运行状态
-        paused: device.system.paused || false   // 从 device.system 读取暂停状态
+        battery: Math.round((device.system.battery || 0) * 100),
+        running: device.system.running || false,
+        paused: device.system.paused || false
       };
     }
     return {
@@ -1075,7 +1110,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     };
   };
 
-  const getBatteryColor = (battery: number) => {
+  const getBatteryColor = (battery: number): string => {
     if (battery > 80) return 'var(--battery-5)';
     if (battery > 60) return 'var(--battery-4)';
     if (battery > 40) return 'var(--battery-3)';
@@ -1083,17 +1118,31 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     return 'var(--battery-1)';
   };
 
+  const getRunningStatusClass = (info: DeviceDisplayInfo): string => {
+    if (!info.running) {
+      return styles.stopped;
+    }
+    if (info.paused) {
+      return styles.paused;
+    }
+    return styles.running;
+  };
 
-  
-
+  const getRunningStatusText = (info: DeviceDisplayInfo): string => {
+    if (!info.running) {
+      return '已停止';
+    }
+    if (info.paused) {
+      return '暂停中';
+    }
+    return '运行中';
+  };
   
   const handleRespringDevices = async () => {
     if (props.selectedDevices().length === 0) {
       showToastMessage('请先选择设备');
       return;
     }
-    
-    // 显示确认弹窗
     if (await dialog.confirm(`确定要注销选中的 ${props.selectedDevices().length} 台设备吗？`)) {
       handleConfirmRespring();
     }
@@ -1794,13 +1843,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 }}>
                   <div class={styles.headerCell}>
                     <div 
-                      class={`${styles.selectAllCheckbox} ${
-                        isAllSelected() ? styles.checked :
-                        isPartiallySelected() ? styles.indeterminate : ''
-                      }`}
+                      class={`${styles.selectAllCheckbox} ${getSelectAllIndicatorClass()}`}
                       onClick={handleSelectAll}
                     >
-                      {isAllSelected() ? '✓' : isPartiallySelected() ? '−' : ''}
+                      {getSelectAllIndicatorText()}
                     </div>
                     <div 
                       class={styles.resizeHandle} 
@@ -1812,7 +1858,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('name')}>
                       设备名称
                       <span class={styles.sortIndicator}>
-                        {sortField() === 'name' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                        {getSortIndicator('name')}
                       </span>
                       <div 
                         class={styles.resizeHandle} 
@@ -1826,7 +1872,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('udid')}>
                       UDID
                       <span class={styles.sortIndicator}>
-                        {sortField() === 'udid' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                        {getSortIndicator('udid')}
                       </span>
                       <div 
                         class={styles.resizeHandle} 
@@ -1840,7 +1886,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('ip')}>
                       IP地址
                       <span class={styles.sortIndicator}>
-                        {sortField() === 'ip' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                        {getSortIndicator('ip')}
                       </span>
                       <div 
                         class={styles.resizeHandle} 
@@ -1854,7 +1900,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('version')}>
                       系统
                       <span class={styles.sortIndicator}>
-                        {sortField() === 'version' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                        {getSortIndicator('version')}
                       </span>
                       <div 
                         class={styles.resizeHandle} 
@@ -1868,7 +1914,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('battery')}>
                       电量
                       <span class={styles.sortIndicator}>
-                        {sortField() === 'battery' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                        {getSortIndicator('battery')}
                       </span>
                       <div 
                         class={styles.resizeHandle} 
@@ -1882,7 +1928,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('running')}>
                       脚本
                       <span class={styles.sortIndicator}>
-                        {sortField() === 'running' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                        {getSortIndicator('running')}
                       </span>
                       <div 
                         class={styles.resizeHandle} 
@@ -1896,7 +1942,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('message')}>
                       消息
                       <span class={styles.sortIndicator}>
-                        {sortField() === 'message' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                        {getSortIndicator('message')}
                       </span>
                       <div 
                         class={styles.resizeHandle} 
@@ -1910,7 +1956,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('log')}>
                       最后日志
                       <span class={styles.sortIndicator}>
-                        {sortField() === 'log' ? (sortDirection() === 'asc' ? ' ↑' : ' ↓') : ''}
+                        {getSortIndicator('log')}
                       </span>
                       <div 
                         class={styles.resizeHandle} 
@@ -1992,10 +2038,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         <Show when={visibleColumns().includes('running')}>
                           <div class={styles.tableCell}>
                             <div 
-                              class={`${styles.runningStatus} ${info.running ? (info.paused ? styles.paused : styles.running) : styles.stopped}`}
+                              class={`${styles.runningStatus} ${getRunningStatusClass(info)}`}
                               title={device.script?.select || '无脚本'}
                             >
-                              {info.running ? (info.paused ? '暂停中' : '运行中') : '已停止'}
+                              {getRunningStatusText(info)}
                             </div>
                           </div>
                         </Show>
@@ -2064,8 +2110,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                           >
                             {info.battery}%
                           </div>
-                          <div class={`${styles.cardRunningStatus} ${info.running ? (info.paused ? styles.paused : styles.running) : styles.stopped}`}>
-                            {info.running ? (info.paused ? '暂停中' : '运行中') : '已停止'}
+                          <div class={`${styles.cardRunningStatus} ${getRunningStatusClass(info)}`}>
+                            {getRunningStatusText(info)}
                           </div>
                         </div>
                       </div>

@@ -192,7 +192,10 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   let loadFilesRequestId = 0;
 
   // 加载文件列表
-  const loadFiles = async (category = currentCategory(), path = currentPath()) => {
+  const loadFiles = async (
+    category: 'scripts' | 'files' | 'reports' = currentCategory(),
+    path = currentPath()
+  ): Promise<void> => {
     const requestId = ++loadFilesRequestId;
     setIsLoading(true);
     setError('');
@@ -922,6 +925,19 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     }
   };
 
+  const getUploadTargetPath = (relativePath: string): string => {
+    const lastSlash = relativePath.lastIndexOf('/');
+    const relativeDir = lastSlash !== -1 ? relativePath.substring(0, lastSlash) : '';
+    const basePath = currentPath();
+    if (!basePath) {
+      return relativeDir;
+    }
+    if (!relativeDir) {
+      return basePath;
+    }
+    return `${basePath}/${relativeDir}`;
+  };
+
   const uploadFiles = async (filesToUpload: ScannedFile[]) => {
     setIsUploading(true);
     try {
@@ -938,14 +954,8 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('category', currentCategory());
-        
-        // Calculate the target directory based on relativePath
-        const lastSlash = relativePath.lastIndexOf('/');
-        const relativeDir = lastSlash !== -1 ? relativePath.substring(0, lastSlash) : '';
-        const targetPath = currentPath() 
-          ? (relativeDir ? `${currentPath()}/${relativeDir}` : currentPath())
-          : relativeDir;
-          
+        const targetPath = getUploadTargetPath(relativePath);
+
         formData.append('path', targetPath);
         const response = await authFetch(`${props.serverBaseUrl}/api/server-files/upload`, { method: 'POST', body: formData });
         const data = await response.json();
@@ -1036,7 +1046,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 <IconFolderPlus size={16} />
                 <span>新建文件夹</span>
               </button>
-              <button class={styles.actionButton} onClick={loadFiles}>
+              <button class={styles.actionButton} onClick={() => { void loadFiles(); }}>
                 <IconRotate size={16} />
                 <span>刷新</span>
               </button>

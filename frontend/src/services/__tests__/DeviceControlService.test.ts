@@ -2,18 +2,23 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { DeviceControlService } from '../DeviceControlService';
 import type { WebSocketService } from '../WebSocketService';
 
-const setWindow = () => {
+function setWindow(): void {
   Object.defineProperty(globalThis, 'window', {
     value: globalThis,
     configurable: true,
   });
-};
+}
 
-const encodeJsonBody = (value: any) => {
+function encodeJsonBody(value: any): string {
   return btoa(unescape(encodeURIComponent(JSON.stringify(value))));
-};
+}
 
-const createWebSocketService = () => {
+function createWebSocketService(): {
+  listeners: Array<(message: any) => void>;
+  statusListeners: Array<(status: 'connecting' | 'connected' | 'disconnected') => void>;
+  sentMessages: any[];
+  wsService: WebSocketService;
+} {
   const listeners: Array<(message: any) => void> = [];
   const statusListeners: Array<(status: 'connecting' | 'connected' | 'disconnected') => void> = [];
   const sentMessages: any[] = [];
@@ -43,7 +48,7 @@ const createWebSocketService = () => {
   } as unknown as WebSocketService;
 
   return { listeners, statusListeners, sentMessages, wsService };
-};
+}
 
 describe('DeviceControlService control/http requests', () => {
   beforeAll(() => {

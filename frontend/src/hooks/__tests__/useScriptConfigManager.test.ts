@@ -7,20 +7,20 @@ vi.mock('../../services/httpAuth', () => ({
   authFetch: vi.fn(),
 }));
 
-const deferred = <T>() => {
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((promiseResolve) => {
     resolve = promiseResolve;
   });
   return { promise, resolve };
-};
+}
 
-const makeJsonResponse = (value: any, ok = true) => {
+function makeJsonResponse(value: any, ok = true): Response {
   return {
     ok,
     json: vi.fn().mockResolvedValue(value),
   } as unknown as Response;
-};
+}
 
 describe('useScriptConfigManager async state', () => {
   const alertSpy = vi.fn();

@@ -803,7 +803,7 @@ type serverFilesBatchRequest struct {
 }
 
 type serverFilesBatchContext struct {
-	req           serverFilesBatchRequest
+	request       serverFilesBatchRequest
 	srcCategory   string
 	dstCategory   string
 	srcDir        string
@@ -813,9 +813,11 @@ type serverFilesBatchContext struct {
 }
 
 type serverFilesBatchItem struct {
-	srcPath string
-	dstPath string
+	sourcePath      string
+	destinationPath string
 }
+
+type serverFilesBatchOperation func(serverFilesBatchItem) error
 
 func resolveServerFilesBatchContext(c *gin.Context, action string) (serverFilesBatchContext, bool) {
 	var req serverFilesBatchRequest
@@ -867,7 +869,7 @@ func resolveServerFilesBatchContext(c *gin.Context, action string) (serverFilesB
 	}
 
 	return serverFilesBatchContext{
-		req:           req,
+		request:       req,
 		srcCategory:   srcCategory,
 		dstCategory:   dstCategory,
 		srcDir:        srcDir,
@@ -883,10 +885,10 @@ func prepareServerFilesBatchItem(ctx serverFilesBatchContext, item string) (serv
 		return serverFilesBatchItem{}, err
 	}
 
-	srcPath := filepath.Join(ctx.srcDir, cleanItem)
-	dstPath := filepath.Join(ctx.dstDir, cleanItem)
+	sourcePath := filepath.Join(ctx.srcDir, cleanItem)
+	destinationPath := filepath.Join(ctx.dstDir, cleanItem)
 
-	absSrcPath, err := filepath.Abs(srcPath)
+	absSrcPath, err := filepath.Abs(sourcePath)
 	if err != nil {
 		return serverFilesBatchItem{}, fmt.Errorf("failed to resolve source path")
 	}
@@ -894,7 +896,7 @@ func prepareServerFilesBatchItem(ctx serverFilesBatchContext, item string) (serv
 		return serverFilesBatchItem{}, fmt.Errorf("source path traversal detected")
 	}
 
-	absDstPath, err := filepath.Abs(dstPath)
+	absDstPath, err := filepath.Abs(destinationPath)
 	if err != nil {
 		return serverFilesBatchItem{}, fmt.Errorf("failed to resolve destination path")
 	}
@@ -902,24 +904,24 @@ func prepareServerFilesBatchItem(ctx serverFilesBatchContext, item string) (serv
 		return serverFilesBatchItem{}, fmt.Errorf("destination path traversal detected")
 	}
 
-	if _, err := os.Lstat(srcPath); os.IsNotExist(err) {
+	if _, err := os.Lstat(sourcePath); os.IsNotExist(err) {
 		return serverFilesBatchItem{}, fmt.Errorf("not found")
 	} else if err != nil {
 		return serverFilesBatchItem{}, err
 	}
 
-	if _, err := os.Lstat(dstPath); !os.IsNotExist(err) {
+	if _, err := os.Lstat(destinationPath); !os.IsNotExist(err) {
 		return serverFilesBatchItem{}, fmt.Errorf("already exists at destination")
 	}
 
-	return serverFilesBatchItem{srcPath: srcPath, dstPath: dstPath}, nil
+	return serverFilesBatchItem{sourcePath: sourcePath, destinationPath: destinationPath}, nil
 }
 
-func runServerFilesBatch(ctx serverFilesBatchContext, operate func(serverFilesBatchItem) error) (int, []string) {
+func runServerFilesBatch(ctx serverFilesBatchContext, operate serverFilesBatchOperation) (int, []string) {
 	successCount := 0
 	var errors []string
 
-	for _, item := range ctx.req.Items {
+	for _, item := range ctx.request.Items {
 		batchItem, err := prepareServerFilesBatchItem(ctx, item)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", item, err))
@@ -947,12 +949,12 @@ func respondServerFilesBatch(c *gin.Context, totalCount, successCount int, error
 }
 
 func copyServerFilesBatchItem(item serverFilesBatchItem) error {
-	return copyPathPreserveSymlink(item.srcPath, item.dstPath)
+	return copyPathPreserveSymlink(item.sourcePath, item.destinationPath)
 }
 
 func moveServerFilesBatchItem(item serverFilesBatchItem) error {
-	if err := os.Rename(item.srcPath, item.dstPath); err != nil {
-		return movePathPreserveSymlink(item.srcPath, item.dstPath, err)
+	if err := os.Rename(item.sourcePath, item.destinationPath); err != nil {
+		return movePathPreserveSymlink(item.sourcePath, item.destinationPath, err)
 	}
 	return nil
 }
@@ -969,15 +971,20 @@ func movePathPreserveSymlink(srcPath, dstPath string, renameErr error) error {
 		return copyErr
 	}
 
-	if srcInfo.Mode()&os.ModeSymlink != 0 {
+	return removeMovedSource(srcPath, srcInfo)
+}
+
+func removeMovedSource(srcPath string, srcInfo os.FileInfo) error {
+	switch {
+	case srcInfo.Mode()&os.ModeSymlink != 0:
 		if removeErr := os.Remove(srcPath); removeErr != nil {
 			return fmt.Errorf("failed to remove source symlink: %v", removeErr)
 		}
-	} else if srcInfo.IsDir() {
+	case srcInfo.IsDir():
 		if removeErr := os.RemoveAll(srcPath); removeErr != nil {
 			return fmt.Errorf("failed to remove source directory: %v", removeErr)
 		}
-	} else {
+	default:
 		if removeErr := os.Remove(srcPath); removeErr != nil {
 			return fmt.Errorf("failed to remove source file: %v", removeErr)
 		}
@@ -995,9 +1002,9 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 
 	successCount, errors := runServerFilesBatch(ctx, copyServerFilesBatchItem)
 
-	debugLogf("📋 Batch copy: %d/%d items copied from %s/%s to %s/%s", successCount, len(ctx.req.Items), ctx.srcCategory, ctx.req.SrcPath, ctx.dstCategory, ctx.req.DstPath)
+	debugLogf("📋 Batch copy: %d/%d items copied from %s/%s to %s/%s", successCount, len(ctx.request.Items), ctx.srcCategory, ctx.request.SrcPath, ctx.dstCategory, ctx.request.DstPath)
 
-	respondServerFilesBatch(c, len(ctx.req.Items), successCount, errors)
+	respondServerFilesBatch(c, len(ctx.request.Items), successCount, errors)
 }
 
 // serverFilesBatchMoveHandler handles POST /api/server-files/batch-move
@@ -1009,7 +1016,7 @@ func serverFilesBatchMoveHandler(c *gin.Context) {
 
 	successCount, errors := runServerFilesBatch(ctx, moveServerFilesBatchItem)
 
-	debugLogf("✂️ Batch move: %d/%d items moved from %s/%s to %s/%s", successCount, len(ctx.req.Items), ctx.srcCategory, ctx.req.SrcPath, ctx.dstCategory, ctx.req.DstPath)
+	debugLogf("✂️ Batch move: %d/%d items moved from %s/%s to %s/%s", successCount, len(ctx.request.Items), ctx.srcCategory, ctx.request.SrcPath, ctx.dstCategory, ctx.request.DstPath)
 
-	respondServerFilesBatch(c, len(ctx.req.Items), successCount, errors)
+	respondServerFilesBatch(c, len(ctx.request.Items), successCount, errors)
 }

@@ -27,20 +27,22 @@ export class DeviceControlService {
   /**
    * Send HTTP request to devices via control/http
    */
-  private sendRequest(
+  private async sendRequest(
     devices: string[],
     method: string,
     path: string,
     query?: Record<string, string | number | boolean>,
     body?: any
   ): Promise<DeviceControlResult> {
-    return this.httpClient.send({
-      devices,
-      method,
-      path,
-      query,
-      body,
-    }).then((response) => {
+    try {
+      const response = await this.httpClient.send({
+        devices,
+        method,
+        path,
+        query,
+        body,
+      });
+
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return { success: true, detail: response.body };
       }
@@ -50,10 +52,10 @@ export class DeviceControlService {
         error: response.body?.error || `HTTP ${response.statusCode}`,
         detail: response.body,
       };
-    }).catch((error) => {
+    } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { success: false, error: message };
-    });
+    }
   }
 
   /**
@@ -93,7 +95,7 @@ export class DeviceControlService {
   /**
    * Cleanup resources
    */
-  destroy() {
+  destroy(): void {
     this.httpClient.destroy();
   }
 }

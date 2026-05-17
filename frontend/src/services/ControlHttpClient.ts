@@ -3,21 +3,32 @@ import type { WebSocketService } from './WebSocketService';
 
 let requestIdCounter = 0;
 
-const generateRequestId = (prefix: string): string => {
+function generateRequestId(prefix: string): string {
   return `${prefix}-${Date.now()}-${++requestIdCounter}`;
-};
+}
 
-const encodeBody = (data: string): string => {
+function encodeBody(data: string): string {
   return btoa(unescape(encodeURIComponent(data)));
-};
+}
 
-const decodeBody = (base64: string): string => {
+function decodeBody(base64: string): string {
   try {
     return decodeURIComponent(escape(atob(base64)));
   } catch {
     return atob(base64);
   }
-};
+}
+
+interface ControlHttpMessageBody {
+  devices: string[];
+  requestId: string;
+  method: string;
+  path: string;
+  query: Record<string, string | number | boolean>;
+  headers: Record<string, string>;
+  body?: string;
+  port?: number;
+}
 
 export interface ControlHttpClientOptions {
   wsService: WebSocketService;
@@ -88,16 +99,7 @@ export class ControlHttpClient {
     }
 
     const requestId = generateRequestId(this.requestIdPrefix);
-    const requestBody = {
-      devices: options.devices,
-      requestId,
-      method: options.method,
-      path: options.path,
-      query: options.query || {},
-      headers: { 'Content-Type': 'application/json' },
-      body: options.body ? encodeBody(JSON.stringify(options.body)) : undefined,
-      port: options.port,
-    };
+    const requestBody = this.buildRequestBody(requestId, options);
 
     return new Promise((resolve, reject) => {
       let message: any;
@@ -123,6 +125,19 @@ export class ControlHttpClient {
         this.rejectPendingRequest(requestId, new Error('发送消息失败'));
       }
     });
+  }
+
+  private buildRequestBody(requestId: string, options: ControlHttpRequestOptions): ControlHttpMessageBody {
+    return {
+      devices: options.devices,
+      requestId,
+      method: options.method,
+      path: options.path,
+      query: options.query || {},
+      headers: { 'Content-Type': 'application/json' },
+      body: options.body ? encodeBody(JSON.stringify(options.body)) : undefined,
+      port: options.port,
+    };
   }
 
   destroy(reason: Error = new Error('Service destroyed')): void {

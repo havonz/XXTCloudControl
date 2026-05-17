@@ -1,26 +1,26 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocketService, type Device } from '../WebSocketService';
 
-const setWindow = () => {
+function setWindow(): void {
   Object.defineProperty(globalThis, 'window', {
     value: globalThis,
     configurable: true,
   });
-};
+}
 
-const seedDevices = (service: WebSocketService, devices: Device[]) => {
+function seedDevices(service: WebSocketService, devices: Device[]): void {
   const target = service as any;
   target.devices = devices;
   target.deviceIndexByUdid = new Map(devices.map((device, index) => [device.udid, index]));
-};
+}
 
-const collectUpdates = (service: WebSocketService) => {
+function collectUpdates(service: WebSocketService): Device[][] {
   const updates: Device[][] = [];
   service.onDeviceUpdate((devices) => {
     updates.push(devices);
   });
   return updates;
-};
+}
 
 class FakeWebSocket {
   static CONNECTING = 0;

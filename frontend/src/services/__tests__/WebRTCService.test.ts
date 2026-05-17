@@ -2,19 +2,19 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { WebRTCService } from '../WebRTCService';
 import type { WebSocketService } from '../WebSocketService';
 
-const setWindow = () => {
+function setWindow(): void {
   Object.defineProperty(globalThis, 'window', {
     value: globalThis,
     configurable: true,
   });
-};
+}
 
-const createWebSocketService = (unsubscribe = vi.fn()) => {
+function createWebSocketService(unsubscribe = vi.fn()): WebSocketService {
   return {
     onMessage: vi.fn(() => unsubscribe),
     send: vi.fn(() => true),
   } as unknown as WebSocketService;
-};
+}
 
 describe('WebRTCService polling lifecycle', () => {
   beforeAll(() => {
