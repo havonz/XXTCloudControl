@@ -1701,7 +1701,7 @@
   width: 20px;
   height: 20px;
   background: var(--primary);
-  color: white;
+  color: var(--text-on-gradient);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -1827,16 +1827,12 @@
 .cardLogArea {
   font-size: 10px;
   color: var(--text-muted);
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--subtle-code-bg);
   padding: 2px 4px;
   border-radius: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-[data-theme="dark"] .cardLogArea {
-  background: rgba(255, 255, 255, 0.03);
 }
 
 .cardCheckbox {
@@ -2125,7 +2121,7 @@
   
   /* Mobile context menu - bottom sheet style */
   .contextBackdrop {
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--surface-scrim);
     backdrop-filter: blur(2px);
   }
   
@@ -2139,7 +2135,7 @@
     max-width: none;
     padding: 8px 8px 32px 8px;
     border-radius: 20px 20px 0 0;
-    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--mobile-sheet-shadow);
     animation: contextSlideUp 0.3s ease;
     background: var(--panel-2);
     border-top: 1px solid var(--border);

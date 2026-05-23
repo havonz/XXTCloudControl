@@ -302,7 +302,7 @@
     max-width: none;
     padding: 16px 16px 32px 16px;
     border-radius: 20px 20px 0 0;
-    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--mobile-sheet-shadow);
     animation: slideUp 0.3s ease;
     border-bottom: none;
     border-left: none;
@@ -321,7 +321,7 @@
   }
 
   .contextBackdrop {
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--surface-scrim);
     backdrop-filter: blur(2px);
   }
 }

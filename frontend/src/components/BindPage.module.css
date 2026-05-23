@@ -127,8 +127,8 @@
 }
 
 .xxtButton {
-  background: linear-gradient(135deg, #34c759 0%, #30d158 100%);
-  color: white;
+  background: var(--xxt-action-bg);
+  color: var(--text-on-gradient);
   border: none;
   border-radius: 8px;
   padding: 0.7rem 1.5rem;
@@ -139,12 +139,12 @@
   margin-bottom: 0.75rem;
   width: 100%;
   max-width: 200px;
-  box-shadow: 0 2px 8px rgba(52, 199, 89, 0.3);
+  box-shadow: var(--xxt-action-shadow);
 }
 
 .xxtButton:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(52, 199, 89, 0.4);
+  box-shadow: var(--xxt-action-shadow-hover);
 }
 
 .xxtButton:active {

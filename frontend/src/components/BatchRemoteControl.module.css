@@ -293,7 +293,7 @@
 
 .toolButton:hover:not(:disabled) {
   background: var(--primary);
-  color: white;
+  color: var(--text-on-gradient);
   border-color: var(--primary);
 }
 
@@ -680,7 +680,7 @@
   position: relative;
   width: 100%;
   aspect-ratio: 9 / 16;  /* 使用 aspect-ratio 更灵活 */
-  background: #000;
+  background: var(--video-bg);
   overflow: hidden;
 }
 
@@ -691,7 +691,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: var(--video-bg);
   cursor: pointer;
   touch-action: none;
   user-select: none;
@@ -726,7 +726,7 @@
 
 .connectButton:hover {
   background: var(--primary);
-  color: white;
+  color: var(--text-on-gradient);
 }
 
 /* 粘贴模态框 */
@@ -805,7 +805,7 @@
   border: none;
   border-radius: 6px;
   background: var(--primary);
-  color: white;
+  color: var(--text-on-gradient);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s ease;

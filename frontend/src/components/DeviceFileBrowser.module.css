@@ -341,7 +341,7 @@
 
 .deleteAction:hover:not(:disabled) {
   background: var(--danger);
-  color: white;
+  color: var(--text-on-gradient);
   border-color: var(--danger);
 }
 
@@ -547,7 +547,7 @@
   position: absolute;
   bottom: -2px;
   right: -2px;
-  background: white;
+  background: var(--selection-badge-bg);
   color: var(--success);
   border-radius: 50%;
   display: flex;
@@ -555,7 +555,7 @@
   justify-content: center;
   width: 12px;
   height: 12px;
-  box-shadow: 0 0 2px rgba(0,0,0,0.2);
+  box-shadow: var(--selection-badge-shadow);
   z-index: 1;
   line-height: 0;
 }
@@ -1009,7 +1009,7 @@
 
   /* Mobile context menu - bottom sheet style */
   .contextBackdrop {
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--surface-scrim);
     backdrop-filter: blur(2px);
   }
   
@@ -1023,7 +1023,7 @@
     max-width: none;
     padding: 8px 8px 32px 8px;
     border-radius: 20px 20px 0 0;
-    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--mobile-sheet-shadow);
     animation: contextSlideUp 0.3s ease;
     background: var(--panel-2);
     border-top: 1px solid var(--border);
@@ -1223,7 +1223,7 @@
 
 .sendToCloudAction:hover:not(:disabled) {
   background: var(--success);
-  color: white;
+  color: var(--text-on-gradient);
   border-color: var(--success);
 }
 

@@ -29,10 +29,13 @@
   /* Background colors */
   --bg: #ffffff;
   --bg-gradient: #ffffff;
+  --bg-secondary: #f7f7f8;
   --panel: #ffffff;
   --panel-2: #f7f7f8;
+  --panel-3: #eeeeef;
   --panel-transparent: rgba(255, 255, 255, 0.95);
   --panel-glass: rgba(247, 247, 248, 0.9);
+  --panel-glass-disabled: rgba(0, 0, 0, 0.05);
   
   /* Text colors */
   --text: #222222;
@@ -45,11 +48,14 @@
   
   /* Border colors */
   --border: #e6e6e6;
+  --border-hover: #cbd5e1;
   --border-light: rgba(0, 0, 0, 0.08);
   --border-on-gradient: #e6e6e6;
   
   /* Primary accent */
   --primary: #52a7e0;
+  --primary-bg: rgba(82, 167, 224, 0.12);
+  --primary-border: rgba(82, 167, 224, 0.35);
   --primary-hover: #4a96c9;
   --primary-gradient: #52a7e0;
   --accent: #52a7e0;
@@ -60,6 +66,9 @@
   --success-bg: rgba(22, 163, 74, 0.1);
   --danger: #dc2626;
   --danger-bg: rgba(220, 38, 38, 0.1);
+  --danger-border-muted: rgba(220, 38, 38, 0.25);
+  --error: var(--danger);
+  --error-bg: var(--danger-bg);
   --warning: #d97706;
   --warning-bg: rgba(217, 119, 6, 0.1);
   --info: #3b82f6;
@@ -111,7 +120,9 @@
   
   /* Button primary styles */
   --btn-primary-bg: rgba(82, 167, 224, 0.28);
+  --btn-primary-bg-hover: rgba(82, 167, 224, 0.36);
   --btn-primary-border: #52a7e0;
+  --btn-primary-shadow: rgba(82, 167, 224, 0.25);
   --btn-primary-text: #52a7e0;
 
   /* Emphasis & focus */
@@ -128,9 +139,20 @@
   --info-bg-strong: rgba(59, 130, 246, 0.2);
   --text-on-gradient-muted: var(--text-secondary);
   --text-on-gradient-disabled: var(--text-muted);
-  --panel-glass-disabled: rgba(0, 0, 0, 0.05);
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-xl: 0 18px 48px rgba(0, 0, 0, 0.35);
+  --mobile-sheet-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+  --video-bg: #000000;
+  --surface-scrim: rgba(0, 0, 0, 0.5);
+  --keyboard-indicator-bg: rgba(0, 0, 0, 0.8);
+  --selection-badge-bg: #ffffff;
+  --selection-badge-shadow: 0 0 2px rgba(0, 0, 0, 0.2);
+  --subtle-code-bg: rgba(0, 0, 0, 0.03);
+  --success-soft: rgba(22, 163, 74, 0.15);
+  --danger-solid: rgba(220, 38, 38, 0.9);
+  --xxt-action-bg: linear-gradient(135deg, #34c759 0%, #30d158 100%);
+  --xxt-action-shadow: 0 2px 8px rgba(52, 199, 89, 0.3);
+  --xxt-action-shadow-hover: 0 4px 12px rgba(52, 199, 89, 0.4);
   
   /* FormRunner toggle segments */
   --fr-inactive-border: #d0d5dd;
@@ -157,122 +179,143 @@
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
   /* Background colors */
-  --bg: #0b1020;
-  --bg-gradient: #0b1020;
-  --panel: #0f1530;
-  --panel-2: #11172e;
-  --panel-transparent: rgba(15, 21, 48, 0.95);
-  --panel-glass: rgba(255, 255, 255, 0.05);
-  
+  --bg: #151515;
+  --bg-gradient: #151515;
+  --bg-secondary: #202020;
+  --panel: #181818;
+  --panel-2: #1f1f1f;
+  --panel-3: #242424;
+  --panel-transparent: rgba(24, 24, 24, 0.95);
+  --panel-glass: rgba(255, 255, 255, 0.045);
+  --panel-glass-disabled: rgba(255, 255, 255, 0.04);
+
   /* Text colors */
-  --text: #e6e9ef;
-  --text-secondary: #9aa3b2;
-  --text-muted: #64748b;
-  --muted-2: #94a3b8;
-  --symlink-badge-color: #cbd5e1;
-  --symlink-badge-ring: rgba(203, 213, 225, 0.28);
-  --text-on-gradient: #e6e9ef;
-  
+  --text: #d4d4d4;
+  --text-secondary: #a6a6a6;
+  --text-muted: #8f8f8f;
+  --muted-2: #a6a6a6;
+  --symlink-badge-color: #c7c7c7;
+  --symlink-badge-ring: rgba(199, 199, 199, 0.26);
+  --text-on-gradient: #ffffff;
+
   /* Border colors */
-  --border: #1f2a4a;
-  --border-light: rgba(255, 255, 255, 0.1);
-  --border-on-gradient: #1f2a4a;
-  
+  --border: #2b2b2b;
+  --border-hover: #3a3a3a;
+  --border-light: rgba(255, 255, 255, 0.08);
+  --border-on-gradient: #2b2b2b;
+
   /* Primary accent */
-  --primary: #4f8cff;
-  --primary-hover: #6a9fff;
-  --primary-gradient: #4f8cff;
-  --accent: #22d3ee;
-  --secondary: #3a4256;
-  
+  --primary: #379be8;
+  --primary-bg: rgba(55, 155, 232, 0.16);
+  --primary-border: rgba(55, 155, 232, 0.34);
+  --primary-hover: #4aa8ff;
+  --primary-gradient: #379be8;
+  --accent: #4aa8ff;
+  --secondary: #333333;
+
   /* Status colors */
-  --success: #22c55e;
-  --success-bg: rgba(34, 197, 94, 0.15);
-  --danger: #ef4444;
-  --danger-bg: rgba(239, 68, 68, 0.15);
-  --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.15);
-  --info: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.15);
+  --success: #1eb45a;
+  --success-bg: rgba(30, 180, 90, 0.14);
+  --danger: #d64242;
+  --danger-bg: rgba(214, 66, 66, 0.14);
+  --danger-border-muted: rgba(214, 66, 66, 0.3);
+  --error: var(--danger);
+  --error-bg: var(--danger-bg);
+  --warning: #d08a17;
+  --warning-bg: rgba(208, 138, 23, 0.14);
+  --info: #379be8;
+  --info-bg: rgba(55, 155, 232, 0.14);
 
   /* Battery Levels */
-  --battery-5: #22c55e; /* Green */
-  --battery-4: #84cc16; /* Lime */
-  --battery-3: #eab308; /* Yellow */
-  --battery-2: #f97316; /* Orange */
-  --battery-1: #ef4444; /* Red */
-  
+  --battery-5: #1eb45a;
+  --battery-4: #78b53a;
+  --battery-3: #d0a017;
+  --battery-2: #d2762e;
+  --battery-1: #d64242;
+
   /* Interactive states */
-  --hover-bg: rgba(255, 255, 255, 0.05);
-  --selected-bg: rgba(79, 140, 255, 0.2);
-  --row-hover: rgba(255, 255, 255, 0.03);
-  --row-selected: #1b2444;
-  
+  --hover-bg: rgba(255, 255, 255, 0.045);
+  --selected-bg: rgba(55, 155, 232, 0.18);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --row-selected: #233446;
+
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-  --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.26);
+  --shadow: none;
+  --shadow-lg: 0 14px 36px rgba(0, 0, 0, 0.48), 0 4px 10px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(255, 255, 255, 0.055);
   --batch-remote-shadow:
-    0 0 0 1px color-mix(in oklab, var(--primary) 12%, transparent),
-    0 0 18px color-mix(in oklab, var(--primary) 16%, transparent),
-    0 16px 36px color-mix(in oklab, var(--bg) 54%, transparent);
-  
+    0 0 0 1px rgba(255, 255, 255, 0.055),
+    0 16px 36px rgba(0, 0, 0, 0.48);
+
   /* Scrollbar */
-  --scrollbar-track: rgba(255, 255, 255, 0.05);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
-  
+  --scrollbar-track: rgba(255, 255, 255, 0.04);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+
   /* Modal overlay */
-  --overlay: rgba(0, 0, 0, 0.7);
-  --overlay-strong: rgba(0, 0, 0, 0.8);
-  --overlay-stronger: rgba(0, 0, 0, 0.9);
-  --overlay-strongest: rgba(0, 0, 0, 0.95);
-  
+  --overlay: rgba(0, 0, 0, 0.42);
+  --overlay-strong: rgba(0, 0, 0, 0.58);
+  --overlay-stronger: rgba(0, 0, 0, 0.72);
+  --overlay-strongest: rgba(0, 0, 0, 0.86);
+
   /* Input styles */
-  --input-bg: rgba(255, 255, 255, 0.05);
-  --input-border: #1f2a4a;
-  --input-focus-border: #4f8cff;
-  --input-focus-bg: rgba(255, 255, 255, 0.15);
-  --input-placeholder: #64748b;
-  
+  --input-bg: #202020;
+  --input-border: #2b2b2b;
+  --input-focus-border: #379be8;
+  --input-focus-bg: #242424;
+  --input-placeholder: #8f8f8f;
+
   /* Button colors */
   --btn-glass-bg: var(--secondary);
-  --btn-glass-hover: #454d62;
-  --btn-glass-border: #1f2a4a;
-  
+  --btn-glass-hover: #3a3a3a;
+  --btn-glass-border: #2b2b2b;
+
   /* Button primary styles */
-  --btn-primary-bg: rgba(79, 140, 255, 0.28);
-  --btn-primary-border: #4f8cff;
-  --btn-primary-text: #4f8cff;
+  --btn-primary-bg: rgba(55, 155, 232, 0.24);
+  --btn-primary-bg-hover: rgba(55, 155, 232, 0.32);
+  --btn-primary-border: #379be8;
+  --btn-primary-shadow: rgba(55, 155, 232, 0.22);
+  --btn-primary-text: #4aa8ff;
 
   /* Emphasis & focus */
-  --focus-ring: 0 0 0 3px rgba(79, 140, 255, 0.2);
-  --primary-light: rgba(79, 140, 255, 0.2);
-  --success-bg-strong: rgba(34, 197, 94, 0.25);
-  --success-bg-stronger: rgba(34, 197, 94, 0.45);
-  --success-bg-strongest: rgba(34, 197, 94, 0.6);
-  --success-border-muted: rgba(34, 197, 94, 0.4);
-  --success-border: rgba(34, 197, 94, 0.6);
-  --success-border-strong: rgba(34, 197, 94, 0.8);
-  --danger-bg-strong: rgba(239, 68, 68, 0.2);
-  --danger-bg-stronger: rgba(239, 68, 68, 0.4);
-  --info-bg-strong: rgba(59, 130, 246, 0.25);
+  --focus-ring: 0 0 0 3px rgba(55, 155, 232, 0.18);
+  --primary-light: rgba(55, 155, 232, 0.18);
+  --success-bg-strong: rgba(30, 180, 90, 0.22);
+  --success-bg-stronger: rgba(30, 180, 90, 0.38);
+  --success-bg-strongest: rgba(30, 180, 90, 0.5);
+  --success-border-muted: rgba(30, 180, 90, 0.34);
+  --success-border: rgba(30, 180, 90, 0.52);
+  --success-border-strong: rgba(30, 180, 90, 0.68);
+  --danger-bg-strong: rgba(214, 66, 66, 0.22);
+  --danger-bg-stronger: rgba(214, 66, 66, 0.38);
+  --info-bg-strong: rgba(55, 155, 232, 0.22);
   --text-on-gradient-muted: var(--text-secondary);
   --text-on-gradient-disabled: var(--text-muted);
-  --panel-glass-disabled: rgba(255, 255, 255, 0.05);
-  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.6);
-  --shadow-xl: 0 18px 48px rgba(0, 0, 0, 0.5);
-  
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.58);
+  --shadow-xl: 0 18px 48px rgba(0, 0, 0, 0.52);
+  --mobile-sheet-shadow: 0 -10px 30px rgba(0, 0, 0, 0.44);
+  --video-bg: #000000;
+  --surface-scrim: rgba(0, 0, 0, 0.5);
+  --keyboard-indicator-bg: rgba(0, 0, 0, 0.78);
+  --selection-badge-bg: #202020;
+  --selection-badge-shadow: 0 0 2px rgba(0, 0, 0, 0.46);
+  --subtle-code-bg: rgba(255, 255, 255, 0.035);
+  --success-soft: rgba(30, 180, 90, 0.14);
+  --danger-solid: rgba(214, 66, 66, 0.88);
+  --xxt-action-bg: linear-gradient(135deg, #23854a 0%, #2b9954 100%);
+  --xxt-action-shadow: 0 2px 8px rgba(43, 153, 84, 0.28);
+  --xxt-action-shadow-hover: 0 4px 12px rgba(43, 153, 84, 0.34);
+
   /* FormRunner toggle segments */
-  --fr-inactive-border: #2a3350;
-  --fr-inactive-bg: #0f1a2e;
-  --fr-inactive-hover-border: #334066;
-  --fr-inactive-hover-bg: #12203a;
-  --rg-active-border: #4a7aff;
-  --rg-active-bg: #0f1e38;
-  --rg-active-text: #4a7aff;
-  --rg-hover-border: #6a94ff;
-  --rg-hover-bg: #142a4f;
+  --fr-inactive-border: #343434;
+  --fr-inactive-bg: #202020;
+  --fr-inactive-hover-border: #3a3a3a;
+  --fr-inactive-hover-bg: #242424;
+  --rg-active-border: #379be8;
+  --rg-active-bg: #1c2b38;
+  --rg-active-text: #4aa8ff;
+  --rg-hover-border: #4aa8ff;
+  --rg-hover-bg: #21374a;
   --cg-active-border: #d29a5b;
   --cg-active-bg: #2a1f0f;
   --cg-active-text: #d29a5b;
@@ -393,7 +436,7 @@ code {
 
 .cbx-input:focus { 
   border-color: var(--primary) !important; 
-  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1) !important; 
+  box-shadow: var(--focus-ring) !important;
 }
 
 .cbx-trigger, .cbx-clear { 
@@ -475,7 +518,7 @@ code {
 
 .cbx-item[data-selected] {
   background: var(--primary) !important;
-  color: white !important;
+  color: var(--text-on-gradient) !important;
 }
 
 /* Select dropdown styles (cbx-select) */
@@ -502,7 +545,7 @@ code {
 .cbx-select:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(82, 167, 224, 0.1);
+  box-shadow: var(--focus-ring);
 }
 
 .cbx-select .dropdown-arrow {
@@ -548,7 +591,7 @@ code {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: white;
+  color: var(--text-on-gradient);
   font-size: 13px;
   font-weight: 700;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',

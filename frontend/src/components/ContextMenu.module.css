@@ -9,7 +9,7 @@
 }
 
 .mobileBackdrop {
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--surface-scrim);
   backdrop-filter: blur(2px);
 }
 
@@ -40,7 +40,7 @@
   padding: 8px 8px 32px 8px;
   padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
   border-radius: 20px 20px 0 0;
-  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--mobile-sheet-shadow);
   animation: contextSlideUp 0.3s ease;
   background: var(--panel-2);
   border-top: 1px solid var(--border);

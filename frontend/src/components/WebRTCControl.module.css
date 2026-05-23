@@ -677,7 +677,7 @@
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  color: white;
+  color: var(--text-on-gradient);
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
@@ -754,8 +754,8 @@
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
+  background: var(--keyboard-indicator-bg);
+  color: var(--text-on-gradient);
   padding: 8px 20px;
   border-radius: 20px;
   font-size: 16px;
@@ -777,7 +777,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-strong);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -919,8 +919,8 @@
   min-width: auto;
   height: auto;
   border-radius: 4px;
-  background: rgba(220, 53, 69, 0.9);
-  color: white;
+  background: var(--danger-solid);
+  color: var(--text-on-gradient);
   border: none;
   cursor: pointer;
   font-size: 12px;
@@ -933,9 +933,9 @@
 .clipboardSyncHint {
   margin-top: 1rem;
   padding: 0.75rem;
-  background: rgba(40, 167, 69, 0.15);
+  background: var(--success-soft);
   border-radius: 6px;
-  color: #28a745;
+  color: var(--success);
   font-size: 0.85rem;
 }
 
