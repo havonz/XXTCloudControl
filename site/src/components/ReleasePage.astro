@@ -173,13 +173,17 @@ const formatBytes = (value) => {
 
     <section class="mb-10">
       <figure class="screenshot-panel rounded-3xl p-2 sm:p-3">
-        <img
-          src={withBase('screenshot-001.png')}
-          alt={text.screenshotAlt}
-          loading="lazy"
-          decoding="async"
-          class="screenshot-image block w-full rounded-2xl"
-        />
+        <picture>
+          <source srcset={withBase('screenshot-001-dark.png')} media="(prefers-color-scheme: dark)" />
+          <source srcset={withBase('screenshot-001.png')} media="(prefers-color-scheme: light)" />
+          <img
+            src={withBase('screenshot-001.png')}
+            alt={text.screenshotAlt}
+            loading="lazy"
+            decoding="async"
+            class="screenshot-image block w-full rounded-2xl"
+          />
+        </picture>
       </figure>
     </section>
 

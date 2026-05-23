@@ -3,7 +3,11 @@
 用于 XXTouch 1.3.8-20260122000000+ 的云控服务端（WebSocket + 静态前端）与管理面板。  
 设备端协议实现源码位于设备端 `/var/mobile/Media/1ferver/bin/open-cloud-control-client.lua`。  
 
-![Screenshot](site/public/screenshot-001.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/public/screenshot-001-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="site/public/screenshot-001.png">
+  <img alt="XXTCloudControl screenshot" src="site/public/screenshot-001.png">
+</picture>
 
 ## 发布地址
 
