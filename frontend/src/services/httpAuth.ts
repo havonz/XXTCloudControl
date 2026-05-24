@@ -1,4 +1,5 @@
 import { AuthService } from './AuthService';
+import { getCurrentLocale } from '../i18n';
 
 type AuthPayload = {
   ts: number;
@@ -40,6 +41,24 @@ const resolveUrl = (url: string): string => {
   if (isAbsoluteUrl(url) || !apiBaseUrl) return url;
   if (url.startsWith('/')) return `${apiBaseUrl}${url}`;
   return `${apiBaseUrl}/${url}`;
+};
+
+const withLocaleQuery = (url: string): string => {
+  const locale = getCurrentLocale();
+  if (!locale) return url;
+  try {
+    const resolved = resolveUrl(url);
+    const parsed = new URL(resolved, window.location.origin);
+    if (!parsed.searchParams.has('locale')) {
+      parsed.searchParams.set('locale', locale);
+    }
+    if (isAbsoluteUrl(resolved) || apiBaseUrl) {
+      return parsed.toString();
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return url;
+  }
 };
 
 const buildCanonicalPath = (url: URL): string => {
@@ -142,6 +161,9 @@ const getAuthPayload = async (
 
 export const withAuthHeaders = async (url: string, options: RequestInit = {}): Promise<Headers> => {
   const result = new Headers(options.headers);
+  if (!result.has('Accept-Language')) {
+    result.set('Accept-Language', getCurrentLocale());
+  }
   const method = (options.method || 'GET').toUpperCase();
   const payload = await getAuthPayload(method, url, options.body as BodyInit | null | undefined);
   if (payload) {
@@ -159,11 +181,12 @@ export const authFetch = async (url: string, options: RequestInit = {}) => {
 
 export const appendAuthQuery = (url: string): string => {
   const authService = AuthService.getInstance();
-  const payload = buildAuthPayload(authService, 'GET', url, '');
+  const localizedUrl = withLocaleQuery(url);
+  const payload = buildAuthPayload(authService, 'GET', localizedUrl, '');
   if (!payload) {
-    return resolveUrl(url);
+    return resolveUrl(localizedUrl);
   }
-  const finalUrl = new URL(resolveUrl(url), window.location.origin);
+  const finalUrl = new URL(resolveUrl(localizedUrl), window.location.origin);
   finalUrl.searchParams.set('ts', String(payload.ts));
   finalUrl.searchParams.set('nonce', payload.nonce);
   finalUrl.searchParams.set('sign', payload.sign);

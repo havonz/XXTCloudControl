@@ -68,7 +68,7 @@ type lanControlArchiveInstallResult struct {
 func lanControlArchiveInspectHandler(c *gin.Context) {
 	archivePath, sourceName, cleanup, err := resolveLanControlArchiveRequestSource(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	if cleanup != nil {
@@ -77,7 +77,7 @@ func lanControlArchiveInspectHandler(c *gin.Context) {
 
 	result, err := inspectLanControlArchivePath(serverConfig.DataDir, archivePath, sourceName)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -86,7 +86,7 @@ func lanControlArchiveInspectHandler(c *gin.Context) {
 func lanControlArchiveInstallHandler(c *gin.Context) {
 	archivePath, sourceName, cleanup, err := resolveLanControlArchiveRequestSource(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	if cleanup != nil {
@@ -101,7 +101,7 @@ func lanControlArchiveInstallHandler(c *gin.Context) {
 		if strings.Contains(err.Error(), "already exists") {
 			status = http.StatusConflict
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		jsonError(c, status, err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, result)

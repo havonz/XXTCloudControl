@@ -68,13 +68,13 @@ var (
 func snapshotSaveBatchHandler(c *gin.Context) {
 	var req snapshotSaveBatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	deviceIDs := uniqueDeviceIDs(req.DeviceIDs)
 	if len(deviceIDs) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "deviceIds is required"})
+		jsonError(c, http.StatusBadRequest, "deviceIds is required")
 		return
 	}
 

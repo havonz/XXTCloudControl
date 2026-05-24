@@ -8,6 +8,7 @@ import { useGroupReorder } from '../hooks/useGroupReorder';
 import ScriptConfigModal from './ScriptConfigModal';
 import { authFetch } from '../services/httpAuth';
 import ContextMenu, { ContextMenuButton } from './ContextMenu';
+import { useI18n } from '../i18n';
 
 interface GroupListProps {
   groupStore: GroupStoreState;
@@ -20,6 +21,7 @@ interface GroupListProps {
 
 const GroupList: Component<GroupListProps> = (props) => {
   const dialog = useDialog();
+  const { t } = useI18n();
   const scriptConfigManager = useScriptConfigManager();
   const [showSettings, setShowSettings] = createSignal(false);
   const [contextMenu, setContextMenu] = createSignal<{ x: number; y: number; groupId: string } | null>(null);
@@ -57,7 +59,7 @@ const GroupList: Component<GroupListProps> = (props) => {
     const group = props.groupStore.groups().find(g => g.id === menu.groupId);
     if (!group) return;
     
-    const newName = await dialog.prompt(`重命名分组 "${group.name}":`, group.name);
+    const newName = await dialog.prompt(t('group.rename_prompt', { name: group.name }), group.name);
     if (newName && newName.trim()) {
       await props.groupStore.renameGroup(menu.groupId, newName.trim());
     }
@@ -71,7 +73,7 @@ const GroupList: Component<GroupListProps> = (props) => {
     const group = props.groupStore.groups().find(g => g.id === menu.groupId);
     if (!group) return;
     
-    if (await dialog.confirm(`确定要删除分组 "${group.name}" 吗？`)) {
+    if (await dialog.confirm(t('group.delete_confirm', { name: group.name }))) {
       await props.groupStore.deleteGroup(menu.groupId);
     }
   };
@@ -82,7 +84,7 @@ const GroupList: Component<GroupListProps> = (props) => {
     closeContextMenu();
     
     // This would need access to selected device IDs - for now just show a placeholder
-    await dialog.alert('请先在设备列表中选择要移除的设备，然后使用"从分组移除"功能');
+    await dialog.alert(t('group.remove_select_first'));
   };
 
   const fetchSelectableScripts = async () => {
@@ -91,7 +93,7 @@ const GroupList: Component<GroupListProps> = (props) => {
       const data = await response.json();
       return data.scripts || [];
     } catch (error) {
-      console.error('获取可选脚本失败:', error);
+      console.error(t('group.fetch_scripts_failed'), error);
       return [];
     }
   };
@@ -105,8 +107,8 @@ const GroupList: Component<GroupListProps> = (props) => {
     if (!group) return;
 
     // Placeholder options for group binding
-    const NO_BINDING_PLACEHOLDER = '<不绑定：同全局选择>';
-    const DEVICE_SELECTED_PLACEHOLDER = '<设备端已选中>';
+    const NO_BINDING_PLACEHOLDER = t('group.not_bound_global');
+    const DEVICE_SELECTED_PLACEHOLDER = t('group.device_selected_script');
     
     const serverScripts = await fetchSelectableScripts();
     // Prepend placeholder options
@@ -116,13 +118,15 @@ const GroupList: Component<GroupListProps> = (props) => {
     let defaultValue = group.scriptPath || '';
     if (defaultValue === '') {
       defaultValue = NO_BINDING_PLACEHOLDER;
+    } else if (defaultValue === '<设备端已选中>') {
+      defaultValue = DEVICE_SELECTED_PLACEHOLDER;
     }
 
     const selectedValue = await dialog.select(
-      `为分组 "${group.name}" 绑定脚本:`,
+      t('group.bind_script_prompt', { name: group.name }),
       scripts,
       defaultValue,
-      '绑定脚本'
+      t('group.bind_script_title')
     );
 
     if (selectedValue !== null && selectedValue !== undefined) {
@@ -130,6 +134,8 @@ const GroupList: Component<GroupListProps> = (props) => {
       let scriptPath = selectedValue.trim();
       if (scriptPath === NO_BINDING_PLACEHOLDER) {
         scriptPath = ''; // Empty means follow global selection
+      } else if (scriptPath === DEVICE_SELECTED_PLACEHOLDER) {
+        scriptPath = '<设备端已选中>';
       }
       // DEVICE_SELECTED_PLACEHOLDER stays as-is for display, backend will handle it
       
@@ -145,7 +151,7 @@ const GroupList: Component<GroupListProps> = (props) => {
     const group = props.groupStore.groups().find(g => g.id === menu.groupId);
     if (!group || !group.scriptPath) {
       if (group && !group.scriptPath) {
-        await dialog.alert('请先为该分组绑定脚本');
+        await dialog.alert(t('group.bind_script_first'));
       }
       return;
     }
@@ -179,19 +185,19 @@ const GroupList: Component<GroupListProps> = (props) => {
   return (
     <div class={styles.groupListContainer}>
       <div class={styles.header}>
-        <h3 class={styles.title}>设备分组</h3>
+        <h3 class={styles.title}>{t('group.title')}</h3>
         <div class={styles.headerButtons}>
           <button 
             class={styles.addButton} 
             onClick={props.onOpenNewGroupModal}
-            title="新建分组"
+            title={t('group.new_title')}
           >
             +
           </button>
           <button 
             class={styles.settingsButton}
             onClick={() => setShowSettings(!showSettings())}
-            title="分组设置"
+            title={t('group.settings')}
           >
             ⚙
           </button>
@@ -207,7 +213,7 @@ const GroupList: Component<GroupListProps> = (props) => {
               checked={props.groupStore.groupMultiSelect()}
               onChange={(e) => props.groupStore.setGroupMultiSelect(e.currentTarget.checked)}
             />
-            <span>允许多选分组</span>
+            <span>{t('group.allow_multi_select')}</span>
           </label>
           <label class={styles.settingsOption}>
             <input
@@ -216,7 +222,7 @@ const GroupList: Component<GroupListProps> = (props) => {
               checked={props.groupStore.groupSortLocked()}
               onChange={(e) => props.groupStore.setGroupSortLocked(e.currentTarget.checked)}
             />
-            <span>锁定排序</span>
+            <span>{t('group.lock_sort')}</span>
           </label>
         </div>
       </Show>
@@ -243,8 +249,8 @@ const GroupList: Component<GroupListProps> = (props) => {
               onClick={(e) => e.stopPropagation()}
             />
             <div class={styles.groupInfoStack}>
-              <span class={styles.groupName}>所有设备</span>
-              <span class={styles.groupSubInfo}>{props.deviceCount} 台设备</span>
+              <span class={styles.groupName}>{t('group.all_devices')}</span>
+              <span class={styles.groupSubInfo}>{t('group.device_count', { count: props.deviceCount })}</span>
             </div>
           </div>
         </li>
@@ -278,9 +284,9 @@ const GroupList: Component<GroupListProps> = (props) => {
                 />
                 <div class={styles.groupInfoStack}>
                   <span class={styles.groupName}>{group.name}</span>
-                  <span class={styles.groupSubInfo}>{group.deviceIds?.length || 0} 台设备</span>
+                  <span class={styles.groupSubInfo}>{t('group.device_count', { count: group.deviceIds?.length || 0 })}</span>
                   <span class={styles.groupSubInfo}>
-                    绑定脚本: {group.scriptPath === '<设备端已选中>' ? '<设备端已选中>' : (group.scriptPath || '-')}
+                    {t('group.bound_script', { script: group.scriptPath === '<设备端已选中>' ? t('group.device_selected_script') : (group.scriptPath || '-') })}
                   </span>
                 </div>
               </div>
@@ -301,11 +307,11 @@ const GroupList: Component<GroupListProps> = (props) => {
         onClose={closeContextMenu}
       >
         <>
-          <ContextMenuButton onClick={handleRenameGroup}>重命名分组</ContextMenuButton>
-          <ContextMenuButton onClick={handleBindScript}>绑定脚本</ContextMenuButton>
-          <ContextMenuButton onClick={handleOpenGroupConfig}>分组配置</ContextMenuButton>
-          <ContextMenuButton onClick={handleRemoveSelectedFromGroup}>从分组移除选中设备</ContextMenuButton>
-          <ContextMenuButton onClick={handleDeleteGroup} danger>删除分组</ContextMenuButton>
+          <ContextMenuButton onClick={handleRenameGroup}>{t('group.menu_rename')}</ContextMenuButton>
+          <ContextMenuButton onClick={handleBindScript}>{t('group.menu_bind_script')}</ContextMenuButton>
+          <ContextMenuButton onClick={handleOpenGroupConfig}>{t('group.menu_config')}</ContextMenuButton>
+          <ContextMenuButton onClick={handleRemoveSelectedFromGroup}>{t('group.menu_remove_selected')}</ContextMenuButton>
+          <ContextMenuButton onClick={handleDeleteGroup} danger>{t('group.menu_delete')}</ContextMenuButton>
         </>
       </ContextMenu>
 

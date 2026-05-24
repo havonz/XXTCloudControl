@@ -79,7 +79,7 @@ func apiAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		if !isRequestAuthorized(c) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			jsonError(c, http.StatusUnauthorized, "unauthorized")
 			c.Abort()
 			return
 		}
@@ -92,7 +92,7 @@ func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-XXT-TS, X-XXT-Nonce, X-XXT-Sign")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept-Language, X-XXT-TS, X-XXT-Nonce, X-XXT-Sign")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusOK)
@@ -319,7 +319,7 @@ func configHandler(c *gin.Context) {
 
 	configBytes, err := json.Marshal(config)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build config"})
+		jsonError(c, http.StatusInternalServerError, "failed to build config")
 		return
 	}
 
@@ -343,12 +343,12 @@ func controlInfoHandler(c *gin.Context) {
 func downloadBindScriptHandler(c *gin.Context) {
 	hostParam := c.Query("host")
 	if hostParam == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "host parameter is required"})
+		jsonError(c, http.StatusNotFound, "host parameter is required")
 		return
 	}
 	host, err := sanitizeBindHost(hostParam)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -356,7 +356,7 @@ func downloadBindScriptHandler(c *gin.Context) {
 	if portParam := strings.TrimSpace(c.Query("port")); portParam != "" {
 		p, err := strconv.Atoi(portParam)
 		if err != nil || p < 1 || p > 65535 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid port"})
+			jsonError(c, http.StatusBadRequest, "invalid port")
 			return
 		}
 		port = p
@@ -503,7 +503,7 @@ func setAppSettingsHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -521,7 +521,7 @@ func setAppSettingsHandler(c *gin.Context) {
 	if err := saveAppSettingsLocked(); err != nil {
 		appSettings = backupSettings
 		appSettingsMu.Unlock()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	appSettingsMu.Unlock()

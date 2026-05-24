@@ -1,6 +1,7 @@
 import { Show, createEffect, onCleanup } from 'solid-js';
 import { createBackdropClose } from '../../hooks/useBackdropClose';
 import { IconXmark } from '../../icons';
+import { useI18n } from '../../i18n';
 import styles from '../../components/ScriptSelectionModal.module.css';
 
 interface VolumeModalProps {
@@ -14,6 +15,7 @@ interface VolumeModalProps {
 }
 
 export default function VolumeModal(props: VolumeModalProps) {
+  const { t } = useI18n();
   const backdropClose = createBackdropClose(() => {
     if (!props.setting) props.onCancel();
   });
@@ -41,11 +43,11 @@ export default function VolumeModal(props: VolumeModalProps) {
       <div class={styles.overlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
         <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.header}>
-            <h3 class={styles.title}>设置音量</h3>
+            <h3 class={styles.title}>{t('modal.volume_title')}</h3>
             <button 
               class={styles.closeButton} 
               onClick={props.onCancel} 
-              title="关闭"
+              title={t('common.close')}
               disabled={props.setting}
             >
               <IconXmark size={16} />
@@ -53,11 +55,11 @@ export default function VolumeModal(props: VolumeModalProps) {
           </div>
 
           <div class={styles.body}>
-            <p class={styles.description}>将批量为 {props.selectedDeviceCount} 台设备设置音量</p>
+            <p class={styles.description}>{t('modal.volume_description', { count: props.selectedDeviceCount })}</p>
             
             <div class={styles.inputGroup}>
               <div class={styles.inputRow}>
-                <span style={{ "min-width": "40px", color: "var(--text-secondary)" }}>音量</span>
+                <span style={{ "min-width": "40px", color: "var(--text-secondary)" }}>{t('modal.volume_label')}</span>
                 <input
                   type="range"
                   min="0"
@@ -73,7 +75,7 @@ export default function VolumeModal(props: VolumeModalProps) {
                   disabled={props.setting}
                   class={styles.selectButton}
                 >
-                  {props.setting ? '设置中...' : '确定'}
+                  {props.setting ? t('modal.setting') : t('common.confirm')}
                 </button>
               </div>
             </div>

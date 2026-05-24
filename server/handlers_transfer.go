@@ -299,24 +299,24 @@ func createTransferTokenHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
 	if req.Type != "download" && req.Type != "upload" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "type must be 'download' or 'upload'"})
+		jsonError(c, http.StatusBadRequest, "type must be 'download' or 'upload'")
 		return
 	}
 
 	if req.DeviceSN == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "deviceSN is required"})
+		jsonError(c, http.StatusBadRequest, "deviceSN is required")
 		return
 	}
 
 	// Validate file path
 	filePath, err := validatePath(req.Category, req.Path)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -326,15 +326,15 @@ func createTransferTokenHandler(c *gin.Context) {
 	if req.Type == "download" {
 		info, err := os.Stat(filePath)
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+			jsonError(c, http.StatusNotFound, "file not found")
 			return
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			jsonError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if info.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot transfer a directory"})
+			jsonError(c, http.StatusBadRequest, "cannot transfer a directory")
 			return
 		}
 		fileSize = info.Size()
@@ -345,7 +345,7 @@ func createTransferTokenHandler(c *gin.Context) {
 		}
 
 		if req.TargetPath == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "targetPath is required for download"})
+			jsonError(c, http.StatusBadRequest, "targetPath is required for download")
 			return
 		}
 	}
@@ -354,7 +354,7 @@ func createTransferTokenHandler(c *gin.Context) {
 	if req.Type == "upload" {
 		parentDir := filepath.Dir(filePath)
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory"})
+			jsonError(c, http.StatusInternalServerError, "failed to create directory")
 			return
 		}
 	}
@@ -508,7 +508,7 @@ func transferDownloadHandler(c *gin.Context) {
 
 	token := c.Param("token")
 	if token == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "token is required"})
+		jsonError(c, http.StatusBadRequest, "token is required")
 		return
 	}
 
@@ -518,7 +518,7 @@ func transferDownloadHandler(c *gin.Context) {
 	transferTokensMu.RUnlock()
 
 	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "token not found or expired"})
+		jsonError(c, http.StatusNotFound, "token not found or expired")
 		return
 	}
 
@@ -534,13 +534,13 @@ func transferDownloadHandler(c *gin.Context) {
 		if sharedID != "" {
 			releaseSharedTempRef(sharedID)
 		}
-		c.JSON(http.StatusGone, gin.H{"error": "token expired"})
+		jsonError(c, http.StatusGone, "token expired")
 		return
 	}
 
 	// Check type
 	if tokenInfo.Type != "download" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "token is not for download"})
+		jsonError(c, http.StatusBadRequest, "token is not for download")
 		return
 	}
 
@@ -561,7 +561,7 @@ func transferDownloadHandler(c *gin.Context) {
 		if releaseSharedID != "" {
 			releaseSharedTempRef(releaseSharedID)
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open file"})
+		jsonError(c, http.StatusInternalServerError, "failed to open file")
 		return
 	}
 	if releaseSharedID != "" {
@@ -572,7 +572,7 @@ func transferDownloadHandler(c *gin.Context) {
 	// Get file info
 	info, err := file.Stat()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stat file"})
+		jsonError(c, http.StatusInternalServerError, "failed to stat file")
 		return
 	}
 
@@ -632,7 +632,7 @@ func transferUploadHandler(c *gin.Context) {
 
 	token := c.Param("token")
 	if token == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "token is required"})
+		jsonError(c, http.StatusBadRequest, "token is required")
 		return
 	}
 
@@ -642,7 +642,7 @@ func transferUploadHandler(c *gin.Context) {
 	transferTokensMu.RUnlock()
 
 	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "token not found or expired"})
+		jsonError(c, http.StatusNotFound, "token not found or expired")
 		return
 	}
 
@@ -651,13 +651,13 @@ func transferUploadHandler(c *gin.Context) {
 		transferTokensMu.Lock()
 		delete(transferTokens, token)
 		transferTokensMu.Unlock()
-		c.JSON(http.StatusGone, gin.H{"error": "token expired"})
+		jsonError(c, http.StatusGone, "token expired")
 		return
 	}
 
 	// Check type
 	if tokenInfo.Type != "upload" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "token is not for upload"})
+		jsonError(c, http.StatusBadRequest, "token is not for upload")
 		return
 	}
 
@@ -674,7 +674,7 @@ func transferUploadHandler(c *gin.Context) {
 	// Create file
 	file, err := os.Create(tokenInfo.FilePath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create file"})
+		jsonError(c, http.StatusInternalServerError, "failed to create file")
 		return
 	}
 	defer file.Close()
@@ -703,7 +703,7 @@ func transferUploadHandler(c *gin.Context) {
 	written, err := io.Copy(io.MultiWriter(file, hashWriter), pr)
 	if err != nil {
 		log.Printf("❌ Upload failed: %s - %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file"})
+		jsonError(c, http.StatusInternalServerError, "failed to write file")
 		return
 	}
 
@@ -920,29 +920,29 @@ func pushFileToDeviceHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
 	if req.DeviceSN == "" || req.Category == "" || req.Path == "" || req.TargetPath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "deviceSN, category, path, and targetPath are required"})
+		jsonError(c, http.StatusBadRequest, "deviceSN, category, path, and targetPath are required")
 		return
 	}
 
 	// Validate file
 	filePath, err := validatePath(req.Category, req.Path)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	info, err := os.Stat(filePath)
 	if os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		jsonError(c, http.StatusNotFound, "file not found")
 		return
 	}
 	if info.IsDir() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot push a directory"})
+		jsonError(c, http.StatusBadRequest, "cannot push a directory")
 		return
 	}
 
@@ -953,7 +953,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 	if fileSize < LargeFileThreshold {
 		content, err := os.ReadFile(filePath)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
+			jsonError(c, http.StatusInternalServerError, "failed to read file")
 			return
 		}
 
@@ -965,7 +965,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		mu.RUnlock()
 
 		if !exists {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "device not connected"})
+			jsonError(c, http.StatusBadRequest, "device not connected")
 			return
 		}
 
@@ -978,7 +978,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		}
 
 		if err := sendMessage(conn, putMsg); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send file to device"})
+			jsonError(c, http.StatusInternalServerError, "failed to send file to device")
 			return
 		}
 
@@ -1041,7 +1041,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		if sharedID != "" {
 			releaseSharedTempRef(sharedID)
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -1069,26 +1069,26 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
 	if req.DeviceSN == "" || req.SourcePath == "" || req.Category == "" || req.Path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "deviceSN, sourcePath, category, and path are required"})
+		jsonError(c, http.StatusBadRequest, "deviceSN, sourcePath, category, and path are required")
 		return
 	}
 
 	// Validate and prepare save path
 	filePath, err := validatePath(req.Category, req.Path)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// Create parent directory
 	parentDir := filepath.Dir(filePath)
 	if err := os.MkdirAll(parentDir, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory"})
+		jsonError(c, http.StatusInternalServerError, "failed to create directory")
 		return
 	}
 
@@ -1120,7 +1120,7 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 		transferTokensMu.Lock()
 		delete(transferTokens, token)
 		transferTokensMu.Unlock()
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 

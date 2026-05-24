@@ -1,0 +1,41 @@
+.trigger {
+  gap: 6px;
+  justify-content: center;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.regularTrigger {
+  width: 120px;
+}
+
+.compactTrigger {
+  width: 68px;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.loginTrigger {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+
+.loginTrigger:hover {
+  background: var(--hover-bg);
+  color: var(--primary);
+}
+
+.icon {
+  flex: 0 0 auto;
+}
+
+.label {
+  min-width: 18px;
+  text-align: center;
+}
+
+.arrow {
+  margin-left: 0 !important;
+}

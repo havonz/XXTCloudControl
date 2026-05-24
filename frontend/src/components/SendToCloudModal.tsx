@@ -4,6 +4,7 @@ import { Portal } from 'solid-js/web';
 import { IconUpload, IconXmark } from '../icons';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './DeviceFileBrowser.module.css';
+import { useI18n } from '../i18n';
 
 export interface SendToCloudModalProps {
   isOpen: boolean;
@@ -14,21 +15,21 @@ export interface SendToCloudModalProps {
   directoryCount?: number;
 }
 
-const CATEGORY_OPTIONS = [
-  { value: 'files', label: '云控资源目录' },
-  { value: 'reports', label: '云控报告目录' },
-  { value: 'scripts', label: '云控脚本目录' },
-] as const;
-
 export default function SendToCloudModal(props: SendToCloudModalProps) {
+  const { t } = useI18n();
   const [selectedCategory, setSelectedCategory] = createSignal<'scripts' | 'files' | 'reports'>('files');
   const [relativePath, setRelativePath] = createSignal('/');
   const backdropClose = createBackdropClose(() => props.onClose());
+  const categoryOptions = createMemo(() => [
+    { value: 'files' as const, label: t('files.cloud_files_root') },
+    { value: 'reports' as const, label: t('files.cloud_reports_root') },
+    { value: 'scripts' as const, label: t('files.cloud_scripts_root') },
+  ]);
 
   // Create collection for Select component
   const categoryCollection = createMemo(() => 
     createListCollection({
-      items: CATEGORY_OPTIONS.map(o => ({
+      items: categoryOptions().map(o => ({
         value: o.value,
         label: o.label
       }))
@@ -37,8 +38,8 @@ export default function SendToCloudModal(props: SendToCloudModalProps) {
 
   // Get selected category label for display
   const selectedCategoryLabel = createMemo(() => {
-    const option = CATEGORY_OPTIONS.find(o => o.value === selectedCategory());
-    return option?.label ?? '-- 选择目录 --';
+    const option = categoryOptions().find(o => o.value === selectedCategory());
+    return option?.label ?? t('files.select_directory');
   });
 
   const handleConfirm = () => {
@@ -60,15 +61,15 @@ export default function SendToCloudModal(props: SendToCloudModalProps) {
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div class={styles.sendToCloudHeader}>
-            <h3>发送到云控</h3>
-            <button class={styles.closeButton} onClick={props.onClose}>
+            <h3>{t('files.send_to_cloud')}</h3>
+            <button class={styles.closeButton} onClick={props.onClose} title={t('common.close')}>
               <IconXmark size={16} />
             </button>
           </div>
 
           <div class={styles.sendToCloudBody}>
             <div class={styles.formRow}>
-              <label class={styles.formLabel}>根目录</label>
+              <label class={styles.formLabel}>{t('files.root')}</label>
               <Select.Root
                 class={styles.formSelectRoot}
                 collection={categoryCollection()}
@@ -88,7 +89,7 @@ export default function SendToCloudModal(props: SendToCloudModalProps) {
                   <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
                     <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
                       <Select.ItemGroup>
-                        <For each={CATEGORY_OPTIONS}>{(option) => (
+                        <For each={categoryOptions()}>{(option) => (
                           <Select.Item 
                             item={{ value: option.value, label: option.label }} 
                             class="cbx-item"
@@ -107,7 +108,7 @@ export default function SendToCloudModal(props: SendToCloudModalProps) {
             </div>
 
             <div class={styles.formRow}>
-              <label class={styles.formLabel}>相对路径</label>
+              <label class={styles.formLabel}>{t('files.relative_path')}</label>
               <input
                 type="text"
                 class={styles.formInput}
@@ -123,17 +124,17 @@ export default function SendToCloudModal(props: SendToCloudModalProps) {
               <Show when={props.isScanning} fallback={
                 <>
                   {props.directoryCount && props.directoryCount > 0 && (
-                    <span>{props.directoryCount} 个目录，</span>
+                    <span>{t('files.directory_count_prefix', { count: props.directoryCount })}</span>
                   )}
-                  将发送 {props.itemCount} 个文件
+                  {t('files.will_send_files', { count: props.itemCount })}
                 </>
               }>
-                <span>扫描目录中... 已发现 {props.itemCount} 个文件</span>
+                <span>{t('files.scanning_found_files', { count: props.itemCount })}</span>
               </Show>
             </span>
             <div class={styles.sendToCloudActions}>
               <button class={styles.cancelBtn} onClick={props.onClose}>
-                取消
+                {t('common.cancel')}
               </button>
               <button 
                 class={styles.confirmBtn} 
@@ -141,7 +142,7 @@ export default function SendToCloudModal(props: SendToCloudModalProps) {
                 disabled={props.isScanning || props.itemCount === 0}
               >
                 <IconUpload size={14} />
-                <span>{props.isScanning ? '扫描中...' : '确定'}</span>
+                <span>{props.isScanning ? t('files.scanning') : t('common.confirm')}</span>
               </button>
             </div>
           </div>

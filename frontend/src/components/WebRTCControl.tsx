@@ -20,6 +20,7 @@ import {
   type RemoteWheelSettingKey,
   type RemoteWheelSettings,
 } from '../utils/remoteWheel';
+import { useI18n } from '../i18n';
 
 export interface WebRTCControlProps {
   isOpen: boolean;
@@ -63,6 +64,7 @@ function rotationToQuarter(rotation: number): number {
 }
 
 export default function WebRTCControl(props: WebRTCControlProps) {
+  const { t } = useI18n();
   const [selectedControlDevice, setSelectedControlDevice] = createSignal<string>('');
   const [connectionState, setConnectionState] = createSignal<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [resolution, setResolution] = createSignal(0.6); // 这里的 resolution 现在解释为 "最高允许分辨率"
@@ -1345,9 +1347,9 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     // 如果都失败了，提示用户手动拷贝
     if (imageData) {
-      alert('当前环境不支持自动拷贝图片，请手动右键保存图片');
+      alert(t('remote.copy_image_unsupported'));
     } else {
-      alert('拷贝失败，请手动选中文本后按 Ctrl/Cmd+C 拷贝');
+      alert(t('remote.copy_text_failed'));
     }
   };
 
@@ -1576,13 +1578,13 @@ export default function WebRTCControl(props: WebRTCControlProps) {
           {/* 桌面端标题栏 */}
           <div class={styles.modalHeader}>
             <h3>
-              WebRTC 实时控制
+              {t('device_list.webrtc_control')}
               <span class={`${styles.connectionBadge} ${styles[connectionState()]}`}>
-                {connectionState() === 'connected' ? '已连接' :
-                 connectionState() === 'connecting' ? '连接中...' : '未连接'}
+                {connectionState() === 'connected' ? t('log.status_connected') :
+                 connectionState() === 'connecting' ? t('remote.connecting') : t('log.status_not_connected')}
               </span>
             </h3>
-            <button class={styles.closeButton} onClick={handleClose} title="关闭">
+            <button class={styles.closeButton} onClick={handleClose} title={t('common.close')}>
               <IconXmark size={16} />
             </button>
           </div>
@@ -1592,7 +1594,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
             <button 
               class={styles.mobileMenuBtn} 
               onClick={() => setMobileSettingsOpen(!mobileSettingsOpen())}
-              title="设置"
+              title={t('device_list.config')}
             >
               <span class={`${styles.connectionDot} ${styles[connectionState()]}`}></span>
               ☰
@@ -1606,7 +1608,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 </Show>
               </div>
             </Show>
-            <button class={styles.mobileCloseBtn} onClick={handleClose} title="关闭">
+            <button class={styles.mobileCloseBtn} onClick={handleClose} title={t('common.close')}>
               ✕
             </button>
           </div>
@@ -1621,7 +1623,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
             <div class={`${styles.controlPanel} ${mobileSettingsOpen() ? styles.mobileOpen : ''}`}>
               {/* 上半部分：设备列表 */}
               <div class={styles.controlPanelTop}>
-                <h4>设备画面</h4>
+                <h4>{t('remote.device_screen')}</h4>
                 <div class={styles.deviceList}>
                   <For each={props.selectedDevices()}>
                     {(device) => (
@@ -1644,7 +1646,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
               {/* 下半部分：画质设置等 */}
               <div class={styles.controlPanelBottom}>
                 <div class={styles.settingGroup}>
-                  <label class={styles.settingLabel}>最高分辨率 ({Math.round(resolution() * 100)}%)</label>
+                  <label class={styles.settingLabel}>{t('remote.max_resolution', { value: Math.round(resolution() * 100) })}</label>
                   <div class={styles.settingValue}>
                     <input
                       type="range"
@@ -1659,7 +1661,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 </div>
 
                 <div class={styles.settingGroup}>
-                  <label class={styles.settingLabel}>帧率限制 ({frameRate()} FPS)</label>
+                  <label class={styles.settingLabel}>{t('remote.frame_rate_limit', { value: frameRate() })}</label>
                   <div class={styles.settingValue}>
                     <input
                       type="range"
@@ -1675,60 +1677,60 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
               {/* 同步控制 - 分段按钮 */}
               <div class={styles.syncControlSection}>
-                <label class={styles.syncControlLabel}>控制模式</label>
+                <label class={styles.syncControlLabel}>{t('remote.control_mode')}</label>
                 <div class={styles.segmentedControl}>
                   <button 
                     class={`${styles.segmentedButton} ${!syncControl() ? styles.active : ''}`}
                     onClick={() => setSyncControl(false)}
                   >
-                    <IconUser size={12} /> 单端
+                    <IconUser size={12} /> {t('remote.single_device')}
                   </button>
                   <button 
                     class={`${styles.segmentedButton} ${syncControl() ? styles.active : ''}`}
                     onClick={() => setSyncControl(true)}
                   >
-                    <IconUsers size={12} /> 同步
+                    <IconUsers size={12} /> {t('remote.sync')}
                   </button>
                 </div>
               </div>
 
               {/* 画面旋转 - 分段按钮 */}
               <div class={styles.syncControlSection}>
-                <label class={styles.syncControlLabel}>画面旋转</label>
+                <label class={styles.syncControlLabel}>{t('remote.rotation')}</label>
                 <div class={styles.segmentedControl}>
                   <button 
                     class={`${styles.segmentedButton} ${currentRotation() === 0 ? styles.active : ''}`}
                     onClick={() => setRotation(0)}
-                    title="正常"
+                    title={t('remote.rotation_normal')}
                   ><IconMobileScreen size={14} /></button>
                   <button 
                     class={`${styles.segmentedButton} ${currentRotation() === 90 ? styles.active : ''}`}
                     onClick={() => setRotation(90)}
-                    title="右转90°"
+                    title={t('remote.rotation_right')}
                   ><IconMobileScreen size={14} style={{ transform: 'rotate(90deg)' }} /></button>
                   <button 
                     class={`${styles.segmentedButton} ${currentRotation() === 180 ? styles.active : ''}`}
                     onClick={() => setRotation(180)}
-                    title="旋转180°"
+                    title={t('remote.rotation_180')}
                   ><IconMobileScreen size={14} style={{ transform: 'rotate(180deg)' }} /></button>
                   <button 
                     class={`${styles.segmentedButton} ${currentRotation() === 270 ? styles.active : ''}`}
                     onClick={() => setRotation(270)}
-                    title="左转90°"
+                    title={t('remote.rotation_left')}
                   ><IconMobileScreen size={14} style={{ transform: 'rotate(270deg)' }} /></button>
                 </div>
               </div>
 
               <div class={styles.wheelSettingsSection}>
                 <div class={styles.wheelSettingsHeader}>
-                  <label class={styles.syncControlLabel}>滚轮设置</label>
+                  <label class={styles.syncControlLabel}>{t('remote.wheel_settings')}</label>
                   <button
                     class={styles.wheelSettingsToggle}
                     type="button"
                     onClick={() => setWheelSettingsOpen(!wheelSettingsOpen())}
                   >
                     <IconGear size={12} />
-                    {wheelSettingsOpen() ? '收起' : '展开'}
+                    {wheelSettingsOpen() ? t('remote.collapse') : t('remote.expand')}
                   </button>
                 </div>
                 <Show when={wheelSettingsOpen()}>
@@ -1741,7 +1743,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                           checked={wheelEnabled()}
                           onInput={(e) => setWheelEnabled(e.currentTarget.checked)}
                         />
-                        <span>启用滚轮滚动</span>
+                        <span>{t('remote.enable_wheel')}</span>
                       </label>
                       <label class={styles.wheelToggleItem}>
                         <input
@@ -1750,7 +1752,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                           checked={wheelNatural()}
                           onInput={(e) => setWheelNatural(e.currentTarget.checked)}
                         />
-                        <span>自然滚动方向</span>
+                        <span>{t('remote.natural_scroll')}</span>
                       </label>
                       <label class={styles.wheelToggleItem}>
                         <input
@@ -1759,13 +1761,13 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                           checked={wheelBrakeEnabled()}
                           onInput={(e) => setWheelBrakeEnabled(e.currentTarget.checked)}
                         />
-                        <span>滚动刹车</span>
+                        <span>{t('remote.wheel_brake')}</span>
                       </label>
                     </div>
 
                     <div class={styles.wheelSettingsFields}>
                       <div class={styles.wheelField}>
-                        <span class={styles.wheelFieldLabel}>滚动步长</span>
+                        <span class={styles.wheelFieldLabel}>{t('remote.wheel_step')}</span>
                         <div class={styles.wheelFieldRow}>
                           <input
                             type="range"
@@ -1780,7 +1782,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                       </div>
 
                       <div class={styles.wheelField}>
-                        <span class={styles.wheelFieldLabel}>合并窗口</span>
+                        <span class={styles.wheelFieldLabel}>{t('remote.wheel_window')}</span>
                         <div class={styles.wheelFieldRow}>
                           <input
                             type="range"
@@ -1795,7 +1797,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                       </div>
 
                       <div class={styles.wheelField}>
-                        <span class={styles.wheelFieldLabel}>滚动加速</span>
+                        <span class={styles.wheelFieldLabel}>{t('remote.wheel_acceleration')}</span>
                         <div class={styles.wheelFieldRow}>
                           <input
                             type="range"
@@ -1810,7 +1812,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                       </div>
 
                       <div class={styles.wheelField}>
-                        <span class={styles.wheelFieldLabel}>基础时长</span>
+                        <span class={styles.wheelFieldLabel}>{t('remote.base_duration')}</span>
                         <div class={styles.wheelFieldRow}>
                           <input
                             type="range"
@@ -1825,7 +1827,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                       </div>
 
                       <div class={styles.wheelField}>
-                        <span class={styles.wheelFieldLabel}>抬起前延迟</span>
+                        <span class={styles.wheelFieldLabel}>{t('remote.delay_before_lift')}</span>
                         <div class={styles.wheelFieldRow}>
                           <input
                             type="range"
@@ -1840,7 +1842,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                       </div>
 
                       <div class={styles.wheelField}>
-                        <span class={styles.wheelFieldLabel}>刹车回头像素</span>
+                        <span class={styles.wheelFieldLabel}>{t('remote.brake_pixels')}</span>
                         <div class={styles.wheelFieldRow}>
                           <input
                             type="range"
@@ -1866,7 +1868,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     onClick={startStream}
                     disabled={!selectedControlDevice()}
                   >
-                    <IconLink /> 建立连接
+                    <IconLink /> {t('remote.connect')}
                   </button>
                 </Show>
                 <Show when={connectionState() !== 'disconnected'}>
@@ -1874,7 +1876,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     class={`${styles.actionButton} ${styles.stopButton}`}
                     onClick={stopStream}
                   >
-                    <IconLinkSlash /> 断开连接
+                    <IconLinkSlash /> {t('remote.disconnect')}
                   </button>
                 </Show>
               </div>
@@ -1890,7 +1892,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 >
                   <div class={styles.placeholderIcon}>📺</div>
                   <span>
-                    {connectionState() === 'connecting' ? '正在连接...' : '点击"建立连接"启动视频流'}
+                    {connectionState() === 'connecting' ? t('remote.connecting') : t('remote.connect_hint')}
                   </span>
                 </div>
                 
@@ -1936,8 +1938,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 {/* 统计信息栏 */}
                 <div class={styles.statsBar}>
                   <div class={styles.touchHintInline}>
-                    🖱️ 左键: 触摸 | 右键: Home | 滚轮: 滚动
-                    {syncControl() && <span class={styles.syncActiveHint}> (同步中)</span>}
+                    {t('remote.touch_hint')}
+                    {syncControl() && <span class={styles.syncActiveHint}> {t('remote.sync_active')}</span>}
                   </div>
                   <div class={styles.statsGroup}>
                     <Show when={currentResolution()}>
@@ -1945,29 +1947,29 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     </Show>
                     <span class={styles.statItem}>📊 {currentFps()} FPS</span>
                     <span class={styles.statItem}>📡 {bitrate()} kbps</span>
-                    <span class={styles.statItem}>{syncControl() ? <><IconUsers size={12} /> 同步 {props.selectedDevices().length} 台</> : <><IconUser size={12} /> 单端</>}</span>
+                    <span class={styles.statItem}>{syncControl() ? <><IconUsers size={12} /> {t('remote.sync_count', { count: props.selectedDevices().length })}</> : <><IconUser size={12} /> {t('remote.single_device')}</>}</span>
                   </div>
                 </div>
 
                 {/* 底部工具栏 */}
                 <div class={styles.bottomToolbar}>
-                  <button class={`${styles.deviceButton} ${styles.btnInfo} ${styles.homeButton}`} onClick={handleHomeButton} title="返回主屏幕">
-                    <IconHouse size={14} /> 主屏幕
+                  <button class={`${styles.deviceButton} ${styles.btnInfo} ${styles.homeButton}`} onClick={handleHomeButton} title={t('remote.home')}>
+                    <IconHouse size={14} /> {t('remote.home')}
                   </button>
-                  <button class={`${styles.deviceButton} ${styles.btnSecondary}`} onClick={handleVolumeDown} title="音量-">
+                  <button class={`${styles.deviceButton} ${styles.btnSecondary}`} onClick={handleVolumeDown} title={t('remote.volume_down')}>
                     <IconVolumeDecrease size={14} />
                   </button>
-                  <button class={`${styles.deviceButton} ${styles.btnSecondary}`} onClick={handleVolumeUp} title="音量+">
+                  <button class={`${styles.deviceButton} ${styles.btnSecondary}`} onClick={handleVolumeUp} title={t('remote.volume_up')}>
                     <IconVolumeIncrease size={14} />
                   </button>
-                  <button class={`${styles.deviceButton} ${styles.btnWarning}`} onClick={handleLockScreen} title="锁定屏幕">
-                    <IconLock size={14} /> 锁屏
+                  <button class={`${styles.deviceButton} ${styles.btnWarning}`} onClick={handleLockScreen} title={t('remote.lock')}>
+                    <IconLock size={14} /> {t('remote.lock')}
                   </button>
-                  <button class={`${styles.deviceButton} ${styles.btnSuccess}`} onClick={handleCopyFromDevice} title="从设备拷贝">
-                    <IconCopy size={14} /> 拷贝
+                  <button class={`${styles.deviceButton} ${styles.btnSuccess}`} onClick={handleCopyFromDevice} title={t('remote.copy_from_device')}>
+                    <IconCopy size={14} /> {t('common.copy')}
                   </button>
-                  <button class={`${styles.deviceButton} ${styles.btnPrimary}`} onClick={handlePasteToDevice} title="粘贴剪贴板内容到设备">
-                    <IconPaste size={14} /> 粘贴
+                  <button class={`${styles.deviceButton} ${styles.btnPrimary}`} onClick={handlePasteToDevice} title={t('remote.paste_to_device')}>
+                    <IconPaste size={14} /> {t('remote.paste')}
                   </button>
                 </div>
               </Show>
@@ -1981,7 +1983,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
         <div class={styles.clipboardModalOverlay} onMouseDown={clipboardBackdropClose.onMouseDown} onMouseUp={clipboardBackdropClose.onMouseUp}>
           <div class={styles.clipboardModal} onMouseDown={(e) => e.stopPropagation()}>
             <div class={styles.clipboardModalHeader}>
-              <h4>{clipboardMode() === 'read' ? <><IconCopy size={14} /> 设备剪贴板内容</> : <><IconPaste size={14} /> 写入剪贴板</>}</h4>
+              <h4>{clipboardMode() === 'read' ? <><IconCopy size={14} /> {t('remote.device_clipboard')}</> : <><IconPaste size={14} /> {t('remote.write_clipboard')}</>}</h4>
               <button class={styles.closeButton} onClick={() => setClipboardModalOpen(false)}>✕</button>
             </div>
             
@@ -1989,10 +1991,10 @@ export default function WebRTCControl(props: WebRTCControlProps) {
               <Show when={clipboardMode() === 'read'}>
                 {/* 读取模式：显示预览 */}
                 <Show when={clipboardLoading()}>
-                  <div class={styles.clipboardLoading}>正在读取设备剪贴板...</div>
+                  <div class={styles.clipboardLoading}>{t('remote.reading_clipboard')}</div>
                 </Show>
                 <Show when={!clipboardLoading() && !clipboardContent() && !clipboardImageData()}>
-                  <div class={styles.clipboardEmpty}>设备剪贴板为空或不支持的内容类型</div>
+                  <div class={styles.clipboardEmpty}>{t('remote.clipboard_empty')}</div>
                 </Show>
                 <Show when={!clipboardLoading() && clipboardContent()}>
                   <div class={styles.clipboardPreview}>
@@ -2001,7 +2003,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                 </Show>
                 <Show when={!clipboardLoading() && clipboardImageData()}>
                   <div class={styles.clipboardPreview}>
-                    <img src={`data:image/png;base64,${clipboardImageData()}`} alt="剪贴板图片" class={styles.clipboardImage} />
+                    <img src={`data:image/png;base64,${clipboardImageData()}`} alt={t('remote.clipboard_image')} class={styles.clipboardImage} />
                   </div>
                 </Show>
               </Show>
@@ -2013,7 +2015,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                     <textarea 
                       ref={clipboardTextareaRef}
                       class={styles.clipboardTextarea}
-                      placeholder="在此处粘贴文字或图片..."
+                      placeholder={t('remote.clipboard_placeholder')}
                       value={clipboardContent()}
                       onInput={(e) => setClipboardContent(e.currentTarget.value)}
                       onPaste={handleClipboardPaste}
@@ -2022,14 +2024,14 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   </Show>
                   <Show when={clipboardImageData()}>
                     <div class={styles.clipboardImagePreview}>
-                      <img src={`data:image/png;base64,${clipboardImageData()}`} alt="要发送的图片" />
-                      <button class={styles.clipboardClearImage} onClick={handleClearClipboardImage}>✕ 清除</button>
+                      <img src={`data:image/png;base64,${clipboardImageData()}`} alt={t('remote.image_to_send')} />
+                      <button class={styles.clipboardClearImage} onClick={handleClearClipboardImage}>✕ {t('common.clear')}</button>
                     </div>
                   </Show>
                 </div>
                 <Show when={syncControl()}>
                   <div class={styles.clipboardSyncHint}>
-                    ✓ 同步控制已启用，将发送到所有 {props.selectedDevices().length} 台设备
+                    {t('remote.sync_clipboard_hint', { count: props.selectedDevices().length })}
                   </div>
                 </Show>
               </Show>
@@ -2042,7 +2044,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   onClick={handleCopyToSystemClipboard}
                   disabled={clipboardLoading() || (!clipboardContent() && !clipboardImageData())}
                 >
-                  <IconPaste size={14} /> 拷贝到剪贴板
+                  <IconPaste size={14} /> {t('remote.copy_to_clipboard')}
                 </button>
               </Show>
               <Show when={clipboardMode() === 'write'}>
@@ -2051,11 +2053,11 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   onClick={handleSendClipboardToDevices}
                   disabled={!clipboardContent() && !clipboardImageData()}
                 >
-                  <IconPaperPlane size={14} /> 发送到设备
+                  <IconPaperPlane size={14} /> {t('files.send_to_device')}
                 </button>
               </Show>
               <button class={`${styles.actionButton} ${styles.stopButton}`} onClick={() => setClipboardModalOpen(false)}>
-                取消
+                {t('common.cancel')}
               </button>
             </div>
           </div>

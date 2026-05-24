@@ -12,11 +12,13 @@ import NewGroupModal from './components/NewGroupModal';
 import AddToGroupModal from './components/AddToGroupModal';
 import BindPage from './components/BindPage';
 import { useTheme } from './components/ThemeContext';
+import LanguageSelect from './components/LanguageSelect';
 import { IconMoon, IconSun, IconDesktop } from './icons';
 import styles from './App.module.css';
 import { ScannedFile } from './utils/fileUpload';
 import { setApiBaseUrl, authFetch } from './services/httpAuth';
 import { debugLog } from './utils/debugLogger';
+import { useI18n } from './i18n';
 
 const VERSION_CACHE_KEY = 'xxt_server_version';
 
@@ -58,6 +60,7 @@ interface UpdateStatusPayload {
 const App: Component = () => {
   const toast = useToast();
   const { themeMode, cycleTheme } = useTheme();
+  const { t, locale } = useI18n();
   
   // Check if current URL is the public bind page
   const [isBindPage, setIsBindPage] = createSignal(window.location.pathname === '/bind');
@@ -151,20 +154,20 @@ const App: Component = () => {
   const formatUpdateStage = (stage?: string): string => {
     switch (stage) {
       case 'checking':
-        return '正在检查';
+        return t('app.update.stage_checking');
       case 'update_available':
-        return '有可用更新';
+        return t('app.update.stage_update_available');
       case 'downloading':
-        return '正在下载';
+        return t('app.update.stage_downloading');
       case 'downloaded':
-        return '已下载';
+        return t('app.update.stage_downloaded');
       case 'applying':
-        return '正在应用更新';
+        return t('app.update.stage_applying');
       case 'failed':
-        return '失败';
+        return t('app.update.stage_failed');
       case 'idle':
       default:
-        return '空闲';
+        return t('app.update.stage_idle');
     }
   };
 
@@ -187,12 +190,12 @@ const App: Component = () => {
   const updateMainButtonLabel = createMemo(() => {
     const action = updateMainAction();
     if (action === 'cancel') {
-      return cancelingDownload() ? '停止中...' : '停止下载';
+      return cancelingDownload() ? t('app.update.canceling_download') : t('app.update.cancel_download');
     }
     if (action === 'apply') {
-      return updateBusyAction() === 'apply' ? '应用中...' : '应用更新';
+      return updateBusyAction() === 'apply' ? t('app.update.applying') : t('app.update.apply');
     }
-    return updateBusyAction() === 'download' ? '准备下载...' : '下载更新';
+    return updateBusyAction() === 'download' ? t('app.update.download_preparing') : t('app.update.download');
   });
   const updateMainButtonDisabled = createMemo(() => {
     if (!isAuthenticated()) return true;
@@ -219,7 +222,7 @@ const App: Component = () => {
     if (total > 0) {
       return `${formatBytes(downloaded)} / ${formatBytes(total)} (${downloadProgressPercent()}%)`;
     }
-    return `已下载 ${formatBytes(downloaded)}`;
+    return t('app.update.downloaded_bytes', { bytes: formatBytes(downloaded) });
   });
 
   const extractUpdateStatus = (data: unknown): UpdateStatusPayload | null => {
@@ -271,15 +274,15 @@ const App: Component = () => {
         setUpdateStatus(status);
       }
       if (response.status === 401 && !silent) {
-        toast.showWarning('鉴权失败，请重新登录后再检查更新');
+        toast.showWarning(t('app.update.auth_required_check'));
         return;
       }
       if (!response.ok && !silent) {
-        toast.showError(data?.error || '获取更新状态失败');
+        toast.showError(data?.error || t('app.update.status_failed'));
       }
     } catch {
       if (!silent) {
-        toast.showError('获取更新状态失败');
+        toast.showError(t('app.update.status_failed'));
       }
     }
   };
@@ -296,7 +299,9 @@ const App: Component = () => {
           return;
         }
         const baseUrl = authService.getHttpBaseUrl(host, port);
-        const response = await fetch(`${baseUrl}/api/control/info`);
+        const response = await fetch(`${baseUrl}/api/control/info`, {
+          headers: { 'Accept-Language': locale() },
+        });
         if (!response.ok) {
           return;
         }
@@ -307,7 +312,7 @@ const App: Component = () => {
         }
         if (info.version && info.version !== previousVersion) {
           stopUpdateReconnectPolling();
-          toast.showSuccess(`更新完成，当前版本 ${info.version}`);
+          toast.showSuccess(t('app.update.completed', { version: info.version }));
           await loadUpdateStatus(true);
         }
       } catch {
@@ -315,7 +320,7 @@ const App: Component = () => {
       }
       if (attempts >= 120) {
         stopUpdateReconnectPolling();
-        toast.showWarning('更新后重连超时，请手动刷新页面');
+        toast.showWarning(t('app.update.reconnect_timeout'));
       }
     }, 1000);
   };
@@ -325,7 +330,7 @@ const App: Component = () => {
     path: '/api/update/check' | '/api/update/download' | '/api/update/apply'
   ) => {
     if (!isAuthenticated()) {
-      toast.showWarning('请先完成鉴权登录后再执行更新操作');
+      toast.showWarning(t('app.update.login_required'));
       return;
     }
     if (updateBusyAction()) return;
@@ -340,11 +345,11 @@ const App: Component = () => {
       }
 
       if (response.status === 401) {
-        toast.showError('鉴权失败，更新操作被拒绝');
+        toast.showError(t('app.update.auth_rejected'));
         return;
       }
       if (!response.ok) {
-        const message = typeof data?.error === 'string' ? data.error : '更新操作失败';
+        const message = typeof data?.error === 'string' ? data.error : t('app.update.operation_failed');
         if (action === 'download' && /cancel/i.test(message)) {
           await loadUpdateStatus(true);
         } else {
@@ -357,18 +362,18 @@ const App: Component = () => {
         const hasUpdate = status?.state?.hasUpdate;
         const latestVersion = status?.state?.latestVersion || '-';
         if (hasUpdate) {
-          toast.showSuccess(`发现新版本 ${latestVersion}`);
+          toast.showSuccess(t('app.update.found_version', { version: latestVersion }));
         } else {
-          toast.showInfo('当前已是最新版本');
+          toast.showInfo(t('app.update.already_latest'));
         }
       } else if (action === 'download') {
-        toast.showInfo('已开始下载更新包');
+        toast.showInfo(t('app.update.download_started'));
       } else if (action === 'apply') {
-        toast.showInfo('正在应用更新，服务将短暂重启');
+        toast.showInfo(t('app.update.apply_started'));
         startUpdateReconnectPolling(previousVersion);
       }
     } catch {
-      toast.showError('更新操作失败');
+      toast.showError(t('app.update.operation_failed'));
     } finally {
       setUpdateBusyAction('');
     }
@@ -388,7 +393,7 @@ const App: Component = () => {
 
   const handleCancelDownload = async () => {
     if (!isAuthenticated()) {
-      toast.showWarning('请先完成鉴权登录后再执行更新操作');
+      toast.showWarning(t('app.update.login_required'));
       return;
     }
     if (cancelingDownload()) return;
@@ -401,16 +406,16 @@ const App: Component = () => {
         setUpdateStatus(status);
       }
       if (response.status === 401) {
-        toast.showError('鉴权失败，更新操作被拒绝');
+        toast.showError(t('app.update.auth_rejected'));
         return;
       }
       if (!response.ok) {
-        toast.showError(data?.error || '停止下载失败');
+        toast.showError(data?.error || t('app.update.cancel_failed'));
         return;
       }
-      toast.showInfo('已请求停止下载');
+      toast.showInfo(t('app.update.cancel_requested'));
     } catch {
-      toast.showError('停止下载失败');
+      toast.showError(t('app.update.cancel_failed'));
     } finally {
       setCancelingDownload(false);
     }
@@ -567,7 +572,7 @@ const App: Component = () => {
           }
           if (changed) {
             setSelectedDevices(nextSelection);
-            document.title = `XXT 云控制器 (${nextSelection.length} selected)`;
+            document.title = t('app.document_title', { count: nextSelection.length });
           }
         }
         setIsLoadingDevices(false);
@@ -712,7 +717,7 @@ const App: Component = () => {
     setSelectedDevices(devices);
 
     // Show selection count in page title for debugging
-    document.title = `XXT 云控制器 (${devices.length} selected)`;
+    document.title = t('app.document_title', { count: devices.length });
   };
 
   const handleRefreshDevices = () => {
@@ -1031,7 +1036,9 @@ const App: Component = () => {
   const fetchServerVersion = async (host: string, port: string) => {
     try {
       const baseUrl = authService.getHttpBaseUrl(host, port);
-      const response = await fetch(`${baseUrl}/api/config?format=json`);
+      const response = await fetch(`${baseUrl}/api/config?format=json`, {
+        headers: { 'Accept-Language': locale() },
+      });
       if (!response.ok) {
         return;
       }
@@ -1045,7 +1052,7 @@ const App: Component = () => {
 
       // If cached version exists and differs from server version, trigger refresh
       if (cachedVersion && cachedVersion !== config.version) {
-        toast.showWarning(`检测到新版本 ${config.version}，3秒后自动刷新...`, 3000);
+        toast.showWarning(t('app.update.detected_version', { version: config.version }), 3000);
 
         // Clear cached version and refresh after 3 seconds
         setTimeout(() => {
@@ -1135,7 +1142,8 @@ const App: Component = () => {
               <button 
                 class={styles.mobileMenuToggle} 
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen())}
-                title="切换菜单"
+                title={t('app.mobile_menu')}
+                aria-label={t('app.mobile_menu')}
               >
                 <div class={`${styles.hamburger} ${isMobileMenuOpen() ? styles.open : ''}`}>
                   <span></span>
@@ -1144,31 +1152,31 @@ const App: Component = () => {
                 </div>
               </button>
               <img src="/favicon-48.png" alt="Logo" class={styles.logo} />
-              <h1 class={styles.appTitle}>XXT 云控</h1>
+              <h1 class={styles.appTitle}>{t('app.title')}</h1>
               {serverVersion() && (
                 <div class={styles.versionUpdateEntry} ref={updatePanelRef}>
                   <button
                     class={`${styles.versionBadge} ${styles.versionBadgeButton} ${updateStatus()?.state?.hasUpdate ? styles.versionBadgeHighlight : ''}`}
                     onClick={() => setUpdatePanelOpen(!updatePanelOpen())}
-                    title="自更新"
+                    title={t('app.update.title')}
                     disabled={!isAuthenticated()}
                   >
                     {serverVersion()}
                   </button>
                   {updatePanelOpen() && (
                     <div class={styles.updatePanel}>
-                      <div class={styles.updatePanelTitle}>自更新</div>
+                      <div class={styles.updatePanelTitle}>{t('app.update.title')}</div>
                       <div class={styles.updateMeta}>
                         <div class={styles.updateMetaItem}>
-                          <span>当前版本</span>
+                          <span>{t('app.update.current_version')}</span>
                           <code class={styles.updateValue}>{updateStatus()?.currentVersion || serverVersion() || '-'}</code>
                         </div>
                         <div class={styles.updateMetaItem}>
-                          <span>最新版本</span>
+                          <span>{t('app.update.latest_version')}</span>
                           <code class={styles.updateValue}>{updateStatus()?.state?.latestVersion || '-'}</code>
                         </div>
                         <div class={styles.updateMetaItem}>
-                          <span>当前状态</span>
+                          <span>{t('app.update.status')}</span>
                           <span class={styles.updateValue}>{formatUpdateStage(updateStatus()?.state?.stage)}</span>
                         </div>
                       </div>
@@ -1187,7 +1195,7 @@ const App: Component = () => {
                         </div>
                       )}
                       {updateStatus()?.config?.enabled === false && (
-                        <div class={styles.updateError}>服务端已禁用自更新</div>
+                        <div class={styles.updateError}>{t('app.server_disabled_update')}</div>
                       )}
                       <div class={styles.updateActions}>
                         <button
@@ -1195,7 +1203,7 @@ const App: Component = () => {
                           disabled={!!updateBusyAction() || !isAuthenticated()}
                           onClick={handleCheckUpdate}
                         >
-                          {updateBusyAction() === 'check' ? '检测中...' : '检测更新'}
+                          {updateBusyAction() === 'check' ? t('app.update.checking') : t('app.update.check')}
                         </button>
                         <button
                           class={`${styles.updateActionButton} ${isUpdateMainDanger() ? styles.updateActionDanger : ''}`}
@@ -1217,10 +1225,12 @@ const App: Component = () => {
               <button
                 onClick={cycleTheme}
                 class={styles.themeToggle}
-                title={themeMode() === 'system' ? '跟随系统' : themeMode() === 'light' ? '亮色模式' : '暗色模式'}
+                title={themeMode() === 'system' ? t('ui.theme_system') : themeMode() === 'light' ? t('ui.theme_light') : t('ui.theme_dark')}
+                aria-label={t('ui.theme_toggle')}
               >
                 {themeMode() === 'system' ? <IconDesktop size={18} /> : themeMode() === 'light' ? <IconSun size={18} /> : <IconMoon size={18} />}
               </button>
+              <LanguageSelect compact />
             </div>
           </header>
           <main class={`${styles.appMain} ${isMobileMenuOpen() ? styles.sidebarOpen : ''}`}>

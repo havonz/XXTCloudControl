@@ -5,6 +5,7 @@ import { createFormRunnerStore } from '../services/formRunnerStore';
 import { ConfigItem, ScriptInfo } from '../utils/scriptConfig';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
+import { useI18n } from '../i18n';
 import styles from './FormRunner.module.css';
 
 interface FormRunnerProps {
@@ -18,6 +19,7 @@ interface FormRunnerProps {
 }
 
 export default function FormRunner(props: FormRunnerProps) {
+  const { t } = useI18n();
   const store = createFormRunnerStore();
   const [aboutOpen, setAboutOpen] = createSignal(false);
   const [formReady, setFormReady] = createSignal(false);
@@ -79,7 +81,7 @@ export default function FormRunner(props: FormRunnerProps) {
                 onClick={() => hasScriptInfo() && setAboutOpen(true)}
                 style={{ cursor: hasScriptInfo() ? 'pointer' : 'default' }}
               >
-                <span>{props.title || '脚本配置'}</span>
+                <span>{props.title || t('form.script_config')}</span>
               </button>
               <div class={styles.headerActions}>
                 <Show when={props.onClose}>
@@ -114,7 +116,7 @@ export default function FormRunner(props: FormRunnerProps) {
                             <Show when={item.type === 'Edit'}>
                               <input
                                 type="text"
-                                placeholder={item.placeholder || '请输入'}
+                                placeholder={item.placeholder || t('form.input_placeholder')}
                                 value={getStringValue(key)}
                                 onInput={(e) => store.setValue(key, e.currentTarget.value)}
                               />
@@ -133,7 +135,7 @@ export default function FormRunner(props: FormRunnerProps) {
                                   >
                                     <Select.Control>
                                       <Select.Trigger class="cbx-select">
-                                        <span>{current() || '-- 请选择 --'}</span>
+                                        <span>{current() || t('form.select_placeholder')}</span>
                                         <span class="dropdown-arrow">▼</span>
                                       </Select.Trigger>
                                     </Select.Control>
@@ -229,7 +231,7 @@ export default function FormRunner(props: FormRunnerProps) {
             
             {/* Footer */}
             <div class={styles.footer}>
-              <button type="button" onClick={handleSubmit}>保存配置</button>
+              <button type="button" onClick={handleSubmit}>{t('form.save_config')}</button>
             </div>
           </div>
 
@@ -238,7 +240,7 @@ export default function FormRunner(props: FormRunnerProps) {
             <div class={styles.aboutBackdrop} onMouseDown={aboutBackdropClose.onMouseDown} onMouseUp={aboutBackdropClose.onMouseUp}>
               <div class={styles.aboutModal} onMouseDown={(e) => e.stopPropagation()}>
                 <div class={styles.aboutHeader}>
-                  <span class={styles.aboutTitle}>关于脚本</span>
+                  <span class={styles.aboutTitle}>{t('form.about_script')}</span>
                   <Show when={props.title}>
                     <span class={styles.aboutSubtitle}>{props.title}</span>
                   </Show>
@@ -246,25 +248,25 @@ export default function FormRunner(props: FormRunnerProps) {
                 <div class={styles.aboutContent}>
                   <Show when={props.scriptInfo?.Name}>
                     <div class={styles.aboutField}>
-                      <span class={styles.aboutLabel}>名称</span>
+                      <span class={styles.aboutLabel}>{t('form.name')}</span>
                       <span class={styles.aboutValue}>{props.scriptInfo?.Name}</span>
                     </div>
                   </Show>
                   <Show when={props.scriptInfo?.Version}>
                     <div class={styles.aboutField}>
-                      <span class={styles.aboutLabel}>版本</span>
+                      <span class={styles.aboutLabel}>{t('form.version')}</span>
                       <span class={styles.aboutValue}>{props.scriptInfo?.Version}</span>
                     </div>
                   </Show>
                   <Show when={props.scriptInfo?.Developer}>
                     <div class={styles.aboutField}>
-                      <span class={styles.aboutLabel}>开发者</span>
+                      <span class={styles.aboutLabel}>{t('form.developer')}</span>
                       <span class={styles.aboutValue}>{props.scriptInfo?.Developer}</span>
                     </div>
                   </Show>
                   <Show when={props.scriptInfo?.BuyLink}>
                     <div class={styles.aboutField}>
-                      <span class={styles.aboutLabel}>购买链接</span>
+                      <span class={styles.aboutLabel}>{t('form.purchase_url')}</span>
                       <a 
                         class={styles.aboutLink} 
                         href={props.scriptInfo?.BuyLink} 
@@ -277,12 +279,12 @@ export default function FormRunner(props: FormRunnerProps) {
                   </Show>
                   <Show when={props.scriptInfo?.Instructions}>
                     <div class={styles.aboutField}>
-                      <span class={styles.aboutLabel}>使用说明</span>
+                      <span class={styles.aboutLabel}>{t('form.usage')}</span>
                       <div class={styles.aboutInstructions}>{props.scriptInfo?.Instructions}</div>
                     </div>
                   </Show>
                   <Show when={!hasScriptInfo()}>
-                    <div class={styles.aboutEmpty}>暂无脚本信息</div>
+                    <div class={styles.aboutEmpty}>{t('form.empty')}</div>
                   </Show>
                 </div>
               </div>

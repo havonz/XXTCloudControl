@@ -1,6 +1,7 @@
 import { AuthService } from './AuthService';
 import { debugLog } from '../utils/debugLogger';
 import type { RemoteWheelSettings } from '../utils/remoteWheel';
+import { getCurrentLocale, translate } from '../i18n';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -24,6 +25,10 @@ type RemoteWheelCommandPayload = RemoteWheelSettings & {
 
 type DeviceLogWatcher = (chunk: string) => void;
 type LastLogUpdateCallback = (udid: string, lastLine: string) => void;
+
+function serviceText(key: string): string {
+  return translate(getCurrentLocale(), key);
+}
 
 // Pending request for requestId-based matching
 interface PendingRequest<T = any> {
@@ -135,9 +140,9 @@ export class WebSocketService {
           if (this.isInitialLogin && !this.hasReceivedDeviceList) {
 
             this.clearStoredPasswordAndReturnToLogin();
-            this.notifyAuthResult(false, '认证失败，请重新登录');
+            this.notifyAuthResult(false, serviceText('websocket.auth_failed_login_again'));
           } else {
-            this.notifyAuthResult(false, '密码错误或连接被拒绝');
+            this.notifyAuthResult(false, serviceText('websocket.password_rejected'));
           }
           return;
         }
@@ -159,7 +164,7 @@ export class WebSocketService {
         if (this.isAuthenticating) {
           this.clearAuthTimeout();
           this.isAuthenticating = false;
-          this.notifyAuthResult(false, '连接失败');
+          this.notifyAuthResult(false, serviceText('websocket.connection_failed'));
         }
       };
 
@@ -170,7 +175,7 @@ export class WebSocketService {
       if (this.isAuthenticating) {
         this.clearAuthTimeout();
         this.isAuthenticating = false;
-        this.notifyAuthResult(false, '连接失败');
+        this.notifyAuthResult(false, serviceText('websocket.connection_failed'));
       }
       this.scheduleReconnect();
     }
@@ -214,7 +219,7 @@ export class WebSocketService {
 
       if (this.isAuthenticating && !this.hasReceivedDeviceList) {
         this.isAuthenticating = false;
-        this.notifyAuthResult(false, '认证超时，请检查密码是否正确');
+        this.notifyAuthResult(false, serviceText('websocket.auth_timeout'));
         this.disconnect();
       }
     }, 5000);

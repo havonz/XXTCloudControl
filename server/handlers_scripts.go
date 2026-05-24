@@ -873,7 +873,7 @@ func selectableScriptsHandler(c *gin.Context) {
 
 	entries, err := os.ReadDir(scriptsDir)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read scripts directory"})
+		jsonError(c, http.StatusInternalServerError, "failed to read scripts directory")
 		return
 	}
 
@@ -1177,23 +1177,23 @@ func scriptsSendHandler(c *gin.Context) {
 	var req scriptSendRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
 	if len(req.Devices) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "devices are required"})
+		jsonError(c, http.StatusBadRequest, "devices are required")
 		return
 	}
 
 	if req.Name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "script name is required"})
+		jsonError(c, http.StatusBadRequest, "script name is required")
 		return
 	}
 
 	resolved, err := resolveScriptPath(req.Name)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	scriptPath := resolved.absPath
@@ -1201,7 +1201,7 @@ func scriptsSendHandler(c *gin.Context) {
 
 	fileInfo, err := os.Stat(scriptPath)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "script not found"})
+		jsonError(c, http.StatusNotFound, "script not found")
 		return
 	}
 
@@ -1219,7 +1219,7 @@ func scriptsSendHandler(c *gin.Context) {
 		if !isDir {
 			errorMsg = "failed to read script file"
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": errorMsg})
+		jsonError(c, http.StatusInternalServerError, errorMsg)
 		return
 	}
 
@@ -1294,12 +1294,12 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	var req scriptSendRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
 	if len(req.Devices) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "devices are required"})
+		jsonError(c, http.StatusBadRequest, "devices are required")
 		return
 	}
 
@@ -1325,7 +1325,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 
 	resolved, err := resolveScriptPath(req.Name)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	scriptPath := resolved.absPath
@@ -1333,7 +1333,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 
 	fileInfo, err := os.Stat(scriptPath)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "script not found"})
+		jsonError(c, http.StatusNotFound, "script not found")
 		return
 	}
 
@@ -1351,7 +1351,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		if !isDir {
 			errorMsg = "failed to read script file"
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": errorMsg})
+		jsonError(c, http.StatusInternalServerError, errorMsg)
 		return
 	}
 
@@ -1497,11 +1497,11 @@ func scriptsSendAndStartCancelHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if len(req.Devices) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "devices are required"})
+		jsonError(c, http.StatusBadRequest, "devices are required")
 		return
 	}
 
@@ -1538,13 +1538,13 @@ func scriptsStartStateHandler(c *gin.Context) {
 func scriptConfigStatusHandler(c *gin.Context) {
 	name := c.Query("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		jsonError(c, http.StatusBadRequest, "name is required")
 		return
 	}
 
 	resolved, err := resolveScriptPath(name)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	scriptPath := resolved.absPath
@@ -1567,26 +1567,26 @@ func scriptConfigStatusHandler(c *gin.Context) {
 func scriptConfigGetHandler(c *gin.Context) {
 	name := c.Query("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		jsonError(c, http.StatusBadRequest, "name is required")
 		return
 	}
 
 	resolved, err := resolveScriptPath(name)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	mainJsonPath := filepath.Join(resolved.absPath, "lua", "scripts", "main.json")
 
 	data, err := os.ReadFile(mainJsonPath)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "main.json not found"})
+		jsonError(c, http.StatusNotFound, "main.json not found")
 		return
 	}
 
 	var config interface{}
 	if err := json.Unmarshal(data, &config); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse main.json"})
+		jsonError(c, http.StatusInternalServerError, "failed to parse main.json")
 		return
 	}
 
@@ -1601,26 +1601,26 @@ func scriptConfigSaveHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
 	resolved, err := resolveScriptPath(req.Name)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	mainJsonPath := filepath.Join(resolved.absPath, "lua", "scripts", "main.json")
 
 	data, err := os.ReadFile(mainJsonPath)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "main.json not found"})
+		jsonError(c, http.StatusNotFound, "main.json not found")
 		return
 	}
 
 	var mainObj map[string]interface{}
 	if err := json.Unmarshal(data, &mainObj); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse main.json"})
+		jsonError(c, http.StatusInternalServerError, "failed to parse main.json")
 		return
 	}
 
@@ -1628,12 +1628,12 @@ func scriptConfigSaveHandler(c *gin.Context) {
 
 	newData, err := json.MarshalIndent(mainObj, "", "  ")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to marshal json"})
+		jsonError(c, http.StatusInternalServerError, "failed to marshal json")
 		return
 	}
 
 	if err := os.WriteFile(mainJsonPath, newData, 0644); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
+		jsonError(c, http.StatusInternalServerError, "failed to save file")
 		return
 	}
 

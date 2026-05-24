@@ -1,6 +1,7 @@
 import { Component, createSignal, onMount, onCleanup, Show, For, createMemo } from 'solid-js';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
+import { useI18n } from '../i18n';
 import styles from './GlobalDialog.module.css';
 
 interface GlobalDialogProps {
@@ -13,6 +14,7 @@ interface GlobalDialogProps {
 }
 
 export const GlobalDialog: Component<GlobalDialogProps> = (props) => {
+  const { t } = useI18n();
   const [inputValue, setInputValue] = createSignal(props.defaultValue || '');
   let inputRef: HTMLInputElement | undefined;
 
@@ -87,7 +89,7 @@ export const GlobalDialog: Component<GlobalDialogProps> = (props) => {
               >
                 <Select.Control>
                   <Select.Trigger class="cbx-select">
-                    <Select.ValueText placeholder="-- 请选择 --" />
+                    <Select.ValueText placeholder={t('dialog.select_placeholder')} />
                     <span class="dropdown-arrow">▼</span>
                   </Select.Trigger>
                 </Select.Control>
@@ -116,11 +118,11 @@ export const GlobalDialog: Component<GlobalDialogProps> = (props) => {
         <div class={styles.footer}>
           <Show when={props.type !== 'alert'}>
             <button class={`${styles.btn} ${styles.cancelBtn}`} onClick={handleCancel}>
-              取消
+              {t('common.cancel')}
             </button>
           </Show>
           <button class={`${styles.btn} ${styles.confirmBtn}`} onClick={handleConfirm}>
-            确定
+            {t('common.confirm')}
           </button>
         </div>
       </div>

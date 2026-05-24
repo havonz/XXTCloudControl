@@ -27,13 +27,13 @@ func groupsCreateHandler(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		jsonError(c, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Group name cannot be empty"})
+		jsonError(c, http.StatusBadRequest, "Group name cannot be empty")
 		return
 	}
 
@@ -50,7 +50,7 @@ func groupsCreateHandler(c *gin.Context) {
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -65,13 +65,13 @@ func groupsUpdateHandler(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		jsonError(c, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Group name cannot be empty"})
+		jsonError(c, http.StatusBadRequest, "Group name cannot be empty")
 		return
 	}
 
@@ -89,13 +89,13 @@ func groupsUpdateHandler(c *gin.Context) {
 
 	if !found {
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		jsonError(c, http.StatusNotFound, "Group not found")
 		return
 	}
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -122,7 +122,7 @@ func groupsDeleteHandler(c *gin.Context) {
 
 	if !found {
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		jsonError(c, http.StatusNotFound, "Group not found")
 		return
 	}
 
@@ -130,7 +130,7 @@ func groupsDeleteHandler(c *gin.Context) {
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -144,19 +144,19 @@ func groupsReorderHandler(c *gin.Context) {
 		Order []string `json:"order"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		jsonError(c, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if len(req.Order) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Order cannot be empty"})
+		jsonError(c, http.StatusBadRequest, "Order cannot be empty")
 		return
 	}
 
 	deviceGroupsMu.Lock()
 	if len(req.Order) != len(deviceGroups) {
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Order must include all groups"})
+		jsonError(c, http.StatusBadRequest, "Order must include all groups")
 		return
 	}
 
@@ -169,13 +169,13 @@ func groupsReorderHandler(c *gin.Context) {
 	for i, id := range req.Order {
 		if _, exists := seen[id]; exists {
 			deviceGroupsMu.Unlock()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Order contains duplicate group IDs"})
+			jsonError(c, http.StatusBadRequest, "Order contains duplicate group IDs")
 			return
 		}
 		group, ok := groupByID[id]
 		if !ok {
 			deviceGroupsMu.Unlock()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Order contains unknown group ID"})
+			jsonError(c, http.StatusBadRequest, "Order contains unknown group ID")
 			return
 		}
 		seen[id] = struct{}{}
@@ -188,7 +188,7 @@ func groupsReorderHandler(c *gin.Context) {
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -203,7 +203,7 @@ func groupsAddDevicesHandler(c *gin.Context) {
 		DeviceIDs []string `json:"deviceIds"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		jsonError(c, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -230,13 +230,13 @@ func groupsAddDevicesHandler(c *gin.Context) {
 
 	if !found {
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		jsonError(c, http.StatusNotFound, "Group not found")
 		return
 	}
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -251,7 +251,7 @@ func groupsRemoveDevicesHandler(c *gin.Context) {
 		DeviceIDs []string `json:"deviceIds"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		jsonError(c, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -279,13 +279,13 @@ func groupsRemoveDevicesHandler(c *gin.Context) {
 
 	if !found {
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		jsonError(c, http.StatusNotFound, "Group not found")
 		return
 	}
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -301,7 +301,7 @@ func groupsBindScriptHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -319,13 +319,13 @@ func groupsBindScriptHandler(c *gin.Context) {
 
 	if !found {
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+		jsonError(c, http.StatusNotFound, "Group not found")
 		return
 	}
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save groups"})
+		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -339,7 +339,7 @@ func groupsGetScriptConfigHandler(c *gin.Context) {
 	scriptPath := c.Query("script")
 
 	if scriptPath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "script is required"})
+		jsonError(c, http.StatusBadRequest, "script is required")
 		return
 	}
 
@@ -365,7 +365,7 @@ func groupsSetScriptConfigHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -379,7 +379,7 @@ func groupsSetScriptConfigHandler(c *gin.Context) {
 	if err := saveGroupScriptConfigsLocked(); err != nil {
 		groupScriptConfigs = backupConfigs
 		groupScriptConfigsMu.Unlock()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
+		jsonError(c, http.StatusInternalServerError, "Failed to save config")
 		return
 	}
 	groupScriptConfigsMu.Unlock()
@@ -393,7 +393,7 @@ func groupsDeleteScriptConfigHandler(c *gin.Context) {
 	scriptPath := c.Query("script")
 
 	if scriptPath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "script is required"})
+		jsonError(c, http.StatusBadRequest, "script is required")
 		return
 	}
 
@@ -409,7 +409,7 @@ func groupsDeleteScriptConfigHandler(c *gin.Context) {
 	if err := saveGroupScriptConfigsLocked(); err != nil {
 		groupScriptConfigs = backupConfigs
 		groupScriptConfigsMu.Unlock()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config"})
+		jsonError(c, http.StatusInternalServerError, "Failed to save config")
 		return
 	}
 	groupScriptConfigsMu.Unlock()

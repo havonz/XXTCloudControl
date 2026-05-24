@@ -1,6 +1,7 @@
 /* @refresh reload */
 import { render } from 'solid-js/web';
 import { ThemeProvider } from './components/ThemeContext';
+import { I18nProvider } from './i18n';
 
 import './index.css';
 import App from './App';
@@ -46,11 +47,13 @@ import { DialogProvider } from './components/DialogContext';
 import { ToastProvider } from './components/ToastContext';
 
 render(() => (
-  <ThemeProvider>
-    <ToastProvider>
-      <DialogProvider>
-        <App />
-      </DialogProvider>
-    </ToastProvider>
-  </ThemeProvider>
+  <I18nProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <DialogProvider>
+          <App />
+        </DialogProvider>
+      </ToastProvider>
+    </ThemeProvider>
+  </I18nProvider>
 ), root!);

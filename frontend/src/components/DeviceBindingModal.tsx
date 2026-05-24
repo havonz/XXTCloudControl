@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { AuthService } from '../services/AuthService';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
+import { useI18n } from '../i18n';
 import styles from './DeviceBindingModal.module.css';
 
 interface DeviceBindingModalProps {
@@ -14,6 +15,7 @@ interface DeviceBindingModalProps {
 
 const DeviceBindingModal = (props: DeviceBindingModalProps) => {
   const authService = AuthService.getInstance();
+  const { t } = useI18n();
   const backdropClose = createBackdropClose(() => handleClose());
 
   // 二维码数据URL状态
@@ -99,41 +101,41 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
       <div class={styles.modalOverlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
         <div class={styles.modalContent} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
-            <h2>设备绑定到云控</h2>
-            <button class={styles.closeButton} onClick={handleClose} title="关闭">
+            <h2>{t('bind.modal_title')}</h2>
+            <button class={styles.closeButton} onClick={handleClose} title={t('common.close')}>
               <IconXmark size={16} />
             </button>
           </div>
           
           <div class={styles.modalBody}>
             <div class={styles.qrSection}>
-              <h3>扫描二维码下载绑定脚本</h3>
+              <h3>{t('bind.scan_title')}</h3>
               <div class={styles.qrCodeContainer}>
                 <Show when={qrCodeDataUrl()} fallback={
-                  <div class={styles.qrCodeLoading}>生成二维码中...</div>
+                  <div class={styles.qrCodeLoading}>{t('bind.qr_loading')}</div>
                 }>
                   <img 
                     src={qrCodeDataUrl()} 
-                    alt="设备绑定二维码" 
+                    alt={t('bind.qr_alt')}
                     class={styles.qrCodeImage}
                   />
                 </Show>
               </div>
               <p class={styles.qrDescription}>
-                使用 XXTouch 扫描此二维码即可下载绑定到云控脚本
+                {t('bind.modal_qr_description')}
               </p>
             </div>
             
             <div class={styles.downloadSection}>
-              <h3>手动下载绑定脚本</h3>
+              <h3>{t('bind.manual_title')}</h3>
               <button 
                 class={styles.downloadButton}
                 onClick={handleDownload}
               >
-                下载绑定脚本
+                {t('bind.download_script')}
               </button>
               <p class={styles.downloadDescription}>
-                点击按钮下载绑定到云控脚本
+                {t('bind.modal_download_description')}
               </p>
             </div>
           </div>

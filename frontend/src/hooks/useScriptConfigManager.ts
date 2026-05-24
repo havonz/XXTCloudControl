@@ -1,6 +1,7 @@
 import { createSignal } from 'solid-js';
 import { MainJson, ConfigItem, ScriptInfo } from '../utils/scriptConfig';
 import { authFetch } from '../services/httpAuth';
+import { getCurrentLocale, translate } from '../i18n';
 
 export type ConfigContext = {
   kind: 'global';
@@ -13,6 +14,7 @@ export type ConfigContext = {
 };
 
 export function useScriptConfigManager() {
+  const t = (key: string, vars?: Record<string, unknown>) => translate(getCurrentLocale(), key, vars);
   const [isOpen, setIsOpen] = createSignal(false);
   const [configTitle, setConfigTitle] = createSignal('');
   const [uiItems, setUiItems] = createSignal<ConfigItem[]>([]);
@@ -42,13 +44,13 @@ export function useScriptConfigManager() {
       setUiItems(mainJson.UI || []);
       setInitialValues(mainJson.Config || {});
       setScriptInfo(mainJson.ScriptInfo || null);
-      setConfigTitle(`全局配置: ${scriptName}`);
+      setConfigTitle(t('form.global_config_title', { name: scriptName }));
       setActiveContext({ kind: 'global', scriptName });
       setIsOpen(true);
     } catch (e) {
       if (!isCurrentOpenRequest(requestVersion)) return;
       console.error('Failed to open global config', e);
-      alert('加载配置失败');
+      alert(t('form.load_config_failed'));
     }
   };
 
@@ -69,13 +71,13 @@ export function useScriptConfigManager() {
       setUiItems(mainJson.UI || []);
       setInitialValues({ ...(mainJson.Config || {}), ...groupConfig });
       setScriptInfo(mainJson.ScriptInfo || null);
-      setConfigTitle(`分组配置: ${groupName} (${scriptPath})`);
+      setConfigTitle(t('form.group_config_title', { group: groupName, script: scriptPath }));
       setActiveContext({ kind: 'group', groupId, groupName, scriptPath });
       setIsOpen(true);
     } catch (e) {
       if (!isCurrentOpenRequest(requestVersion)) return;
       console.error('Failed to open group config', e);
-      alert('加载分组配置失败');
+      alert(t('form.load_group_config_failed'));
     }
   };
 
@@ -102,7 +104,7 @@ export function useScriptConfigManager() {
       setIsOpen(false);
     } catch (e) {
       console.error('Failed to save config', e);
-      alert('保存配置失败');
+      alert(t('form.save_config_failed'));
     }
   };
 

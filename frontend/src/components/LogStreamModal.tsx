@@ -2,6 +2,7 @@ import { Component, Show, createEffect, createSignal, onCleanup } from 'solid-js
 import { Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { IconXmark } from '../icons';
+import { useI18n } from '../i18n';
 import styles from './LogStreamModal.module.css';
 
 interface LogStreamModalProps {
@@ -15,9 +16,10 @@ const MAX_LOG_LENGTH = 8 * 1024 * 1024;
 const TRIM_TARGET_LENGTH = 4 * 1024 * 1024;
 
 const LogStreamModal: Component<LogStreamModalProps> = (props) => {
+  const { t } = useI18n();
   const [paused, setPaused] = createSignal(false);
   const [autoScroll, setAutoScroll] = createSignal(true);
-  const [status, setStatus] = createSignal('未连接');
+  const [statusKey, setStatusKey] = createSignal('log.status_not_connected');
   let logAreaRef: HTMLTextAreaElement | undefined;
   let logChunks: string[] = [];
   let totalLogLength = 0;
@@ -145,19 +147,19 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
     resetLogState();
     setPaused(false);
     setAutoScroll(true);
-    setStatus('订阅中');
+    setStatusKey('log.status_connecting');
 
     const unsubscribe = props.webSocketService.watchDeviceLog(udid, (chunk) => {
       if (!paused()) {
         appendLog(chunk.endsWith('\n') ? chunk : `${chunk}\n`);
       }
-      setStatus(paused() ? '已暂停' : '已连接');
+      setStatusKey(paused() ? 'log.status_paused' : 'log.status_connected');
     });
 
     onCleanup(() => {
       unsubscribe();
       cancelScheduledFlush();
-      setStatus('已断开');
+      setStatusKey('log.status_disconnected');
     });
   });
 
@@ -172,7 +174,7 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
   const handleTogglePause = () => {
     setPaused((prev) => {
       const next = !prev;
-      setStatus(next ? '已暂停' : '已连接');
+      setStatusKey(next ? 'log.status_paused' : 'log.status_connected');
       return next;
     });
   };
@@ -182,9 +184,9 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
       <div class={styles.overlay} onClick={props.onClose}>
         <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
           <div class={styles.header}>
-            <h2>实时日志 - {props.device?.system?.name || '未知设备'}</h2>
+            <h2>{t('log.title', { name: props.device?.system?.name || t('device.unknown') })}</h2>
             <div class={styles.headerRight}>
-              <div class={styles.status}>{status()}</div>
+              <div class={styles.status}>{t(statusKey())}</div>
               <button class={styles.closeButton} onClick={props.onClose}>
                 <IconXmark size={18} />
               </button>
@@ -194,9 +196,9 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
           <div class={styles.body}>
             <div class={styles.toolbar}>
               <button class={styles.button} onClick={handleTogglePause}>
-                {paused() ? '继续' : '暂停'}
+                {paused() ? t('log.resume') : t('log.pause')}
               </button>
-              <button class={styles.button} onClick={resetLogState}>清空</button>
+              <button class={styles.button} onClick={resetLogState}>{t('log.clear')}</button>
               <div class={styles.flexSpacer} />
               <label class={styles.autoScrollLabel}>
                 <input
@@ -205,7 +207,7 @@ const LogStreamModal: Component<LogStreamModalProps> = (props) => {
                   checked={autoScroll()}
                   onChange={(e) => setAutoScroll(e.currentTarget.checked)}
                 />
-                <span>自动滚动</span>
+                <span>{t('log.auto_scroll')}</span>
               </label>
             </div>
             <textarea

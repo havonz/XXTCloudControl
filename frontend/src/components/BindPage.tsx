@@ -1,6 +1,7 @@
 import { createSignal, createMemo, Show, createEffect, onMount } from 'solid-js';
 import QRCode from 'qrcode';
 import { AuthService } from '../services/AuthService';
+import { useI18n } from '../i18n';
 import styles from './BindPage.module.css';
 
 interface BindPageProps {
@@ -13,6 +14,7 @@ interface BindPageProps {
  */
 const BindPage = (props: BindPageProps) => {
   const authService = AuthService.getInstance();
+  const { t } = useI18n();
   
   // QR code data URL state
   const [qrCodeDataUrl, setQrCodeDataUrl] = createSignal('');
@@ -115,59 +117,59 @@ const BindPage = (props: BindPageProps) => {
       <div class={styles.card}>
         <div class={styles.header}>
           <img src="/favicon-48.png" alt="Logo" class={styles.logo} />
-          <h1 class={styles.title}>设备绑定</h1>
+          <h1 class={styles.title}>{t('bind.title')}</h1>
         </div>
         
         <div class={styles.body}>
           <div class={styles.qrSection}>
-            <h3 class={styles.sectionTitle}>扫描二维码下载绑定脚本</h3>
+            <h3 class={styles.sectionTitle}>{t('bind.scan_title')}</h3>
             <div class={styles.qrCodeContainer}>
               <Show when={qrCodeDataUrl()} fallback={
-                <div class={styles.qrCodeLoading}>生成二维码中...</div>
+                <div class={styles.qrCodeLoading}>{t('bind.qr_loading')}</div>
               }>
                 <img 
                   src={qrCodeDataUrl()} 
-                  alt="设备绑定二维码" 
+                  alt={t('bind.qr_alt')}
                   class={styles.qrCodeImage}
                 />
               </Show>
             </div>
             <p class={styles.description}>
-              使用 XXTouch 扫描此二维码即可下载绑定脚本
+              {t('bind.qr_description')}
             </p>
           </div>
           
           <div class={styles.downloadSection}>
-            <h3 class={styles.sectionTitle}>手动下载绑定脚本</h3>
+            <h3 class={styles.sectionTitle}>{t('bind.manual_title')}</h3>
             <Show when={isIOS()}>
               <button 
                 class={styles.xxtButton}
                 onClick={handleOpenInXXT}
               >
-                跳转 X.X.T 下载
+                {t('bind.xxt_download')}
               </button>
             </Show>
             <button 
               class={styles.downloadButton}
               onClick={handleDownload}
             >
-              下载绑定脚本
+              {t('bind.download_script')}
             </button>
             <p class={styles.description}>
-              点击按钮下载绑定脚本，运行后可加入或退出云控
+              {t('bind.download_description')}
             </p>
           </div>
 
           <Show when={serverHost()}>
             <div class={styles.serverInfo}>
-              云控服务器: {serverHost()}:{serverPort()}
+              {t('bind.server', { host: serverHost(), port: serverPort() })}
             </div>
           </Show>
         </div>
         
         <div class={styles.footer}>
           <a href="/" class={styles.loginLink} onClick={(e) => { e.preventDefault(); handleGoToLogin(); }}>
-            管理员登录 →
+            {t('bind.admin_login')}
           </a>
         </div>
       </div>

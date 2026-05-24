@@ -18,6 +18,7 @@ import {
   parseRemoteWheelSetting,
   type RemoteWheelSettings,
 } from '../utils/remoteWheel';
+import { useI18n } from '../i18n';
 
 export interface BatchRemoteControlProps {
   isOpen: boolean;
@@ -64,6 +65,7 @@ function getDeviceName(device: Device): string {
 }
 
 export default function BatchRemoteControl(props: BatchRemoteControlProps) {
+  const { t } = useI18n();
   const MOBILE_MAX_COLUMNS = 4;
   const DESKTOP_MAX_COLUMNS = 8;
   const VIEWPORT_MOBILE_BREAKPOINT = 768;
@@ -1603,7 +1605,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
             checked={wheelEnabled()}
             onInput={(e) => setWheelEnabled(e.currentTarget.checked)}
           />
-          <span>启用滚轮滚动</span>
+          <span>{t('remote.enable_wheel')}</span>
         </label>
         <label class={styles.wheelToggleItem}>
           <input
@@ -1612,7 +1614,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
             checked={wheelNatural()}
             onInput={(e) => setWheelNatural(e.currentTarget.checked)}
           />
-          <span>自然滚动方向</span>
+          <span>{t('remote.natural_scroll')}</span>
         </label>
         <label class={styles.wheelToggleItem}>
           <input
@@ -1621,13 +1623,13 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
             checked={wheelBrakeEnabled()}
             onInput={(e) => setWheelBrakeEnabled(e.currentTarget.checked)}
           />
-          <span>滚动刹车</span>
+          <span>{t('remote.wheel_brake')}</span>
         </label>
       </div>
 
       <div class={styles.wheelSettingsFields}>
         <div class={styles.wheelField}>
-          <span class={styles.wheelFieldLabel}>滚动步长</span>
+          <span class={styles.wheelFieldLabel}>{t('remote.wheel_step')}</span>
           <div class={styles.wheelFieldRow}>
             <input
               type="range"
@@ -1642,7 +1644,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         </div>
 
         <div class={styles.wheelField}>
-          <span class={styles.wheelFieldLabel}>合并窗口</span>
+          <span class={styles.wheelFieldLabel}>{t('remote.wheel_window')}</span>
           <div class={styles.wheelFieldRow}>
             <input
               type="range"
@@ -1657,7 +1659,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         </div>
 
         <div class={styles.wheelField}>
-          <span class={styles.wheelFieldLabel}>滚动加速</span>
+          <span class={styles.wheelFieldLabel}>{t('remote.wheel_acceleration')}</span>
           <div class={styles.wheelFieldRow}>
             <input
               type="range"
@@ -1672,7 +1674,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         </div>
 
         <div class={styles.wheelField}>
-          <span class={styles.wheelFieldLabel}>基础时长</span>
+          <span class={styles.wheelFieldLabel}>{t('remote.base_duration')}</span>
           <div class={styles.wheelFieldRow}>
             <input
               type="range"
@@ -1687,7 +1689,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         </div>
 
         <div class={styles.wheelField}>
-          <span class={styles.wheelFieldLabel}>抬起前延迟</span>
+          <span class={styles.wheelFieldLabel}>{t('remote.delay_before_lift')}</span>
           <div class={styles.wheelFieldRow}>
             <input
               type="range"
@@ -1702,7 +1704,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         </div>
 
         <div class={styles.wheelField}>
-          <span class={styles.wheelFieldLabel}>刹车回头像素</span>
+          <span class={styles.wheelFieldLabel}>{t('remote.brake_pixels')}</span>
           <div class={styles.wheelFieldRow}>
             <input
               type="range"
@@ -1732,7 +1734,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       >
         <div class={styles.mobileSidebarContent}>
           <div class={styles.wheelField}>
-            <span class={styles.wheelFieldLabel}>分辨率</span>
+            <span class={styles.wheelFieldLabel}>{t('remote.resolution')}</span>
             <div class={styles.wheelFieldRow}>
               <input
                 type="range"
@@ -1764,7 +1766,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           </div>
 
           <div class={styles.wheelField}>
-            <span class={styles.wheelFieldLabel}>列数</span>
+            <span class={styles.wheelFieldLabel}>{t('remote.columns')}</span>
             <div class={styles.wheelFieldRow}>
               <input
                 type="range"
@@ -1780,7 +1782,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           </div>
 
           <div class={styles.mobileSidebarSection}>
-            <label class={styles.mobileSidebarSectionLabel}>滚轮设置</label>
+            <label class={styles.mobileSidebarSectionLabel}>{t('remote.wheel_settings')}</label>
             <div class={styles.mobileSidebarWheelPanel}>
               {renderWheelSettingsContent()}
             </div>
@@ -1841,8 +1843,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                   class={styles.mobileSidebarTrigger}
                   onClick={() => setMobileSidebarOpen(!mobileSidebarOpen())}
                   onMouseDown={(e) => e.stopPropagation()}
-                  title="切换侧边栏"
-                  aria-label="切换侧边栏"
+                  title={t('remote.toggle_sidebar')}
+                  aria-label={t('remote.toggle_sidebar')}
                 >
                   <div class={`${styles.hamburger} ${mobileSidebarOpen() ? styles.hamburgerOpen : ''}`}>
                     <span />
@@ -1851,15 +1853,15 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                   </div>
                 </button>
               </Show>
-              <h3>批量实时控制</h3>
+              <h3>{t('remote.batch_title')}</h3>
             </div>
             <div class={styles.headerButtons}>
               <button 
                 class={styles.fullscreenToggle}
                 onClick={toggleFullscreen}
                 onMouseDown={(e) => e.stopPropagation()}
-                title={isFullscreen() ? '退出全页面' : '全页面'}
-                aria-label={isFullscreen() ? '退出全页面' : '全页面'}
+                title={isFullscreen() ? t('remote.exit_fullscreen') : t('remote.fullscreen')}
+                aria-label={isFullscreen() ? t('remote.exit_fullscreen') : t('remote.fullscreen')}
               >
                 <Show
                   when={isFullscreen()}
@@ -1868,7 +1870,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                   <CgMinimizeAlt size={16} />
                 </Show>
               </button>
-              <button class={styles.closeButton} onClick={handleClose} onMouseDown={(e) => e.stopPropagation()} title="关闭">
+              <button class={styles.closeButton} onClick={handleClose} onMouseDown={(e) => e.stopPropagation()} title={t('common.close')}>
                 <IconXmark size={16} />
               </button>
             </div>
@@ -1877,20 +1879,20 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
             {/* 工具栏 */}
             <div class={styles.toolbar}>
               <div class={styles.toolbarLeft}>
-                <button class={styles.toolButton} onClick={handleHomeButton} title="主屏幕" disabled={checkedDevices().size === 0}>
+                <button class={styles.toolButton} onClick={handleHomeButton} title={t('remote.home')} disabled={checkedDevices().size === 0}>
                   <IconHouse size={14} />
                 </button>
-                <button class={styles.toolButton} onClick={handleVolumeDown} title="音量-" disabled={checkedDevices().size === 0}>
+                <button class={styles.toolButton} onClick={handleVolumeDown} title={t('remote.volume_down')} disabled={checkedDevices().size === 0}>
                   <IconVolumeDecrease size={14} />
                 </button>
-                <button class={styles.toolButton} onClick={handleVolumeUp} title="音量+" disabled={checkedDevices().size === 0}>
+                <button class={styles.toolButton} onClick={handleVolumeUp} title={t('remote.volume_up')} disabled={checkedDevices().size === 0}>
                   <IconVolumeIncrease size={14} />
                 </button>
-                <button class={styles.toolButton} onClick={handleLockScreen} title="锁屏" disabled={checkedDevices().size === 0}>
+                <button class={styles.toolButton} onClick={handleLockScreen} title={t('remote.lock')} disabled={checkedDevices().size === 0}>
                   <IconLock size={14} />
                 </button>
-                <button class={styles.toolButton} onClick={handlePaste} title="粘贴" disabled={checkedDevices().size === 0}>
-                  <IconPaste size={14} /> 粘贴
+                <button class={styles.toolButton} onClick={handlePaste} title={t('remote.paste')} disabled={checkedDevices().size === 0}>
+                  <IconPaste size={14} /> {t('remote.paste')}
                 </button>
                 
                 <label class={styles.selectAllLabel}>
@@ -1900,7 +1902,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                     checked={isAllSelected()} 
                     onChange={toggleSelectAll}
                   />
-                  全选同步操作
+                  {t('remote.select_all_sync')}
                 </label>
               </div>
             </div>
@@ -1908,7 +1910,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
             <Show when={!usesSidebarLayout()}>
               <div class={styles.controlBar}>
                 <div class={styles.sliderGroup}>
-                  <label>分辨率</label>
+                  <label>{t('remote.resolution')}</label>
                   <input 
                     type="range" 
                     min="0.1" 
@@ -1936,7 +1938,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                 </div>
                 
                 <div class={styles.sliderGroup}>
-                  <label>列数</label>
+                  <label>{t('remote.columns')}</label>
                   <input 
                     type="range" 
                     min="2" 
@@ -1953,8 +1955,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                   <button
                     type="button"
                     class={styles.wheelSettingsToggle}
-                    title="滚轮设置"
-                    aria-label="滚轮设置"
+                    title={t('remote.wheel_settings')}
+                    aria-label={t('remote.wheel_settings')}
                     onClick={() => setWheelSettingsOpen(!wheelSettingsOpen())}
                   >
                     <IconGear size={14} />
@@ -2014,14 +2016,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                           fallback={
                             <div class={styles.videoPlaceholder}>
                               <Show when={viewState()?.state === 'connecting'}>
-                                <span>连接中...</span>
+                                <span>{t('remote.connecting')}</span>
                               </Show>
                               <Show when={viewState()?.state === 'disconnected'}>
                                 <button 
                                   class={styles.connectButton}
                                   onClick={() => void connectDevice(device)}
                                 >
-                                  连接
+                                  {t('remote.connect')}
                                 </button>
                               </Show>
                             </div>
@@ -2069,24 +2071,24 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
             onClick={() => setShowPasteModal(false)}
           >
             <div class={styles.pasteModal} onClick={(e) => e.stopPropagation()}>
-              <h4>粘贴文本到选中设备</h4>
+              <h4>{t('remote.paste_title')}</h4>
               <textarea
                 class={styles.pasteTextarea}
-                placeholder="输入要粘贴的文本..."
+                placeholder={t('remote.paste_placeholder')}
                 value={pasteText()}
                 onInput={(e) => setPasteText(e.currentTarget.value)}
                 rows={5}
               />
               <div class={styles.pasteActions}>
                 <button class={styles.pasteCancel} onClick={() => setShowPasteModal(false)}>
-                  取消
+                  {t('common.cancel')}
                 </button>
                 <button 
                   class={styles.pasteSend} 
                   onClick={sendPasteToDevices}
                   disabled={!pasteText()}
                 >
-                  发送到 {getCheckedDevicesList().length} 台设备
+                  {t('remote.send_to_devices', { count: getCheckedDevicesList().length })}
                 </button>
               </div>
             </div>

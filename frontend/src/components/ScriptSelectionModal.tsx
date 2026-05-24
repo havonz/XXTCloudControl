@@ -4,6 +4,7 @@ import { Select, createListCollection } from '@ark-ui/solid';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
 import { authFetch } from '../services/httpAuth';
+import { useI18n } from '../i18n';
 import styles from './ScriptSelectionModal.module.css';
 
 interface ScriptEntry {
@@ -20,6 +21,7 @@ interface ScriptSelectionModalProps {
 }
 
 export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
+  const { t } = useI18n();
   const [selectedScriptPath, setSelectedScriptPath] = createSignal('');
   const [scripts, setScripts] = createSignal<ScriptEntry[]>([]);
   const [isLoading, setIsLoading] = createSignal(false);
@@ -45,7 +47,7 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
         setScripts(data.scripts || []);
       }
     } catch (err) {
-      setError('加载脚本列表失败: ' + (err as Error).message);
+      setError(t('modal.script_load_failed', { msg: (err as Error).message }));
       setScripts([]);
     } finally {
       setIsLoading(false);
@@ -71,7 +73,7 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
       setSelectedScriptPath('');
       props.onClose();
     } catch (error) {
-      console.error('选择脚本失败:', error);
+      console.error(t('modal.script_select_failed'), error);
     } finally {
       setIsSubmitting(false);
     }
@@ -115,18 +117,18 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
       <div class={styles.overlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
         <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.header}>
-            <h3 class={styles.title}>批量让设备选中脚本</h3>
-            <button class={styles.closeButton} onClick={handleCancel} title="关闭">
+            <h3 class={styles.title}>{t('modal.script_select_title')}</h3>
+            <button class={styles.closeButton} onClick={handleCancel} title={t('common.close')}>
               <IconXmark size={16} />
             </button>
           </div>
 
           <div class={styles.body}>
-            <p class={styles.description}>将批量为 {props.selectedDeviceCount} 台设备选中脚本</p>
+            <p class={styles.description}>{t('modal.script_select_description', { count: props.selectedDeviceCount })}</p>
             
             <div class={styles.inputGroup}>
               <Show when={isLoading()}>
-                <div class={styles.loadingMessage}>正在加载脚本列表...</div>
+                <div class={styles.loadingMessage}>{t('modal.script_loading')}</div>
               </Show>
 
               <Show when={error()}>
@@ -148,7 +150,7 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
                     <Select.Control class={styles.selectControl}>
                       <Select.Trigger class={styles.selectTrigger}>
                         <span class={styles.selectValue}>
-                          {selectedDisplayName() || '请选择脚本'}
+                          {selectedDisplayName() || t('modal.script_choose_placeholder')}
                         </span>
                         <span class={styles.dropdownArrow}>▼</span>
                       </Select.Trigger>
@@ -158,7 +160,7 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
                         <Select.Content class={styles.selectContent}>
                           <Select.ItemGroup>
                             <Show when={scripts().length === 0}>
-                              <div class={styles.emptyMessage}>暂无可选脚本</div>
+                              <div class={styles.emptyMessage}>{t('modal.script_empty')}</div>
                             </Show>
                             <For each={scripts()}>
                               {(script) => (
@@ -182,12 +184,12 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
                     disabled={!selectedScriptPath() || isSubmitting()}
                     class={styles.selectButton}
                   >
-                    {isSubmitting() ? '选择中...' : '选中'}
+                    {isSubmitting() ? t('modal.script_selecting') : t('modal.script_selected')}
                   </button>
                 </div>
               </Show>
             </div>
-            <p class={styles.description}>该操作不会将脚本传输到设备上，它仅仅是让设备选中指定名称的脚本作为主运行脚本。</p>
+            <p class={styles.description}>{t('modal.script_select_hint')}</p>
           </div>
         </div>
       </div>

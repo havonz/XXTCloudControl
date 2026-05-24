@@ -3,6 +3,7 @@ import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
 import type { GroupInfo } from '../types';
 import { createBackdropClose } from '../hooks/useBackdropClose';
+import { useI18n } from '../i18n';
 import styles from './AddToGroupModal.module.css';
 
 interface AddToGroupModalProps {
@@ -14,6 +15,7 @@ interface AddToGroupModalProps {
 }
 
 const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
+  const { t } = useI18n();
   const [selectedGroupId, setSelectedGroupId] = createSignal('');
   const [isSubmitting, setIsSubmitting] = createSignal(false);
   const backdropClose = createBackdropClose(() => props.onClose());
@@ -23,7 +25,7 @@ const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
     createListCollection({
       items: props.groups.map(g => ({
         value: g.id,
-        label: `${g.name} (${g.deviceIds?.length || 0} 台)`
+        label: `${g.name} (${t('group.device_count', { count: g.deviceIds?.length || 0 })})`
       }))
     })
   );
@@ -32,9 +34,9 @@ const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
   const selectedGroupLabel = createMemo(() => {
     const group = props.groups.find(g => g.id === selectedGroupId());
     if (group) {
-      return `${group.name} (${group.deviceIds?.length || 0} 台)`;
+      return `${group.name} (${t('group.device_count', { count: group.deviceIds?.length || 0 })})`;
     }
-    return '-- 选择分组 --';
+    return t('group.select_placeholder');
   });
 
   // Auto-select first group when modal opens
@@ -70,19 +72,19 @@ const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
     <Show when={props.open}>
       <div class={styles.backdrop} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
         <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
-          <h3 class={styles.title}>添加到分组</h3>
+          <h3 class={styles.title}>{t('group.add_to_group')}</h3>
           
           <Show when={props.groups.length === 0}>
-            <p class={styles.emptyMessage}>暂无可用分组，请先创建分组</p>
+            <p class={styles.emptyMessage}>{t('group.empty')}</p>
           </Show>
 
           <Show when={props.groups.length > 0}>
             <div class={styles.info}>
-              已选择 <strong>{props.selectedDeviceCount}</strong> 台设备
+              {t('group.selected_devices', { count: props.selectedDeviceCount })}
             </div>
             
             <div class={styles.groupSelect}>
-              <label class={styles.selectLabel}>选择分组:</label>
+              <label class={styles.selectLabel}>{t('group.select_label')}</label>
               <Select.Root
                 collection={groupCollection()}
                 value={selectedGroupId() ? [selectedGroupId()] : []}
@@ -104,12 +106,12 @@ const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
                       <Select.ItemGroup>
                         <For each={props.groups}>{(group) => (
                           <Select.Item 
-                            item={{ value: group.id, label: `${group.name} (${group.deviceIds?.length || 0} 台)` }} 
+                            item={{ value: group.id, label: `${group.name} (${t('group.device_count', { count: group.deviceIds?.length || 0 })})` }}
                             class="cbx-item"
                           >
                             <div class="cbx-item-content">
                               <Select.ItemIndicator>✓</Select.ItemIndicator>
-                              <Select.ItemText>{group.name} ({group.deviceIds?.length || 0} 台)</Select.ItemText>
+                              <Select.ItemText>{group.name} ({t('group.device_count', { count: group.deviceIds?.length || 0 })})</Select.ItemText>
                             </div>
                           </Select.Item>
                         )}</For>
@@ -128,7 +130,7 @@ const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
               onClick={props.onClose}
               disabled={isSubmitting()}
             >
-              取消
+              {t('common.cancel')}
             </button>
             <Show when={props.groups.length > 0}>
               <button 
@@ -137,7 +139,7 @@ const AddToGroupModal: Component<AddToGroupModalProps> = (props) => {
                 onClick={handleSubmit}
                 disabled={!selectedGroupId() || isSubmitting()}
               >
-                {isSubmitting() ? '添加中...' : '添加'}
+                {isSubmitting() ? t('common.adding') : t('common.add')}
               </button>
             </Show>
           </div>

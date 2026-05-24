@@ -397,22 +397,22 @@ export class AuthService {
   /**
    * 验证登录凭据格式
    */
-  validateCredentials(credentials: LoginCredentials): { valid: boolean; error?: string } {
+  validateCredentials(credentials: LoginCredentials): { valid: boolean; error?: string; errorKey?: string } {
     if (!credentials.server.trim()) {
-      return { valid: false, error: '请输入服务器地址' };
+      return { valid: false, error: '请输入服务器地址', errorKey: 'login.server_required' };
     }
     
     if (!credentials.port.trim()) {
-      return { valid: false, error: '请输入端口号' };
+      return { valid: false, error: '请输入端口号', errorKey: 'login.port_required' };
     }
     
     const portNum = parseInt(credentials.port);
     if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-      return { valid: false, error: '端口号必须是 1-65535 之间的数字' };
+      return { valid: false, error: '端口号必须是 1-65535 之间的数字', errorKey: 'login.port_invalid' };
     }
     
     if (!credentials.password.trim()) {
-      return { valid: false, error: '请输入密码' };
+      return { valid: false, error: '请输入密码', errorKey: 'login.password_required' };
     }
     
     return { valid: true };

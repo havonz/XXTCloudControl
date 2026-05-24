@@ -4,6 +4,7 @@ import { Portal } from 'solid-js/web';
 import { useDialog } from './DialogContext';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
+import { useI18n } from '../i18n';
 import styles from './ClipboardModal.module.css';
 
 interface ClipboardModalProps {
@@ -18,18 +19,19 @@ interface ClipboardModalProps {
 
 export default function ClipboardModal(props: ClipboardModalProps) {
   const dialog = useDialog();
+  const { t } = useI18n();
   const [clipboardContent, setClipboardContent] = createSignal('');
   const [clipboardUti, setClipboardUti] = createSignal('public.plain-text');
   const [isReadingClipboard, setIsReadingClipboard] = createSignal(false);
   const backdropClose = createBackdropClose(() => handleClose());
   
   // UTI options for Ark-UI Select
-  const utiOptions = [
-    { value: 'public.plain-text', label: '纯文本' },
-    { value: 'public.png', label: 'PNG图片' },
-  ];
+  const utiOptions = createMemo(() => [
+    { value: 'public.plain-text', label: t('modal.clipboard_plain_text') },
+    { value: 'public.png', label: t('modal.clipboard_png') },
+  ]);
   const utiOptionsCollection = createMemo(() => 
-    createListCollection({ items: utiOptions.map(o => o.value) })
+    createListCollection({ items: utiOptions().map(o => o.value) })
   );
 
   // 自动填充剪贴板内容的方法
@@ -48,7 +50,7 @@ export default function ClipboardModal(props: ClipboardModalProps) {
 
   const handleReadClipboard = async () => {
     if (props.selectedDevicesCount === 0) {
-      await dialog.alert('请先选择设备');
+      await dialog.alert(t('device.choose_first'));
       return;
     }
 
@@ -62,19 +64,19 @@ export default function ClipboardModal(props: ClipboardModalProps) {
         setIsReadingClipboard(false);
       }, 3000);
     } catch (error) {
-      console.error('读取剪贴板失败:', error);
+      console.error(t('modal.clipboard_read_failed'), error);
       setIsReadingClipboard(false);
     }
   };
 
   const handleWriteClipboard = async () => {
     if (props.selectedDevicesCount === 0) {
-      await dialog.alert('请先选择设备');
+      await dialog.alert(t('device.choose_first'));
       return;
     }
 
     if (!clipboardContent().trim()) {
-      await dialog.alert('请输入内容');
+      await dialog.alert(t('modal.clipboard_required'));
       return;
     }
 
@@ -83,7 +85,7 @@ export default function ClipboardModal(props: ClipboardModalProps) {
       
       props.onClose();
     } catch (error) {
-      console.error('写入剪贴板失败:', error);
+      console.error(t('modal.clipboard_write_failed'), error);
     }
   };
 
@@ -114,17 +116,17 @@ export default function ClipboardModal(props: ClipboardModalProps) {
         <div class={styles.clipboardModal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
             <div class={styles.headerTitles}>
-              <h3>剪贴板操作</h3>
-              <p>选中设备: {props.selectedDevicesCount} 台</p>
+              <h3>{t('modal.clipboard_title')}</h3>
+              <p>{t('device.selected_count', { count: props.selectedDevicesCount })}</p>
             </div>
-            <button class={styles.closeButton} onClick={handleClose} title="关闭">
+            <button class={styles.closeButton} onClick={handleClose} title={t('common.close')}>
               <IconXmark size={16} />
             </button>
           </div>
           
           <div class={styles.modalContent}>
             <div class={styles.inputGroup}>
-              <label class={styles.inputLabel}>数据类型:</label>
+              <label class={styles.inputLabel}>{t('modal.clipboard_type')}</label>
               <Select.Root
                 collection={utiOptionsCollection()}
                 value={[clipboardUti()]}
@@ -135,7 +137,7 @@ export default function ClipboardModal(props: ClipboardModalProps) {
               >
                 <Select.Control>
                   <Select.Trigger class="cbx-select" style={{ 'min-width': '120px' }}>
-                    <span>{utiOptions.find(o => o.value === clipboardUti())?.label || '纯文本'}</span>
+                    <span>{utiOptions().find(o => o.value === clipboardUti())?.label || t('modal.clipboard_plain_text')}</span>
                     <span class="dropdown-arrow">▼</span>
                   </Select.Trigger>
                 </Select.Control>
@@ -143,7 +145,7 @@ export default function ClipboardModal(props: ClipboardModalProps) {
                   <Select.Positioner style={{ 'z-index': 10400, width: 'var(--reference-width)' }}>
                     <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
                       <Select.ItemGroup>
-                        <For each={utiOptions}>{(option) => (
+                        <For each={utiOptions()}>{(option) => (
                           <Select.Item item={option.value} class="cbx-item">
                             <div class="cbx-item-content">
                               <Select.ItemIndicator>✓</Select.ItemIndicator>
@@ -159,12 +161,12 @@ export default function ClipboardModal(props: ClipboardModalProps) {
             </div>
             
             <div class={styles.inputGroup}>
-              <label class={styles.inputLabel}>内容:</label>
+              <label class={styles.inputLabel}>{t('modal.clipboard_content')}</label>
               <textarea 
                 class={styles.textareaInput}
                 value={clipboardContent()}
                 onInput={(e) => setClipboardContent(e.target.value)}
-                placeholder={clipboardUti() === 'public.plain-text' ? '输入文本内容...' : '输入Base64编码的图片数据...'}
+                placeholder={clipboardUti() === 'public.plain-text' ? t('modal.clipboard_text_placeholder') : t('modal.clipboard_image_placeholder')}
                 rows={6}
                 disabled={isReadingClipboard()}
               />
@@ -176,16 +178,16 @@ export default function ClipboardModal(props: ClipboardModalProps) {
               class={styles.actionButton}
               onClick={handleReadClipboard}
               disabled={isReadingClipboard() || props.isSyncControlEnabled}
-              title={props.isSyncControlEnabled ? '读取剪贴板仅在非同步控制模式下可用' : '读取当前设备的剪贴板内容'}
+              title={props.isSyncControlEnabled ? t('modal.clipboard_read_disabled') : t('modal.clipboard_read_title')}
             >
-              {isReadingClipboard() ? '读取中...' : '读取剪贴板'}
+              {isReadingClipboard() ? t('modal.clipboard_reading') : t('modal.clipboard_read')}
             </button>
             <button 
               class={styles.actionButton}
               onClick={handleWriteClipboard}
               disabled={!clipboardContent().trim() || isReadingClipboard()}
             >
-              写入剪贴板
+              {t('modal.clipboard_write')}
             </button>
 
           </div>

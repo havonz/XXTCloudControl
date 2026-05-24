@@ -32,6 +32,7 @@ import { scanEntries, ScannedFile } from '../utils/fileUpload';
 import SendToCloudModal from './SendToCloudModal';
 import ContextMenu, { ContextMenuButton, ContextMenuDivider } from './ContextMenu';
 import { debugLog } from '../utils/debugLogger';
+import { useI18n } from '../i18n';
 
 export interface FileItem {
   name: string;
@@ -69,6 +70,7 @@ export interface DeviceFileBrowserProps {
 
 export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const dialog = useDialog();
+  const { t } = useI18n();
   const [currentPath, setCurrentPath] = createSignal('/lua/scripts');
   const [showHidden, setShowHidden] = createSignal(false);
   const [lastSelectedItem, setLastSelectedItem] = createSignal<string | null>(null);
@@ -253,7 +255,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   };
 
   const handleDeleteFile = async (file: FileItem) => {
-    if (!await dialog.confirm(`确定要删除 "${file.name}" 吗？`)) return;
+    if (!await dialog.confirm(t('files.delete_confirm', { name: file.name }))) return;
     const fullPath = currentPath() === '/' 
       ? `/${file.name}` 
       : `${currentPath()}/${file.name}`;
@@ -305,7 +307,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
 
   // 重命名文件
   const handleRenameFile = async (file: FileItem) => {
-    const newName = await dialog.prompt('请输入新名称', file.name, '重命名');
+    const newName = await dialog.prompt(t('files.rename_prompt'), file.name, t('common.rename'));
     if (!newName?.trim() || newName.trim() === file.name) return;
 
     const fromPath = currentPath() === '/' 
@@ -329,7 +331,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     
     setEditorFileName(file.name);
     setEditorFilePath(fullPath);
-    setEditorContent('加载中...');
+    setEditorContent(t('common.loading'));
     setShowEditorModal(true);
     
     // 请求文件内容
@@ -359,7 +361,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   };
 
   const handleCreateFolder = async () => {
-    const folderName = await dialog.prompt('新建文件夹', '请输入文件夹名称');
+    const folderName = await dialog.prompt(t('files.new_folder_prompt'), '', t('common.new_folder'));
     if (!folderName?.trim()) return;
 
     const folderPath = currentPath() === '/' 
@@ -373,7 +375,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   };
 
   const handleCreateFile = async () => {
-    const fileName = await dialog.prompt('新建文件', '请输入文件名称');
+    const fileName = await dialog.prompt(t('files.new_file_prompt'), '', t('common.new_file'));
     if (!fileName?.trim()) return;
 
     const name = fileName.trim();
@@ -381,7 +383,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     // 检查文件是否已存在
     const exists = props.files.some(f => f.name === name);
     if (exists) {
-      await dialog.alert(`文件 "${name}" 已存在！`);
+      await dialog.alert(t('files.exists', { name }));
       return;
     }
 
@@ -504,7 +506,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     
     // 不能粘贴到相同目录
     if (cb.srcPath === currentPath()) {
-      await dialog.alert('不能粘贴到相同目录');
+      await dialog.alert(t('files.same_dir'));
       return;
     }
     
@@ -591,7 +593,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     // 如果选中了目录，需要先扫描
     if (selectedDirs.length > 0) {
       if (!props.onListFilesAsync) {
-        dialog.alert('当前版本不支持发送目录到云控');
+        dialog.alert(t('files.send_cloud_unsupported_dir'));
         return;
       }
       
@@ -613,7 +615,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       setIsScanning(false);
       
       if (allFiles.length === 0) {
-        dialog.alert('选中的目录为空或扫描失败');
+        dialog.alert(t('files.send_cloud_selected_empty'));
         setShowSendToCloudModal(false);
         return;
       }
@@ -629,7 +631,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   // 执行发送到云控
 	  const handleSendToCloud = async (category: 'scripts' | 'files' | 'reports', targetPath: string) => {
     if (!props.onPullFileFromDevice) {
-      dialog.alert('发送到云控功能不可用');
+      dialog.alert(t('files.send_cloud_unavailable'));
       return;
     }
     
@@ -673,11 +675,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
 	            successCount++;
 	          } else {
 	            failCount++;
-	            console.error(`发送文件失败 ${name}:`, result.error);
+	            console.error(t('files.send_file_failed', { name }), result.error);
 	          }
 	        } catch (err) {
 	          failCount++;
-	          console.error(`发送文件失败 ${name}:`, err);
+	          console.error(t('files.send_file_failed', { name }), err);
 	        }
 	      }
 	    };
@@ -687,11 +689,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
 	    setIsSendingToCloud(false);
     
     if (successCount > 0 && failCount === 0) {
-      toast.showSuccess(`成功发送 ${successCount} 个文件到云控`);
+      toast.showSuccess(t('files.send_cloud_success', { count: successCount }));
     } else if (successCount > 0 && failCount > 0) {
-      toast.showWarning(`发送完成：${successCount} 个成功，${failCount} 个失败`);
+      toast.showWarning(t('files.send_cloud_partial', { success: successCount, fail: failCount }));
     } else {
-      toast.showError(`发送失败：${failCount} 个文件发送失败`);
+      toast.showError(t('files.send_cloud_failed_count', { fail: failCount }));
     }
     
     setSendToCloudPendingItems([]);
@@ -702,7 +704,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     if (file.type === 'directory') {
       // 扫描目录并发送
       if (!props.onListFilesAsync) {
-        dialog.alert('当前版本不支持发送目录到云控');
+        dialog.alert(t('files.send_cloud_unsupported_dir'));
         return;
       }
       
@@ -717,7 +719,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       setIsScanning(false);
       
       if (scanned.length === 0) {
-        dialog.alert('目录为空或扫描失败');
+        dialog.alert(t('files.send_cloud_empty_dir'));
         setShowSendToCloudModal(false);
         return;
       }
@@ -738,7 +740,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       <div class={styles.overlay} onMouseDown={mainBackdropClose.onMouseDown} onMouseUp={mainBackdropClose.onMouseUp}>
         <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.header}>
-            <h2>设备文件浏览器 - {props.deviceName}</h2>
+            <h2>{t('files.device_title', { name: props.deviceName })}</h2>
             <button class={styles.closeButton} onClick={props.onClose}>
               <IconXmark size={18} />
             </button>
@@ -751,28 +753,28 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
               onClick={() => handleNavigate('/lua/scripts')}
             >
               <IconCode size={16} />
-              <span>脚本<span class={styles.desktopText}>目录</span></span>
+              <span>{t('files.scripts_root')}</span>
             </button>
             <button 
               class={`${styles.tab} ${currentPath() === '/res' ? styles.active : ''}`} 
               onClick={() => handleNavigate('/res')}
             >
               <IconBoxesStacked size={16} />
-              <span>资源<span class={styles.desktopText}>目录</span></span>
+              <span>{t('files.files_root')}</span>
             </button>
             <button 
               class={`${styles.tab} ${currentPath() === '/log' ? styles.active : ''}`} 
               onClick={() => handleNavigate('/log')}
             >
               <IconChartColumn size={16} />
-              <span>日志<span class={styles.desktopText}>目录</span></span>
+              <span>{t('files.logs_root')}</span>
             </button>
             <button 
               class={`${styles.tab} ${currentPath() === '/' || currentPath() === '' ? styles.active : ''}`} 
               onClick={() => handleNavigate('/')}
             >
               <IconHouse size={16} />
-              <span>主<span class={styles.desktopText}>目录</span></span>
+              <span>{t('files.home_root')}</span>
             </button>
           </div>
           
@@ -783,7 +785,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                 onClick={handleCreateFile}
               >
                 <IconFileCirclePlus size={16} />
-                <span>新建文件</span>
+                <span>{t('common.new_file')}</span>
               </button>
 
               <button 
@@ -791,12 +793,12 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                 onClick={handleCreateFolder}
               >
                 <IconFolderPlus size={16} />
-                <span>新建文件夹</span>
+                <span>{t('common.new_folder')}</span>
               </button>
 
               <button class={styles.actionButton} onClick={() => props.onListFiles(props.deviceUdid, currentPath())}>
                 <IconRotate size={16} />
-                <span>刷新</span>
+                <span>{t('common.refresh')}</span>
               </button>
 
               <button 
@@ -807,7 +809,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                 }}
               >
                 <IconSquareCheck size={16} />
-                <span>选择模式</span>
+                <span>{t('common.select_mode')}</span>
               </button>
 
               <label class={styles.showHiddenLabel}>
@@ -817,7 +819,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                   checked={showHidden()} 
                   onChange={(e) => setShowHidden(e.currentTarget.checked)} 
                 />
-                <span>显示隐藏文件</span>
+                <span>{t('files.show_hidden')}</span>
               </label>
             </div>
           </div>
@@ -827,39 +829,37 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
               <div class={styles.selectInfo}>
                 <span class={styles.selectedCount}>
                   <span class={styles.mobileCheck}><IconCheck size={14} /></span>
-                  <span class={styles.desktopText}>已选择 </span>
-                  {selectedItems().size}
-                  <span class={styles.desktopText}> 项</span>
+                  {t('common.selected_items', { count: selectedItems().size })}
                 </span>
                 <Show when={clipboard()}>
                   <span class={styles.clipboardInfo}>
-                    剪贴板: {clipboard()!.items.length} 项 ({clipboard()!.mode === 'copy' ? '复制' : '剪切'})
+                    {t('files.clipboard', { count: clipboard()!.items.length, mode: clipboard()!.mode === 'copy' ? t('files.copy_mode') : t('files.cut_mode') })}
                   </span>
                 </Show>
               </div>
               <div class={styles.selectActions}>
                 <button class={styles.selectAction} onClick={toggleAllSelection}>
                   <IconCheckDouble size={14} />
-                  <span>{selectedItems().size === sortedFiles().length ? '取消全选' : '全选'}</span>
+                  <span>{selectedItems().size === sortedFiles().length ? t('files.unselect_all') : t('common.select_all')}</span>
                 </button>
                 <button class={styles.selectAction} onClick={() => setSelectedItems(new Set())} disabled={selectedItems().size === 0}>
                   <IconCircleXmark size={14} />
-                  <span>清除选择</span>
+                  <span>{t('common.clear_selection')}</span>
                 </button>
                 
                 <div class={styles.selectDivider} />
                 
                 <button class={styles.selectAction} onClick={handleCopy} disabled={selectedItems().size === 0}>
                   <IconCopy size={14} />
-                  <span>复制</span>
+                  <span>{t('common.copy')}</span>
                 </button>
                 <button class={styles.selectAction} onClick={handleCut} disabled={selectedItems().size === 0}>
                   <IconScissors size={14} />
-                  <span>剪切</span>
+                  <span>{t('common.cut')}</span>
                 </button>
                 <button class={styles.selectAction} onClick={handlePaste} disabled={!canPaste()}>
                   <IconPaste size={14} />
-                  <span>粘贴</span>
+                  <span>{t('common.paste')}</span>
                 </button>
                 
                 <div class={styles.selectDivider} />
@@ -871,7 +871,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                     disabled={selectedItems().size === 0 || isSendingToCloud()}
                   >
                     <IconUpload size={14} />
-                    <span>{isSendingToCloud() ? '发送中...' : '发送到云控'}</span>
+                    <span>{isSendingToCloud() ? t('files.sending_to_cloud') : t('files.send_to_cloud')}</span>
                   </button>
                   
                   <div class={styles.selectDivider} />
@@ -881,7 +881,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                   class={styles.deleteAction} 
                   disabled={selectedItems().size === 0}
                   onClick={async () => {
-                    if (await dialog.confirm(`确定要删除选中的 ${selectedItems().size} 个项目吗？`)) {
+                    if (await dialog.confirm(t('files.batch_delete_confirm', { count: selectedItems().size }))) {
                       // 批量删除
                       for (const name of selectedItems()) {
                         const fullPath = currentPath() === '/' 
@@ -896,7 +896,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                   }}
                 >
                   <IconTrash size={14} />
-                  <span>删除</span>
+                  <span>{t('common.delete')}</span>
                 </button>
               </div>
             </div>
@@ -905,7 +905,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
           <div class={styles.breadcrumbs}>
             <button class={styles.breadcrumbItem} onClick={() => handleNavigate('/')}>
               <IconHouse size={14} />
-              <span>根<span class={styles.desktopText}>目录</span></span>
+              <span>{t('files.root')}</span>
             </button>
             <For each={breadcrumbs()}>
               {(part, index) => (
@@ -938,19 +938,19 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
               <div class={styles.dropOverlay}>
                 <div class={styles.dropHint}>
                   <IconUpload size={20} />
-                  <span>释放上传到设备</span>
+                  <span>{t('files.drop_to_device')}</span>
                 </div>
               </div>
             </Show>
 
             <Show when={isUploading()}>
               <div class={styles.uploadingOverlay}>
-                <div class={styles.uploadingHint}>上传中...</div>
+                <div class={styles.uploadingHint}>{t('common.uploading')}</div>
               </div>
             </Show>
 
             <Show when={props.isLoading}>
-              <div class={styles.loading}>加载中...</div>
+              <div class={styles.loading}>{t('common.loading')}</div>
             </Show>
             
             <Show when={!props.isLoading}>
@@ -958,13 +958,13 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                 <Show when={isSelectMode()}>
                   <div class={styles.tableCell} style={{ width: '40px' }}></div>
                 </Show>
-                <div class={`${styles.tableCell} ${styles.typeColumn}`}>类型</div>
-                <div class={`${styles.tableCell} ${styles.nameColumn}`}>名称</div>
-                <div class={`${styles.tableCell} ${styles.sizeColumn}`}>尺寸</div>
+                <div class={`${styles.tableCell} ${styles.typeColumn}`}>{t('files.type')}</div>
+                <div class={`${styles.tableCell} ${styles.nameColumn}`}>{t('files.name')}</div>
+                <div class={`${styles.tableCell} ${styles.sizeColumn}`}>{t('files.size')}</div>
               </div>
 
               <div class={styles.tableBody}>
-                <Show when={props.files.length > 0} fallback={<div class={styles.emptyMessage}>此目录为空</div>}>
+                <Show when={props.files.length > 0} fallback={<div class={styles.emptyMessage}>{t('files.empty')}</div>}>
                   <For each={sortedFiles()}>
                     {(file) => (
                       <div 
@@ -1027,7 +1027,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       <div class={styles.editorOverlay} onMouseDown={editorBackdropClose.onMouseDown} onMouseUp={editorBackdropClose.onMouseUp}>
         <div class={styles.editorModal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.editorHeader}>
-            <h3>编辑: {editorFileName()}</h3>
+            <h3>{t('files.edit_title', { name: editorFileName() })}</h3>
             <button class={styles.closeButton} onClick={() => setShowEditorModal(false)}>
               <IconXmark size={16} />
             </button>
@@ -1038,9 +1038,9 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
             onInput={(e) => setEditorContent(e.currentTarget.value)} 
           />
           <div class={styles.editorFooter}>
-            <button class={styles.cancelBtn} onClick={() => setShowEditorModal(false)}>取消</button>
+            <button class={styles.cancelBtn} onClick={() => setShowEditorModal(false)}>{t('common.cancel')}</button>
             <button class={styles.confirmBtn} onClick={handleSaveFile} disabled={editorSaving()}>
-              {editorSaving() ? '保存中...' : '保存'}
+              {editorSaving() ? t('files.saving') : t('common.save')}
             </button>
           </div>
         </div>
@@ -1057,30 +1057,30 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       <>
         <Show when={contextMenuFile()?.type === 'file' && isTextFile(contextMenuFile()!.name)}>
           <ContextMenuButton icon={<IconICursor size={14} />} onClick={() => { handleEditFile(contextMenuFile()!); closeContextMenu(); }}>
-            编辑
+            {t('common.edit')}
           </ContextMenuButton>
         </Show>
         <Show when={contextMenuFile() && isSelectableScript(contextMenuFile()!)}>
           <ContextMenuButton icon={<IconClipboardCheck size={14} />} onClick={() => { handleSelectScript(contextMenuFile()!); closeContextMenu(); }}>
-            选中脚本
+            {t('files.select_script')}
           </ContextMenuButton>
         </Show>
         <ContextMenuButton icon={<IconPen size={14} />} onClick={() => { handleRenameFile(contextMenuFile()!); closeContextMenu(); }}>
-          重命名
+          {t('common.rename')}
         </ContextMenuButton>
         <Show when={contextMenuFile()?.type === 'file'}>
           <ContextMenuButton icon={<IconDownload size={14} />} onClick={() => { handleDownloadFile(contextMenuFile()!); closeContextMenu(); }}>
-            下载
+            {t('common.download')}
           </ContextMenuButton>
         </Show>
         <Show when={props.onPullFileFromDevice && (contextMenuFile()?.type === 'file' || props.onListFilesAsync)}>
           <ContextMenuButton icon={<IconUpload size={14} />} onClick={() => { handleSendSingleFileToCloud(contextMenuFile()!); closeContextMenu(); }}>
-            发送到云控
+            {t('files.send_to_cloud')}
           </ContextMenuButton>
         </Show>
         <ContextMenuDivider />
         <ContextMenuButton icon={<IconTrash size={14} />} danger onClick={() => { handleDeleteFile(contextMenuFile()!); closeContextMenu(); }}>
-          删除
+          {t('common.delete')}
         </ContextMenuButton>
       </>
     </ContextMenu>

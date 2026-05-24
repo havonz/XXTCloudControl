@@ -4,6 +4,7 @@ import { Select, createListCollection } from '@ark-ui/solid';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark, IconUpload } from '../icons';
 import { authFetch } from '../services/httpAuth';
+import { useI18n } from '../i18n';
 import styles from './ScriptUploadModal.module.css';
 
 interface ScriptEntry {
@@ -20,6 +21,7 @@ interface ScriptUploadModalProps {
 }
 
 export function ScriptUploadModal(props: ScriptUploadModalProps) {
+  const { t } = useI18n();
   const [selectedScriptName, setSelectedScriptName] = createSignal('');
   const [scripts, setScripts] = createSignal<ScriptEntry[]>([]);
   const [isLoading, setIsLoading] = createSignal(false);
@@ -44,7 +46,7 @@ export function ScriptUploadModal(props: ScriptUploadModalProps) {
         setScripts(data.scripts || []);
       }
     } catch (err) {
-      setError('加载脚本列表失败: ' + (err as Error).message);
+      setError(t('modal.script_load_failed', { msg: (err as Error).message }));
       setScripts([]);
     } finally {
       setIsLoading(false);
@@ -69,8 +71,8 @@ export function ScriptUploadModal(props: ScriptUploadModalProps) {
       setSelectedScriptName('');
       props.onClose();
     } catch (error) {
-      console.error('上传脚本失败:', error);
-      setError('上传脚本失败');
+      console.error(t('modal.script_upload_failed'), error);
+      setError(t('modal.script_upload_failed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -112,18 +114,18 @@ export function ScriptUploadModal(props: ScriptUploadModalProps) {
       <div class={styles.overlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
         <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.header}>
-            <h3 class={styles.title}>批量上传脚本到设备</h3>
-            <button class={styles.closeButton} onClick={handleCancel} title="关闭">
+            <h3 class={styles.title}>{t('modal.script_upload_title')}</h3>
+            <button class={styles.closeButton} onClick={handleCancel} title={t('common.close')}>
               <IconXmark size={16} />
             </button>
           </div>
 
           <div class={styles.body}>
-            <p class={styles.description}>将批量上传脚本到 {props.selectedDeviceCount} 台设备</p>
+            <p class={styles.description}>{t('modal.script_upload_description', { count: props.selectedDeviceCount })}</p>
             
             <div class={styles.inputGroup}>
               <Show when={isLoading()}>
-                <div class={styles.loadingMessage}>正在加载脚本列表...</div>
+                <div class={styles.loadingMessage}>{t('modal.script_loading')}</div>
               </Show>
 
               <Show when={error()}>
@@ -145,7 +147,7 @@ export function ScriptUploadModal(props: ScriptUploadModalProps) {
                     <Select.Control class={styles.selectControl}>
                       <Select.Trigger class={styles.selectTrigger}>
                         <span class={styles.selectValue}>
-                          {selectedDisplayName() || '请选择脚本'}
+                          {selectedDisplayName() || t('modal.script_choose_placeholder')}
                         </span>
                         <span class={styles.dropdownArrow}>▼</span>
                       </Select.Trigger>
@@ -155,7 +157,7 @@ export function ScriptUploadModal(props: ScriptUploadModalProps) {
                         <Select.Content class={styles.selectContent}>
                           <Select.ItemGroup>
                             <Show when={scripts().length === 0}>
-                              <div class={styles.emptyMessage}>暂无可选脚本</div>
+                              <div class={styles.emptyMessage}>{t('modal.script_empty')}</div>
                             </Show>
                             <For each={scripts()}>
                               {(script) => (
@@ -180,12 +182,12 @@ export function ScriptUploadModal(props: ScriptUploadModalProps) {
                     class={styles.uploadButton}
                   >
                     <IconUpload size={14} />
-                    {isSubmitting() ? '上传中...' : '上传'}
+                    {isSubmitting() ? t('common.uploading') : t('common.upload')}
                   </button>
                 </div>
               </Show>
             </div>
-            <p class={styles.description}>该操作仅上传脚本文件到设备，不会启动脚本运行。</p>
+            <p class={styles.description}>{t('modal.script_upload_hint')}</p>
           </div>
         </div>
       </div>

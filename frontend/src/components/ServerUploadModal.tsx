@@ -9,6 +9,7 @@ import {
 } from '../icons';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './ServerUploadModal.module.css';
+import { useI18n } from '../i18n';
 
 export interface ServerUploadModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export interface ServerUploadModalProps {
 
 export default function ServerUploadModal(props: ServerUploadModalProps) {
   const dialog = useDialog();
+  const { t } = useI18n();
   const [selectedCategory, setSelectedCategory] = createSignal<'scripts' | 'files' | 'reports'>('scripts');
   const [uploadPath, setUploadPath] = createSignal('');
   const [uploadFiles, setUploadFiles] = createSignal<File[]>([]);
@@ -72,7 +74,7 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
       props.onClose();
     } catch (error) {
       console.error('上传失败:', error);
-      await dialog.alert('上传失败: ' + (error as Error).message);
+      await dialog.alert(t('files.upload_failed', { msg: (error as Error).message }));
     } finally {
       setIsUploading(false);
     }
@@ -86,9 +88,9 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
 
   const getCategoryDescription = (category: string) => {
     switch (category) {
-      case 'scripts': return '存放脚本文件（.lua 等）';
-      case 'files': return '存放通用文件';
-      case 'reports': return '存放报告文件';
+      case 'scripts': return t('server_upload.scripts_description');
+      case 'files': return t('server_upload.files_description');
+      case 'reports': return t('server_upload.reports_description');
       default: return '';
     }
   };
@@ -98,8 +100,8 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
       <div class={styles.overlay} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
         <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.header}>
-            <h3>上传文件到服务器</h3>
-            <button class={styles.closeButton} onClick={handleClose}>
+            <h3>{t('server_upload.title')}</h3>
+            <button class={styles.closeButton} onClick={handleClose} title={t('common.close')}>
               <IconXmark size={18} />
             </button>
           </div>
@@ -107,28 +109,28 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
           <div class={styles.body}>
             {/* 目标目录选择 */}
             <div class={styles.formGroup}>
-              <label class={styles.label}>目标目录</label>
+              <label class={styles.label}>{t('server_upload.target_directory')}</label>
               <div class={styles.categorySelector}>
                 <button 
                   class={`${styles.categoryBtn} ${selectedCategory() === 'scripts' ? styles.active : ''}`}
                   onClick={() => setSelectedCategory('scripts')}
                 >
                   <IconCode size={16} />
-                  <span>脚本目录</span>
+                  <span>{t('files.scripts_root')}</span>
                 </button>
                 <button 
                   class={`${styles.categoryBtn} ${selectedCategory() === 'files' ? styles.active : ''}`}
                   onClick={() => setSelectedCategory('files')}
                 >
                   <IconBoxesStacked size={16} />
-                  <span>资源目录</span>
+                  <span>{t('files.files_root')}</span>
                 </button>
                 <button 
                   class={`${styles.categoryBtn} ${selectedCategory() === 'reports' ? styles.active : ''}`}
                   onClick={() => setSelectedCategory('reports')}
                 >
                   <IconChartColumn size={16} />
-                  <span>报告目录</span>
+                  <span>{t('files.reports_root')}</span>
                 </button>
               </div>
               <div class={styles.categoryDescription}>
@@ -138,10 +140,10 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
             
             {/* 子路径输入 */}
             <div class={styles.formGroup}>
-              <label class={styles.label}>子目录（可选）</label>
+              <label class={styles.label}>{t('server_upload.subdirectory')}</label>
               <input
                 type="text"
-                placeholder="例如: subfolder/another"
+                placeholder={t('server_upload.subdirectory_placeholder')}
                 value={uploadPath()}
                 onInput={(e) => setUploadPath(e.currentTarget.value)}
                 class={styles.input}
@@ -159,7 +161,7 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
               <div class={styles.dropIcon}>
                 <IconUpload size={32} />
               </div>
-              <div class={styles.dropText}>拖拽文件到此处或点击选择</div>
+              <div class={styles.dropText}>{t('device_list.drop_or_click')}</div>
               <input
                 ref={(el) => fileInputRef = el}
                 type="file"
@@ -173,7 +175,7 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
             <Show when={uploadFiles().length > 0}>
               <div class={styles.fileList}>
                 <div class={styles.fileListHeader}>
-                  已选择 {uploadFiles().length} 个文件
+                  {t('server_upload.selected_files', { count: uploadFiles().length })}
                 </div>
                 <For each={uploadFiles()}>
                   {(file, index) => (
@@ -197,14 +199,14 @@ export default function ServerUploadModal(props: ServerUploadModalProps) {
           
           <div class={styles.footer}>
             <button class={styles.cancelBtn} onClick={handleClose}>
-              取消
+              {t('common.cancel')}
             </button>
             <button 
               class={styles.uploadBtn}
               onClick={handleUpload}
               disabled={uploadFiles().length === 0 || isUploading()}
             >
-              {isUploading() ? '上传中...' : `上传 ${uploadFiles().length} 个文件`}
+              {isUploading() ? t('common.uploading') : t('server_upload.upload_files', { count: uploadFiles().length })}
             </button>
           </div>
         </div>

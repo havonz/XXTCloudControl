@@ -51,6 +51,7 @@ import ContextMenu, { ContextMenuButton, ContextMenuDivider, ContextMenuSection 
 import BrightnessModal from '../modals/domain/BrightnessModal';
 import VolumeModal from '../modals/domain/VolumeModal';
 import { DeviceControlService } from '../services/DeviceControlService';
+import { useI18n } from '../i18n';
 
 interface DeviceListProps {
   devices: Device[];
@@ -84,6 +85,7 @@ interface DeviceDisplayInfo {
 const DeviceList: Component<DeviceListProps> = (props) => {
   const dialog = useDialog();
   const toast = useToast();
+  const { t } = useI18n();
   const authService = AuthService.getInstance();
   
   // Column visibility state
@@ -252,7 +254,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     return lastLogs[device.udid] ?? device.system?.log ?? '';
   };
   const formatLogPreview = (log: string, maxLen = 50): string => {
-    if (!log) return '无日志';
+    if (!log) return t('device_list.no_log');
     return log.length > maxLen ? `${log.substring(0, maxLen)}...` : log;
   };
   
@@ -354,17 +356,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   };
   
   const handleContextMenuCopyName = () => {
-    copyContextMenuDeviceValue('设备名称', (device) => device.system?.name || '未知设备');
+    copyContextMenuDeviceValue(t('device_list.copy_type_name'), (device) => device.system?.name || t('device.unknown'));
   };
   
   const handleContextMenuCopyIp = () => {
-    copyContextMenuDeviceValue('IP地址', (device) => device.system?.ip || '未知');
+    copyContextMenuDeviceValue(t('device_list.copy_type_ip'), (device) => device.system?.ip || t('common.unknown'));
   };
   
   const handleContextMenuOpenFileBrowser = () => {
     const device = contextMenuDevice();
     if (device) {
-      const name = device.system?.name || '未知设备';
+      const name = device.system?.name || t('device.unknown');
       props.onOpenFileBrowser(device.udid, name);
     }
     closeContextMenu();
@@ -381,26 +383,26 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   // 批量拷贝选中设备信息
   const handleContextMenuCopySelectedUdids = () => {
-    copySelectedDeviceValues('选中设备 UDID', (device) => device.udid);
+    copySelectedDeviceValues(t('device_list.copy_type_selected_udid'), (device) => device.udid);
   };
   
   const handleContextMenuCopySelectedNames = () => {
-    copySelectedDeviceValues('选中设备名称', (device) => device.system?.name || '未知设备');
+    copySelectedDeviceValues(t('device_list.copy_type_selected_name'), (device) => device.system?.name || t('device.unknown'));
   };
   
   const handleContextMenuCopySelectedIps = () => {
-    copySelectedDeviceValues('选中设备 IP', (device) => device.system?.ip || '未知');
+    copySelectedDeviceValues(t('device_list.copy_type_selected_ip'), (device) => device.system?.ip || t('common.unknown'));
   };
   
   // 拷贝最后日志
   const handleContextMenuCopyLastLog = () => {
-    copyContextMenuDeviceValue('最后日志', (device) => getDisplayLog(device), '该设备暂无日志');
+    copyContextMenuDeviceValue(t('device_list.last_log'), (device) => getDisplayLog(device), t('device_list.no_device_log'));
   };
   
   // 拷贝选中设备最后日志
   const handleContextMenuCopySelectedLastLogs = () => {
     copySelectedDeviceValues(
-      '选中设备最后日志',
+      t('device_list.copy_type_selected_last_log'),
       (device) => {
         const log = getDisplayLog(device);
         if (!log) {
@@ -410,19 +412,19 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         const name = device.system?.name || device.udid;
         return `[${name}] ${log}`;
       },
-      '选中设备暂无日志',
+      t('device_list.no_selected_log'),
     );
   };
 
   // 拷贝脚本文件名
   const handleContextMenuCopyScriptSelect = () => {
-    copyContextMenuDeviceValue('脚本文件名', (device) => device.script?.select || '', '该设备未选中任何脚本');
+    copyContextMenuDeviceValue(t('device_list.script_file_name'), (device) => device.script?.select || '', t('device_list.no_device_script'));
   };
 
   // 拷贝选中设备的脚本文件名
   const handleContextMenuCopySelectedScriptSelects = () => {
     copySelectedDeviceValues(
-      '选中设备脚本文件名',
+      t('device_list.copy_type_selected_script'),
       (device) => {
         const scriptName = device.script?.select || '';
         if (!scriptName) {
@@ -432,7 +434,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         const name = device.system?.name || device.udid;
         return `[${name}] ${scriptName}`;
       },
-      '选中设备暂无脚本选中',
+      t('device_list.no_selected_script'),
     );
   };
   
@@ -550,6 +552,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const selectableScriptsCollection = createMemo(() => 
     createListCollection({ items: selectableScriptsWithPlaceholder() })
   );
+
+  const formatScriptOption = (script: string) => {
+    if (script === DEVICE_SELECTED_PLACEHOLDER) return t('group.device_selected_script');
+    return script;
+  };
 
   // Script config manager
   const scriptConfigManager = useScriptConfigManager();
@@ -694,7 +701,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       // 获取按分组分配的设备列表
       const selectedDeviceIds = props.selectedDevices().map((d: Device) => d.udid);
       selectedDeviceIds.forEach((udid) => {
-        setDeviceMessage(udid, '正在启动脚本...');
+        setDeviceMessage(udid, t('device_list.msg_starting_script'));
       });
       const groupedDevices = props.getGroupedDevicesForLaunch?.(selectedDeviceIds) || [];
       
@@ -740,9 +747,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         }
         
         if (failCount === 0) {
-          showToastMessage(`脚本已发送并启动 (${successCount} 台设备)`);
+          showToastMessage(t('device_list.script_started_count', { count: successCount }));
         } else {
-          showToastMessage(`部分成功: ${successCount} 成功, ${failCount} 失败`);
+          showToastMessage(t('device_list.partial_success', { success: successCount, fail: failCount }));
         }
       } else {
         // 没有分组（选中"所有设备"），使用全局配置
@@ -750,7 +757,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         
         // Only block if nothing is selected at all
         if (effectiveScriptName === '' && serverScriptName() !== DEVICE_SELECTED_PLACEHOLDER) {
-          showToastMessage('请先选择脚本');
+          showToastMessage(t('device_list.choose_script_first'));
           return;
         }
         
@@ -767,15 +774,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         
         const result = await response.json();
         if (result.success) {
-          showToastMessage('脚本已发送并启动');
+          showToastMessage(t('device_list.script_started'));
         } else {
           console.error('发送脚本失败:', result.error);
-          showToastMessage('发送脚本失败: ' + (result.error || '未知错误'));
+          showToastMessage(t('device_list.send_script_failed', { msg: result.error || t('common.unknown_error') }));
         }
       }
     } catch (error) {
       console.error('发送脚本错误:', error);
-      showToastMessage('发送脚本网络错误');
+      showToastMessage(t('device_list.send_script_network_failed'));
     } finally {
       setIsSubmittingScriptAction(false);
     }
@@ -784,13 +791,13 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const handleCancelScriptStart = async () => {
     const devicesToCancel = cancelableScriptStartDevices();
     if (devicesToCancel.length === 0) {
-      showToastMessage('当前没有可取消的启动流程');
+      showToastMessage(t('device_list.no_cancelable_start'));
       return;
     }
 
     const confirmed = await dialog.confirm(
-      `确定要取消 ${devicesToCancel.length} 台设备的本次启动脚本流程吗？这只会取消仍在启动流程中的设备，不会停止已启动脚本。`,
-      '取消启动'
+      t('device_list.cancel_start_confirm', { count: devicesToCancel.length }),
+      t('device_list.cancel_start_title')
     );
     if (!confirmed) {
       return;
@@ -800,7 +807,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     try {
       const deviceIds = devicesToCancel.map((device) => device.udid);
       deviceIds.forEach((udid) => {
-        setDeviceMessage(udid, '正在取消启动流程...');
+        setDeviceMessage(udid, t('device_list.msg_canceling_start'));
       });
 
       const response = await authFetch('/api/scripts/send-and-start/cancel', {
@@ -811,19 +818,19 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       const result = await response.json();
 
       if (!response.ok) {
-        showToastMessage('取消启动失败: ' + (result?.error || '未知错误'));
+        showToastMessage(t('device_list.cancel_start_failed', { msg: result?.error || t('common.unknown_error') }));
         return;
       }
 
       const canceledCount = Array.isArray(result?.canceled) ? result.canceled.length : 0;
       if (canceledCount > 0) {
-        showToastMessage(`已请求取消 ${canceledCount} 台设备的启动流程`);
+        showToastMessage(t('device_list.cancel_start_requested', { count: canceledCount }));
       } else {
-        showToastMessage('当前没有可取消的启动流程');
+        showToastMessage(t('device_list.no_cancelable_start'));
       }
     } catch (error) {
       console.error('取消启动脚本失败:', error);
-      showToastMessage('取消启动网络错误');
+      showToastMessage(t('device_list.cancel_start_network_failed'));
     } finally {
       setIsSubmittingScriptAction(false);
     }
@@ -843,7 +850,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const copyToClipboard = async (text: string, type: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      showToastMessage(`${type} 已拷贝到剪贴板`);
+      showToastMessage(t('device_list.copied_to_clipboard', { type }));
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
       try {
@@ -854,10 +861,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         textArea.select();
         document.execCommand('copy');
         document.body.removeChild(textArea);
-        showToastMessage(`${type} 已拷贝到剪贴板`);
+        showToastMessage(t('device_list.copied_to_clipboard', { type }));
       } catch (fallbackErr) {
         console.error('Fallback copy failed:', fallbackErr);
-        showToastMessage('拷贝失败，请手动拷贝');
+        showToastMessage(t('device_list.copy_failed'));
       }
     }
   };
@@ -1094,16 +1101,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const formatDeviceInfo = (device: Device): DeviceDisplayInfo => {
     if (device.system) {
       return {
-        name: device.system.name || '未知设备',
-        version: device.system.version || '未知版本',
+        name: device.system.name || t('device.unknown'),
+        version: device.system.version || t('device_list.unknown_version'),
         battery: Math.round((device.system.battery || 0) * 100),
         running: device.system.running || false,
         paused: device.system.paused || false
       };
     }
     return {
-      name: '未知设备',
-      version: '未知版本',
+      name: t('device.unknown'),
+      version: t('device_list.unknown_version'),
       battery: 0,
       running: false,
       paused: false
@@ -1130,20 +1137,20 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   const getRunningStatusText = (info: DeviceDisplayInfo): string => {
     if (!info.running) {
-      return '已停止';
+      return t('device.status_stopped');
     }
     if (info.paused) {
-      return '暂停中';
+      return t('device.status_paused');
     }
-    return '运行中';
+    return t('device.status_running');
   };
   
   const handleRespringDevices = async () => {
     if (props.selectedDevices().length === 0) {
-      showToastMessage('请先选择设备');
+      showToastMessage(t('device.choose_first'));
       return;
     }
-    if (await dialog.confirm(`确定要注销选中的 ${props.selectedDevices().length} 台设备吗？`)) {
+    if (await dialog.confirm(t('device_list.respring_confirm', { count: props.selectedDevices().length }))) {
       handleConfirmRespring();
     }
   };
@@ -1208,12 +1215,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
     try {
       await props.onUploadFiles(modalUploadFiles(), modalUploadPath());
-      showToastMessage('文件上传请求已发送');
+      showToastMessage(t('device_list.upload_request_sent'));
       setModalUploadFiles([]);
       setShowUploadModal(false);
     } catch (error) {
       console.error('文件上传失败:', error);
-      showToastMessage('文件上传失败');
+      showToastMessage(t('device_list.upload_failed'));
     }
   };
 
@@ -1222,7 +1229,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // WebRTC 实时控制
   const handleOpenWebRTCControl = () => {
     if (props.selectedDevices().length === 0) {
-      showToastMessage('请先选择设备');
+      showToastMessage(t('device.choose_first'));
       return;
     }
     setShowWebRTCModal(true);
@@ -1235,7 +1242,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // 批量实时控制
   const handleOpenBatchRemoteControl = () => {
     if (props.selectedDevices().length === 0) {
-      showToastMessage('请先选择设备');
+      showToastMessage(t('device.choose_first'));
       return;
     }
     setShowBatchRemoteModal(true);
@@ -1257,7 +1264,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
 
     setIsBatchSnapshotting(true);
-    deviceIds.forEach((udid) => setDeviceMessage(udid, '正在截图...'));
+    deviceIds.forEach((udid) => setDeviceMessage(udid, t('device_list.msg_screenshotting')));
 
     try {
       const response = await authFetch('/api/devices/snapshot-save-batch', {
@@ -1273,6 +1280,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       const feedback = buildBatchSnapshotFeedback(
         deviceIds,
         Array.isArray(payload.results) ? payload.results : [],
+        t,
       );
 
       for (const [udid, message] of Object.entries(feedback.perDeviceMessages)) {
@@ -1288,8 +1296,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      deviceIds.forEach((udid) => setDeviceMessage(udid, `截图失败: ${reason || '未知错误'}`));
-      toast.showError(`批量截图失败: ${reason || '未知错误'}`);
+      const msg = reason || t('common.unknown_error');
+      deviceIds.forEach((udid) => setDeviceMessage(udid, t('device_list.screenshot_failed', { msg })));
+      toast.showError(t('device_list.batch_snapshot_failed', { msg }));
     } finally {
       setIsBatchSnapshotting(false);
     }
@@ -1301,7 +1310,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   const handleScriptSelection = () => {
     if (props.selectedDevices().length === 0) {
-      showToastMessage('请先选择设备');
+      showToastMessage(t('device.choose_first'));
       return;
     }
     setShowScriptSelectionModal(true);
@@ -1309,17 +1318,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   const handleSelectScript = async (scriptName: string) => {
     if (!props.webSocketService) {
-      showToastMessage('WebSocket服务未连接');
+      showToastMessage(t('device_list.websocket_not_connected'));
       return;
     }
 
     try {
       const deviceUdids = props.selectedDevices().map(d => d.udid);
       await props.webSocketService.selectScript(deviceUdids, scriptName);
-      showToastMessage(`已为 ${deviceUdids.length} 台设备选择脚本: ${scriptName}`);
+      showToastMessage(t('device_list.script_selected_count', { count: deviceUdids.length, name: scriptName }));
     } catch (error) {
       console.error('选择脚本失败:', error);
-      showToastMessage('选择脚本失败');
+      showToastMessage(t('device_list.select_script_failed'));
     }
   };
   
@@ -1344,13 +1353,13 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       
       const result = await response.json();
       if (result.success) {
-        showToastMessage(`脚本已上传到 ${deviceUdids.length} 台设备: ${scriptName}`);
+        showToastMessage(t('device_list.script_uploaded_count', { count: deviceUdids.length, name: scriptName }));
       } else {
-        showToastMessage(`上传失败: ${result.error}`);
+        showToastMessage(t('files.upload_failed', { msg: result.error || t('common.unknown_error') }));
       }
     } catch (error) {
       console.error('上传脚本失败:', error);
-      showToastMessage('上传脚本失败');
+      showToastMessage(t('modal.script_upload_failed'));
     }
   };
   
@@ -1368,7 +1377,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   // 词典操作处理函数
   const handleDictionaryAccess = () => {
     if (props.selectedDevices().length === 0) {
-      showToastMessage('请先选择设备');
+      showToastMessage(t('device.choose_first'));
       return;
     }
     setShowDictionaryModal(true);
@@ -1376,7 +1385,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   const handleSetProcValue = async (key: string, value: string) => {
     if (!props.webSocketService) {
-      showToastMessage('WebSocket服务未连接');
+      showToastMessage(t('device_list.websocket_not_connected'));
       return;
     }
 
@@ -1385,17 +1394,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     
     try {
       await props.webSocketService.setProcValue(deviceUdids, key, value);
-      showToastMessage(`已设置词典值 ${key}=${value} 到 ${deviceUdids.length} 台设备`);
+      showToastMessage(t('device_list.dictionary_set_success', { key, value, count: deviceUdids.length }));
       setShowDictionaryModal(false);
     } catch (error) {
       console.error('设置词典值失败:', error);
-      showToastMessage('设置词典值失败');
+      showToastMessage(t('device_list.dictionary_set_failed'));
     }
   };
 
   const handlePushToQueue = async (key: string, value: string) => {
     if (!props.webSocketService) {
-      showToastMessage('WebSocket服务未连接');
+      showToastMessage(t('device_list.websocket_not_connected'));
       return;
     }
 
@@ -1404,11 +1413,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     
     try {
       await props.webSocketService.pushToQueue(deviceUdids, key, value);
-      showToastMessage(`已推送 ${key}=${value} 到 ${deviceUdids.length} 台设备队列`);
+      showToastMessage(t('device_list.dictionary_queue_success', { key, value, count: deviceUdids.length }));
       setShowDictionaryModal(false);
     } catch (error) {
       console.error('推送到队列失败:', error);
-      showToastMessage('推送到队列失败');
+      showToastMessage(t('device_list.dictionary_queue_failed'));
     }
   };
 
@@ -1424,14 +1433,14 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               class={styles.toolbarActionButton}
             >
               <IconLink size={14} />
-              <span>设备绑定到云控</span>
+              <span>{t('bind.modal_title')}</span>
             </button>
             <button 
               onClick={() => setShowServerFileBrowser(true)}
               class={styles.toolbarActionButton}
             >
               <IconFolderOpen size={14} />
-              <span>服务器文件浏览</span>
+              <span>{t('files.server_title')}</span>
             </button>
           </div>
           
@@ -1439,7 +1448,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             <button 
               onClick={() => {
                 if (props.selectedDevices().length === 0) {
-                  showToastMessage('请先选择设备');
+                  showToastMessage(t('device.choose_first'));
                   return;
                 }
                 setShowScriptUploadModal(true);
@@ -1448,7 +1457,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               disabled={props.selectedDevices().length === 0}
             >
               <IconUpload size={14} />
-              <span>上传脚本</span>
+              <span>{t('device_list.upload_script')}</span>
             </button>
 
             <button 
@@ -1457,7 +1466,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               disabled={props.selectedDevices().length === 0}
             >
               <IconClipboardCheck size={14} />
-              <span>选中脚本</span>
+              <span>{t('files.select_script')}</span>
             </button>
           </div>
         </div>
@@ -1488,7 +1497,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                       'white-space': 'nowrap',
                       'text-align': 'left'
                     }}>
-                      {serverScriptName() || '-- 选择脚本 --'}
+                      {serverScriptName() ? formatScriptOption(serverScriptName()) : t('device_list.select_script_placeholder')}
                     </span>
                     <span class="dropdown-arrow">▼</span>
                   </Select.Trigger>
@@ -1501,7 +1510,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                             <Select.Item item={script} class="cbx-item">
                               <div class="cbx-item-content">
                                 <Select.ItemIndicator>✓</Select.ItemIndicator>
-                                <Select.ItemText>{script}</Select.ItemText>
+                                <Select.ItemText>{formatScriptOption(script)}</Select.ItemText>
                               </div>
                             </Select.Item>
                           )}</For>
@@ -1515,7 +1524,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 class={styles.iconButton} 
                 onClick={fetchSelectableScripts}
                 disabled={isLoadingScripts()}
-                title="刷新脚本列表"
+                title={t('device_list.refresh_scripts')}
               >
                 <IconRotate size={14} class={isLoadingScripts() ? styles.spin : ''} />
               </button>
@@ -1523,10 +1532,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 <button 
                   onClick={() => scriptConfigManager.openGlobalConfig(serverScriptName())}
                   class={`${styles.toolbarActionButton} ${styles.scriptControlButton}`}
-                  title="配置"
+                  title={t('device_list.config')}
                 >
                   <IconGear size={14} />
-                  <span class={styles.hideOnMobile}>配置</span>
+                  <span class={styles.hideOnMobile}>{t('device_list.config')}</span>
                 </button>
               </Show>
             </div>
@@ -1536,7 +1545,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 class={`${styles.toolbarActionButton} ${styles.scriptControlButton}`}
                 disabled={props.selectedDevices().length === 0 || isSubmittingScriptAction()}
                 onClick={handleScriptStartButtonClick}
-                title={hasCancelableScriptStarts() ? '取消启动脚本' : '启动脚本'}
+                title={hasCancelableScriptStarts() ? t('device_list.cancel_start_script') : t('device_list.start_script')}
               >
                 <Show
                   when={hasCancelableScriptStarts()}
@@ -1544,17 +1553,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 >
                   <IconLoader size={14} class={styles.spin} />
                 </Show>
-                <span class={styles.hideOnMobile}>{hasCancelableScriptStarts() ? '启动中...' : '启动脚本'}</span>
+                <span class={styles.hideOnMobile}>{hasCancelableScriptStarts() ? t('device_list.starting_script') : t('device_list.start_script')}</span>
               </button>
             
               <button 
                 onClick={handleStopScript}
                 class={`${styles.toolbarActionButton} ${styles.scriptControlButton}`}
                 disabled={props.selectedDevices().length === 0}
-                title="停止脚本"
+                title={t('device_list.stop_script')}
               >
                 <IconStop size={14} />
-                <span class={styles.hideOnMobile}>停止脚本</span>
+                <span class={styles.hideOnMobile}>{t('device_list.stop_script')}</span>
               </button>
             </div>
           
@@ -1565,7 +1574,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               disabled={props.selectedDevices().length === 0}
             >
               <IconEllipsis size={14} />
-              <span>更多操作</span>
+              <span>{t('device_list.more_actions')}</span>
             </button>
             <Show when={showMoreActions()}>
               <div class={styles.moreActionsMenu}>
@@ -1578,7 +1587,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   disabled={props.selectedDevices().length === 0 || showBatchRemoteModal()}
                 >
                   <IconVideo size={14} />
-                  <span>WebRTC控制</span>
+                  <span>{t('device_list.webrtc_control')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1589,7 +1598,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   disabled={props.selectedDevices().length === 0 || showBatchRemoteModal()}
                 >
                   <IconGamepad size={14} />
-                  <span>批量实时控制</span>
+                  <span>{t('remote.batch_title')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1600,7 +1609,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   disabled={props.selectedDevices().length === 0}
                 >
                   <IconBook size={14} />
-                  <span>词典发送</span>
+                  <span>{t('modal.dictionary_title')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1610,15 +1619,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     if (!service || props.selectedDevices().length === 0) return;
                     const devices = props.selectedDevices();
                     // Show pending message for each device
-                    devices.forEach(d => setDeviceMessage(d.udid, '正在锁定屏幕...'));
+                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_locking_screen')));
                     const result = await service.lockScreen(devices.map(d => d.udid));
                     // Update with result
-                    devices.forEach(d => setDeviceMessage(d.udid, result.success ? '已锁定屏幕' : `锁定失败: ${result.error}`));
+                    devices.forEach(d => setDeviceMessage(d.udid, result.success ? t('device_list.msg_screen_locked') : t('device_list.msg_lock_failed', { msg: result.error || t('common.unknown_error') })));
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
                   <IconLock size={14} />
-                  <span>锁定屏幕</span>
+                  <span>{t('device_list.lock_screen')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1628,15 +1637,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     if (!service || props.selectedDevices().length === 0) return;
                     const devices = props.selectedDevices();
                     // Show pending message for each device
-                    devices.forEach(d => setDeviceMessage(d.udid, '正在解锁屏幕...'));
+                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_unlocking_screen')));
                     const result = await service.unlockScreen(devices.map(d => d.udid));
                     // Update with result
-                    devices.forEach(d => setDeviceMessage(d.udid, result.success ? '已解锁屏幕' : `解锁失败: ${result.error}`));
+                    devices.forEach(d => setDeviceMessage(d.udid, result.success ? t('device_list.msg_screen_unlocked') : t('device_list.msg_unlock_failed', { msg: result.error || t('common.unknown_error') })));
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
                   <IconUnlock size={14} />
-                  <span>解锁屏幕</span>
+                  <span>{t('device_list.unlock_screen')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1649,7 +1658,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   disabled={props.selectedDevices().length === 0}
                 >
                   <IconSun size={14} />
-                  <span>设置屏幕亮度</span>
+                  <span>{t('modal.brightness_title')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1662,7 +1671,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   disabled={props.selectedDevices().length === 0}
                 >
                   <IconVolumeHigh size={14} />
-                  <span>设置音量</span>
+                  <span>{t('modal.volume_title')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1673,7 +1682,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   disabled={props.selectedDevices().length === 0 || isBatchSnapshotting()}
                 >
                   <IconCamera size={14} />
-                  <span>{isBatchSnapshotting() ? '批量截图中...' : '批量截图'}</span>
+                  <span>{isBatchSnapshotting() ? t('device_list.batch_snapshotting') : t('device_list.batch_snapshot')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1681,14 +1690,14 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     setShowMoreActions(false);
                     if (!props.webSocketService || props.selectedDevices().length === 0) return;
                     const devices = props.selectedDevices();
-                    devices.forEach(d => setDeviceMessage(d.udid, '正在暂停脚本...'));
+                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_pausing_script')));
                     await props.webSocketService.pauseScript(devices.map(d => d.udid));
-                    devices.forEach(d => setDeviceMessage(d.udid, '已发送暂停命令'));
+                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_pause_sent')));
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
                   <IconPause size={14} />
-                  <span>暂停脚本</span>
+                  <span>{t('device_list.pause_script')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1696,14 +1705,14 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     setShowMoreActions(false);
                     if (!props.webSocketService || props.selectedDevices().length === 0) return;
                     const devices = props.selectedDevices();
-                    devices.forEach(d => setDeviceMessage(d.udid, '正在继续脚本...'));
+                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_resuming_script')));
                     await props.webSocketService.resumeScript(devices.map(d => d.udid));
-                    devices.forEach(d => setDeviceMessage(d.udid, '已发送继续命令'));
+                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_resume_sent')));
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
                   <IconAnglesRight size={14} />
-                  <span>继续脚本</span>
+                  <span>{t('device_list.resume_script')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
@@ -1714,24 +1723,24 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   disabled={props.selectedDevices().length === 0}
                 >
                   <IconLoader size={14} />
-                  <span>注销设备</span>
+                  <span>{t('device_list.respring_devices')}</span>
                 </button>
                 <button 
                   class={styles.menuItem}
                   onClick={async () => {
                     setShowMoreActions(false);
                     if (!props.webSocketService || props.selectedDevices().length === 0) return;
-                    if (await dialog.confirm(`确定要重启选中的 ${props.selectedDevices().length} 台设备吗？此操作将重启设备系统。`)) {
+                    if (await dialog.confirm(t('device_list.reboot_confirm', { count: props.selectedDevices().length }))) {
                       const devices = props.selectedDevices();
-                      devices.forEach(d => setDeviceMessage(d.udid, '正在重启设备...'));
+                      devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_rebooting')));
                       await props.webSocketService.rebootDevices(devices.map(d => d.udid));
-                      devices.forEach(d => setDeviceMessage(d.udid, '已发送重启命令'));
+                      devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_reboot_sent')));
                     }
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
                   <IconPowerOff size={14} />
-                  <span>重启设备</span>
+                  <span>{t('device_list.reboot_devices')}</span>
                 </button>
               </div>
             </Show>
@@ -1758,19 +1767,19 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   onClick={() => setShowColumnSettings(!showColumnSettings())}
                 >
                   <IconSliders size={14} />
-                  <span>表头设置</span>
+                  <span>{t('device_list.column_settings')}</span>
                 </button>
                 <Show when={showColumnSettings()}>
                   <div class={styles.columnDropdown}>
                     <For each={[
-                      { id: 'name', label: '设备名称' },
+                      { id: 'name', label: t('device_list.column_name') },
                       { id: 'udid', label: 'UDID' },
-                      { id: 'ip', label: 'IP地址' },
-                      { id: 'version', label: '系统' },
-                      { id: 'battery', label: '电量' },
-                      { id: 'running', label: '脚本' },
-                      { id: 'message', label: '消息' },
-                      { id: 'log', label: '最后日志' },
+                      { id: 'ip', label: t('device_list.column_ip') },
+                      { id: 'version', label: t('device_list.column_system') },
+                      { id: 'battery', label: t('device_list.column_battery') },
+                      { id: 'running', label: t('device_list.column_script') },
+                      { id: 'message', label: t('device_list.column_message') },
+                      { id: 'log', label: t('device_list.column_last_log') },
                     ]}>
                       {(col) => (
                         <label class={styles.columnOption}>
@@ -1793,27 +1802,27 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 disabled={props.isLoading}
               >
                 <IconArrowsRotate size={14} class={props.isLoading ? styles.spin : ''} />
-                <span>{props.isLoading ? '刷新中...' : '请求刷新'}</span>
+                <span>{props.isLoading ? t('device_list.refreshing') : t('device_list.request_refresh')}</span>
               </button>
               <button 
                 onClick={handleSelectAll}
                 class={styles.toolbarButton}
               >
                 <IconCheckDouble size={14} />
-                <span>全选</span>
+                <span>{t('common.select_all')}</span>
               </button>
               <button 
                 onClick={handleInvertSelection}
                 class={styles.toolbarButton}
               >
                 <IconListCheck size={14} />
-                <span>反选</span>
+                <span>{t('device_list.invert_selection')}</span>
               </button>
             </div>
             <div class={styles.toolbarRight}>
               <div class={styles.deviceCountSummary}>
-                共 {props.devices.length} 台设备
-                <Show when={props.selectedDevices().length > 0}> | 已选择 {props.selectedDevices().length} 台</Show>
+                {t('device_list.total_devices', { count: props.devices.length })}
+                <Show when={props.selectedDevices().length > 0}> | {t('device.selected_count', { count: props.selectedDevices().length })}</Show>
               </div>
             </div>
           </div>
@@ -1822,12 +1831,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             <Show when={props.isLoading && props.devices.length === 0}>
               <div class={styles.loadingState}>
                 <div class={styles.spinner}></div>
-                <p>正在获取设备列表...</p>
+                <p>{t('device_list.loading_devices')}</p>
               </div>
             </Show>
             <Show when={!props.isLoading && filteredDevices().length === 0}>
               <div class={styles.emptyState}>
-                <p>该分组暂无已连接设备</p>
+                <p>{t('device_list.empty_group')}</p>
               </div>
             </Show>
             <Show when={filteredDevices().length > 0}>
@@ -1856,7 +1865,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   
                   <Show when={visibleColumns().includes('name')}>
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('name')}>
-                      设备名称
+                      {t('device_list.column_name')}
                       <span class={styles.sortIndicator}>
                         {getSortIndicator('name')}
                       </span>
@@ -1884,7 +1893,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   
                   <Show when={visibleColumns().includes('ip')}>
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('ip')}>
-                      IP地址
+                      {t('device_list.column_ip')}
                       <span class={styles.sortIndicator}>
                         {getSortIndicator('ip')}
                       </span>
@@ -1898,7 +1907,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   
                   <Show when={visibleColumns().includes('version')}>
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('version')}>
-                      系统
+                      {t('device_list.column_system')}
                       <span class={styles.sortIndicator}>
                         {getSortIndicator('version')}
                       </span>
@@ -1912,7 +1921,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   
                   <Show when={visibleColumns().includes('battery')}>
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('battery')}>
-                      电量
+                      {t('device_list.column_battery')}
                       <span class={styles.sortIndicator}>
                         {getSortIndicator('battery')}
                       </span>
@@ -1926,7 +1935,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   
                   <Show when={visibleColumns().includes('running')}>
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('running')}>
-                      脚本
+                      {t('device_list.column_script')}
                       <span class={styles.sortIndicator}>
                         {getSortIndicator('running')}
                       </span>
@@ -1940,7 +1949,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   
                   <Show when={visibleColumns().includes('message')}>
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('message')}>
-                      消息
+                      {t('device_list.column_message')}
                       <span class={styles.sortIndicator}>
                         {getSortIndicator('message')}
                       </span>
@@ -1954,7 +1963,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   
                   <Show when={visibleColumns().includes('log')}>
                     <div class={`${styles.headerCell} ${styles.sortableHeader}`} onClick={() => handleSort('log')}>
-                      最后日志
+                      {t('device_list.column_last_log')}
                       <span class={styles.sortIndicator}>
                         {getSortIndicator('log')}
                       </span>
@@ -2011,7 +2020,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                         <Show when={visibleColumns().includes('ip')}>
                           <div class={styles.tableCell}>
                             <div class={styles.deviceIp}>
-                              {device.system?.ip || '未知'}
+                              {device.system?.ip || t('common.unknown')}
                             </div>
                           </div>
                         </Show>
@@ -2039,7 +2048,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                           <div class={styles.tableCell}>
                             <div 
                               class={`${styles.runningStatus} ${getRunningStatusClass(info)}`}
-                              title={device.script?.select || '无脚本'}
+                              title={device.script?.select || t('device_list.no_script')}
                             >
                               {getRunningStatusText(info)}
                             </div>
@@ -2050,7 +2059,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                           <div class={styles.tableCell}>
                             <div 
                               class={styles.deviceMessage}
-                              title={displayMessage() || '无消息'}
+                              title={displayMessage() || t('device_list.no_message')}
                             >
                               {displayMessage()}
                             </div>
@@ -2061,7 +2070,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                           <div class={styles.tableCell}>
                             <div
                               class={styles.lastLog}
-                              title={displayLog() || '无日志'}
+                              title={displayLog() || t('device_list.no_log')}
                             >
                               {formatLogPreview(displayLog())}
                             </div>
@@ -2118,11 +2127,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                       
                       <div class={styles.cardDetailsGrid}>
                         <div class={styles.detailItem}>
-                          <span class={styles.detailLabel}>IP地址</span>
-                          <span class={styles.detailValue}>{device.system?.ip || '未知'}</span>
+                          <span class={styles.detailLabel}>{t('device_list.column_ip')}</span>
+                          <span class={styles.detailValue}>{device.system?.ip || t('common.unknown')}</span>
                         </div>
                         <div class={styles.detailItem}>
-                          <span class={styles.detailLabel}>系统版本</span>
+                          <span class={styles.detailLabel}>{t('device_list.system_version')}</span>
                           <span class={styles.detailValue}>{info.version}</span>
                         </div>
                       </div>
@@ -2154,12 +2163,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           <div class={styles.modalOverlay} onClick={handleModalCancel}>
             <div class={styles.modalContent} onClick={(e) => e.stopPropagation()}>
               <div class={styles.modalHeader}>
-                <h3>上传文件到选中设备</h3>
+                <h3>{t('device_list.upload_to_selected_devices')}</h3>
               </div>
               
               <div class={styles.modalBody}>
                 <div class={styles.inputGroup}>
-                  <label class={styles.inputLabel}>上传路径:</label>
+                  <label class={styles.inputLabel}>{t('device_list.upload_path')}</label>
                   <input
                     type="text"
                     value={modalUploadPath()}
@@ -2176,7 +2185,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   onClick={openModalFileDialog}
                 >
                   <div class={styles.dropText}>
-                    拖拽文件到此处或点击选择
+                    {t('device_list.drop_or_click')}
                   </div>
                   <input
                     ref={(el) => modalFileInputRef = el}
@@ -2206,7 +2215,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 </Show>
                 
                 <div class={styles.selectedDevicesInfo}>
-                  将上传到 {props.selectedDevices().length} 台设备
+                  {t('device_list.upload_target_count', { count: props.selectedDevices().length })}
                 </div>
               </div>
               
@@ -2215,14 +2224,14 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                   onClick={handleModalCancel}
                   class={styles.cancelButton}
                 >
-                  取消
+                  {t('common.cancel')}
                 </button>
                 <button 
                   onClick={handleModalUpload}
                   class={styles.confirmUploadButton}
                   disabled={modalUploadFiles().length === 0}
                 >
-                  开始上传
+                  {t('device_list.start_upload')}
                 </button>
               </div>
             </div>
@@ -2313,36 +2322,36 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           <>
             {/* 批量操作区域 - 仅当选中多个设备时显示 */}
             <Show when={props.selectedDevices().length > 1}>
-              <ContextMenuSection label={`选中的 ${props.selectedDevices().length} 台设备`}>
-                <ContextMenuButton onClick={handleContextMenuCopySelectedUdids}>拷贝选中设备 UDID</ContextMenuButton>
-                <ContextMenuButton onClick={handleContextMenuCopySelectedNames}>拷贝选中设备名称</ContextMenuButton>
-                <ContextMenuButton onClick={handleContextMenuCopySelectedIps}>拷贝选中设备 IP</ContextMenuButton>
-                <ContextMenuButton onClick={handleContextMenuCopySelectedLastLogs}>拷贝选中设备最后日志</ContextMenuButton>
-                <ContextMenuButton onClick={handleContextMenuCopySelectedScriptSelects}>拷贝选中设备的脚本文件名</ContextMenuButton>
+              <ContextMenuSection label={t('device_list.selected_devices_section', { count: props.selectedDevices().length })}>
+                <ContextMenuButton onClick={handleContextMenuCopySelectedUdids}>{t('device_list.copy_selected_udid')}</ContextMenuButton>
+                <ContextMenuButton onClick={handleContextMenuCopySelectedNames}>{t('device_list.copy_selected_name')}</ContextMenuButton>
+                <ContextMenuButton onClick={handleContextMenuCopySelectedIps}>{t('device_list.copy_selected_ip')}</ContextMenuButton>
+                <ContextMenuButton onClick={handleContextMenuCopySelectedLastLogs}>{t('device_list.copy_selected_last_log')}</ContextMenuButton>
+                <ContextMenuButton onClick={handleContextMenuCopySelectedScriptSelects}>{t('device_list.copy_selected_script')}</ContextMenuButton>
                 <Show when={props.onOpenAddToGroupModal}>
                   <ContextMenuButton onClick={() => {
                     closeContextMenu();
                     props.onOpenAddToGroupModal?.();
-                  }}>添加到分组 ({props.selectedDevices().length})</ContextMenuButton>
+                  }}>{t('device_list.add_to_group_count', { count: props.selectedDevices().length })}</ContextMenuButton>
                 </Show>
               </ContextMenuSection>
               <ContextMenuDivider />
             </Show>
             
             {/* 当前设备操作 */}
-            <ContextMenuSection label={contextMenuDevice()?.system?.name || '未知设备'}>
-              <ContextMenuButton onClick={handleContextMenuCopyUdid}>拷贝 UDID</ContextMenuButton>
-              <ContextMenuButton onClick={handleContextMenuCopyName}>拷贝设备名称</ContextMenuButton>
-              <ContextMenuButton onClick={handleContextMenuCopyIp}>拷贝 IP 地址</ContextMenuButton>
-              <ContextMenuButton onClick={handleContextMenuCopyLastLog}>拷贝最后日志</ContextMenuButton>
-              <ContextMenuButton onClick={handleContextMenuCopyScriptSelect}>拷贝脚本文件名</ContextMenuButton>
-              <ContextMenuButton onClick={handleContextMenuOpenFileBrowser}>浏览设备文件</ContextMenuButton>
-              <ContextMenuButton onClick={handleContextMenuOpenLogStream}>查看实时日志</ContextMenuButton>
+            <ContextMenuSection label={contextMenuDevice()?.system?.name || t('device.unknown')}>
+              <ContextMenuButton onClick={handleContextMenuCopyUdid}>{t('device_list.copy_udid')}</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuCopyName}>{t('device_list.copy_name')}</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuCopyIp}>{t('device_list.copy_ip')}</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuCopyLastLog}>{t('device_list.copy_last_log')}</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuCopyScriptSelect}>{t('device_list.copy_script')}</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuOpenFileBrowser}>{t('device_list.browse_files')}</ContextMenuButton>
+              <ContextMenuButton onClick={handleContextMenuOpenLogStream}>{t('device_list.view_live_logs')}</ContextMenuButton>
               <Show when={props.onOpenAddToGroupModal && props.selectedDevices().length === 1}>
                 <ContextMenuButton onClick={() => {
                   closeContextMenu();
                   props.onOpenAddToGroupModal?.();
-                }}>添加到分组</ContextMenuButton>
+                }}>{t('group.add_to_group')}</ContextMenuButton>
               </Show>
             </ContextMenuSection>
           </>
@@ -2375,10 +2384,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           }
           setIsSettingBrightness(true);
           const devices = props.selectedDevices();
-          devices.forEach(d => setDeviceMessage(d.udid, `正在设置亮度: ${brightnessValue()}%...`));
+          devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_setting_brightness', { value: brightnessValue() })));
           try {
             const result = await service.setBrightness(devices.map(d => d.udid), brightnessValue());
-            devices.forEach(d => setDeviceMessage(d.udid, result.success ? `亮度已设置: ${brightnessValue()}%` : `设置亮度失败: ${result.error}`));
+            devices.forEach(d => setDeviceMessage(d.udid, result.success ? t('device_list.msg_brightness_set', { value: brightnessValue() }) : t('device_list.msg_brightness_failed', { msg: result.error || t('common.unknown_error') })));
           } finally {
             setIsSettingBrightness(false);
             setShowBrightnessModal(false);
@@ -2402,10 +2411,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           }
           setIsSettingVolume(true);
           const devices = props.selectedDevices();
-          devices.forEach(d => setDeviceMessage(d.udid, `正在设置音量: ${volumeValue()}%...`));
+          devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_setting_volume', { value: volumeValue() })));
           try {
             const result = await service.setVolume(devices.map(d => d.udid), volumeValue());
-            devices.forEach(d => setDeviceMessage(d.udid, result.success ? `音量已设置: ${volumeValue()}%` : `设置音量失败: ${result.error}`));
+            devices.forEach(d => setDeviceMessage(d.udid, result.success ? t('device_list.msg_volume_set', { value: volumeValue() }) : t('device_list.msg_volume_failed', { msg: result.error || t('common.unknown_error') })));
           } finally {
             setIsSettingVolume(false);
             setShowVolumeModal(false);

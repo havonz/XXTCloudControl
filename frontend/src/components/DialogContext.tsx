@@ -1,5 +1,6 @@
 import { createContext, useContext, createSignal, JSX, Show } from 'solid-js';
 import { GlobalDialog } from './GlobalDialog';
+import { useI18n } from '../i18n';
 
 type DialogType = 'alert' | 'confirm' | 'prompt' | 'select';
 
@@ -28,6 +29,7 @@ interface DialogContextType {
 const DialogContext = createContext<DialogContextType>();
 
 export const DialogProvider = (props: { children: JSX.Element }) => {
+  const { t } = useI18n();
   const [state, setState] = createSignal<DialogState>({
     type: 'alert',
     isOpen: false,
@@ -35,7 +37,7 @@ export const DialogProvider = (props: { children: JSX.Element }) => {
     resolve: () => {},
   });
 
-  const showAlert = (message: string, title: string = '提示'): Promise<void> => {
+  const showAlert = (message: string, title: string = t('dialog.alert_title')): Promise<void> => {
     return new Promise((resolve) => {
       setState({
         type: 'alert',
@@ -47,7 +49,7 @@ export const DialogProvider = (props: { children: JSX.Element }) => {
     });
   };
 
-  const showConfirm = (message: string, title: string = '确认'): Promise<boolean> => {
+  const showConfirm = (message: string, title: string = t('dialog.confirm_title')): Promise<boolean> => {
     return new Promise((resolve) => {
       setState({
         type: 'confirm',
@@ -59,7 +61,7 @@ export const DialogProvider = (props: { children: JSX.Element }) => {
     });
   };
 
-  const showPrompt = (message: string, defaultValue: string = '', title: string = '输入'): Promise<string | null> => {
+  const showPrompt = (message: string, defaultValue: string = '', title: string = t('dialog.prompt_title')): Promise<string | null> => {
     return new Promise((resolve) => {
       setState({
         type: 'prompt',
@@ -72,7 +74,7 @@ export const DialogProvider = (props: { children: JSX.Element }) => {
     });
   };
 
-  const showSelect = (message: string, options: string[], defaultValue: string = '', title: string = '选择'): Promise<string | null> => {
+  const showSelect = (message: string, options: string[], defaultValue: string = '', title: string = t('dialog.select_title')): Promise<string | null> => {
     return new Promise((resolve) => {
       setState({
         type: 'select',

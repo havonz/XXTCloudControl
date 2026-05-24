@@ -25,15 +25,23 @@
   margin-bottom: 2.5rem;
 }
 
-.themeToggle {
+.loginTools {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.themeToggle {
   background: transparent;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 6px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -49,6 +57,10 @@
 .themeToggle:active {
   transform: scale(0.92);
   transition: all 0.1s ease;
+}
+
+.languageSelect {
+  display: flex;
 }
 
 .loginHeader h1 {

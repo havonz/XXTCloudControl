@@ -177,7 +177,7 @@ func serverFilesListHandler(c *gin.Context) {
 
 	targetPath, err := validatePath(category, subPath)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -187,18 +187,18 @@ func serverFilesListHandler(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	if !info.IsDir() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "path is not a directory"})
+		jsonError(c, http.StatusBadRequest, "path is not a directory")
 		return
 	}
 
 	entries, err := os.ReadDir(targetPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -225,25 +225,25 @@ func serverFilesUploadHandler(c *gin.Context) {
 
 	targetDir, err := validatePath(category, subPath)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory"})
+		jsonError(c, http.StatusInternalServerError, "failed to create directory")
 		return
 	}
 
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no file uploaded"})
+		jsonError(c, http.StatusBadRequest, "no file uploaded")
 		return
 	}
 	defer file.Close()
 
 	fileName := filepath.Base(strings.ReplaceAll(header.Filename, "\\", "/"))
 	if err := validateFileName(fileName); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -254,7 +254,7 @@ func serverFilesUploadHandler(c *gin.Context) {
 			if strings.Contains(err.Error(), "already exists") {
 				status = http.StatusConflict
 			}
-			c.JSON(status, gin.H{"error": err.Error()})
+			jsonError(c, status, err.Error())
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -274,28 +274,28 @@ func serverFilesUploadHandler(c *gin.Context) {
 	baseDir := filepath.Join(serverConfig.DataDir, category)
 	absBaseDir, err := filepath.Abs(baseDir)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve base path"})
+		jsonError(c, http.StatusInternalServerError, "failed to resolve base path")
 		return
 	}
 	absTargetFile, err := filepath.Abs(targetFilePath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve file path"})
+		jsonError(c, http.StatusInternalServerError, "failed to resolve file path")
 		return
 	}
 	if !isPathWithinAbsBase(absBaseDir, absTargetFile) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file path"})
+		jsonError(c, http.StatusBadRequest, "invalid file path")
 		return
 	}
 
 	dst, err := os.Create(absTargetFile)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create file"})
+		jsonError(c, http.StatusInternalServerError, "failed to create file")
 		return
 	}
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, file); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
+		jsonError(c, http.StatusInternalServerError, "failed to save file")
 		return
 	}
 
@@ -313,14 +313,14 @@ func serverFilesUploadHandler(c *gin.Context) {
 func serverFilesDownloadHandler(c *gin.Context) {
 	fullPath := c.Param("path")
 	if fullPath == "" || fullPath == "/" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		jsonError(c, http.StatusBadRequest, "path is required")
 		return
 	}
 
 	fullPath = strings.TrimPrefix(fullPath, "/")
 	parts := strings.SplitN(fullPath, "/", 2)
 	if len(parts) < 2 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path format"})
+		jsonError(c, http.StatusBadRequest, "invalid path format")
 		return
 	}
 
@@ -329,22 +329,22 @@ func serverFilesDownloadHandler(c *gin.Context) {
 
 	targetPath, err := validatePath(category, filePath)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	info, err := os.Stat(targetPath)
 	if os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		jsonError(c, http.StatusNotFound, "file not found")
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	if info.IsDir() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot download a directory"})
+		jsonError(c, http.StatusBadRequest, "cannot download a directory")
 		return
 	}
 
@@ -369,30 +369,30 @@ func serverFilesDeleteHandler(c *gin.Context) {
 	subPath := c.Query("path")
 
 	if category == "" || subPath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "category and path are required"})
+		jsonError(c, http.StatusBadRequest, "category and path are required")
 		return
 	}
 
 	targetPath, err := validatePath(category, subPath)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	baseDir := filepath.Join(serverConfig.DataDir, category)
 	absBaseDir, _ := filepath.Abs(baseDir)
 	if targetPath == absBaseDir {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete root category directory"})
+		jsonError(c, http.StatusBadRequest, "cannot delete root category directory")
 		return
 	}
 
 	info, err := os.Lstat(targetPath)
 	if os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "file or directory not found"})
+		jsonError(c, http.StatusNotFound, "file or directory not found")
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -406,7 +406,7 @@ func serverFilesDeleteHandler(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete"})
+		jsonError(c, http.StatusInternalServerError, "failed to delete")
 		return
 	}
 
@@ -430,32 +430,32 @@ func serverFilesCreateHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
 	if req.Name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		jsonError(c, http.StatusBadRequest, "name is required")
 		return
 	}
 	if err := validateFileName(req.Name); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if req.Type != "file" && req.Type != "dir" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "type must be 'file' or 'dir'"})
+		jsonError(c, http.StatusBadRequest, "type must be 'file' or 'dir'")
 		return
 	}
 
 	targetDir, err := validatePath(req.Category, req.Path)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create parent directory"})
+		jsonError(c, http.StatusInternalServerError, "failed to create parent directory")
 		return
 	}
 
@@ -464,41 +464,41 @@ func serverFilesCreateHandler(c *gin.Context) {
 	baseDir := filepath.Join(serverConfig.DataDir, req.Category)
 	absBaseDir, err := filepath.Abs(baseDir)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve base path"})
+		jsonError(c, http.StatusInternalServerError, "failed to resolve base path")
 		return
 	}
 	absTargetPath, err := filepath.Abs(targetPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve target path"})
+		jsonError(c, http.StatusInternalServerError, "failed to resolve target path")
 		return
 	}
 	if !isPathWithinAbsBase(absBaseDir, absTargetPath) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
+		jsonError(c, http.StatusBadRequest, "invalid path")
 		return
 	}
 
 	if _, err := os.Stat(targetPath); !os.IsNotExist(err) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file or directory already exists"})
+		jsonError(c, http.StatusBadRequest, "file or directory already exists")
 		return
 	}
 
 	if req.Type == "dir" {
 		if err := os.MkdirAll(targetPath, 0755); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory"})
+			jsonError(c, http.StatusInternalServerError, "failed to create directory")
 			return
 		}
 		debugLogf("📁 Created directory: %s/%s/%s", req.Category, req.Path, req.Name)
 	} else {
 		file, err := os.Create(targetPath)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create file"})
+			jsonError(c, http.StatusInternalServerError, "failed to create file")
 			return
 		}
 		defer file.Close()
 
 		if req.Content != "" {
 			if _, err := file.WriteString(req.Content); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file content"})
+				jsonError(c, http.StatusInternalServerError, "failed to write file content")
 				return
 			}
 		}
@@ -524,26 +524,26 @@ func serverFilesRenameHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
 	if req.OldName == "" || req.NewName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "oldName and newName are required"})
+		jsonError(c, http.StatusBadRequest, "oldName and newName are required")
 		return
 	}
 	if err := validateFileName(req.OldName); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := validateFileName(req.NewName); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	targetDir, err := validatePath(req.Category, req.Path)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -551,7 +551,7 @@ func serverFilesRenameHandler(c *gin.Context) {
 	newPath := filepath.Join(targetDir, req.NewName)
 
 	if err := os.Rename(oldPath, newPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rename"})
+		jsonError(c, http.StatusInternalServerError, "failed to rename")
 		return
 	}
 
@@ -566,39 +566,39 @@ func serverFilesReadHandler(c *gin.Context) {
 	subPath := c.Query("path")
 
 	if category == "" || subPath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "category and path are required"})
+		jsonError(c, http.StatusBadRequest, "category and path are required")
 		return
 	}
 
 	targetPath, err := validatePath(category, subPath)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	info, err := os.Stat(targetPath)
 	if os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		jsonError(c, http.StatusNotFound, "file not found")
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	if info.IsDir() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot read a directory"})
+		jsonError(c, http.StatusBadRequest, "cannot read a directory")
 		return
 	}
 
 	if info.Size() > MaxFileSize {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file too large (max 5MB)"})
+		jsonError(c, http.StatusBadRequest, "file too large (max 5MB)")
 		return
 	}
 
 	content, err := os.ReadFile(targetPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
+		jsonError(c, http.StatusInternalServerError, "failed to read file")
 		return
 	}
 
@@ -618,38 +618,38 @@ func serverFilesSaveHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return
 	}
 
 	if req.Category == "" || req.Path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "category and path are required"})
+		jsonError(c, http.StatusBadRequest, "category and path are required")
 		return
 	}
 
 	targetPath, err := validatePath(req.Category, req.Path)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	info, err := os.Stat(targetPath)
 	if os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		jsonError(c, http.StatusNotFound, "file not found")
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	if info.IsDir() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot write to a directory"})
+		jsonError(c, http.StatusBadRequest, "cannot write to a directory")
 		return
 	}
 
 	if err := os.WriteFile(targetPath, []byte(req.Content), 0644); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
+		jsonError(c, http.StatusInternalServerError, "failed to save file")
 		return
 	}
 
@@ -664,7 +664,7 @@ func serverFilesSaveHandler(c *gin.Context) {
 // serverFilesOpenLocalHandler handles POST /api/server-files/open-local
 func serverFilesOpenLocalHandler(c *gin.Context) {
 	if !isLocalRequest(c) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only allowed from local machine"})
+		jsonError(c, http.StatusForbidden, "only allowed from local machine")
 		return
 	}
 
@@ -673,13 +673,13 @@ func serverFilesOpenLocalHandler(c *gin.Context) {
 		Path     string `json:"path"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	targetPath, err := validatePath(req.Category, req.Path)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -694,7 +694,7 @@ func serverFilesOpenLocalHandler(c *gin.Context) {
 	}
 
 	if err := cmd.Start(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open: " + err.Error()})
+		jsonError(c, http.StatusInternalServerError, "failed to open: "+err.Error())
 		return
 	}
 
@@ -822,12 +822,12 @@ type serverFilesBatchOperation func(serverFilesBatchItem) error
 func resolveServerFilesBatchContext(c *gin.Context, action string) (serverFilesBatchContext, bool) {
 	var req serverFilesBatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		jsonError(c, http.StatusBadRequest, "invalid request")
 		return serverFilesBatchContext{}, false
 	}
 
 	if len(req.Items) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no items to " + action})
+		jsonError(c, http.StatusBadRequest, "no items to "+action)
 		return serverFilesBatchContext{}, false
 	}
 
@@ -842,29 +842,29 @@ func resolveServerFilesBatchContext(c *gin.Context, action string) (serverFilesB
 
 	srcDir, err := validatePath(srcCategory, req.SrcPath)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return serverFilesBatchContext{}, false
 	}
 
 	dstDir, err := validatePath(dstCategory, req.DstPath)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		jsonError(c, http.StatusBadRequest, err.Error())
 		return serverFilesBatchContext{}, false
 	}
 
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create destination directory"})
+		jsonError(c, http.StatusInternalServerError, "failed to create destination directory")
 		return serverFilesBatchContext{}, false
 	}
 
 	absSrcBaseDir, err := filepath.Abs(filepath.Join(serverConfig.DataDir, srcCategory))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve source base path"})
+		jsonError(c, http.StatusInternalServerError, "failed to resolve source base path")
 		return serverFilesBatchContext{}, false
 	}
 	absDstBaseDir, err := filepath.Abs(filepath.Join(serverConfig.DataDir, dstCategory))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve destination base path"})
+		jsonError(c, http.StatusInternalServerError, "failed to resolve destination base path")
 		return serverFilesBatchContext{}, false
 	}
 

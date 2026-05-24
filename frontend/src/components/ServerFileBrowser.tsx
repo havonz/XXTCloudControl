@@ -36,6 +36,7 @@ import { authFetch, appendAuthQuery } from '../services/httpAuth';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
 import type { Device } from '../services/WebSocketService';
 import ContextMenu, { ContextMenuButton, ContextMenuDivider } from './ContextMenu';
+import { useI18n } from '../i18n';
 
 export interface ServerFileItem {
   name: string;
@@ -71,6 +72,7 @@ const LANCONTROL_ARCHIVE_EXT = '.xxtlca';
 
 export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const dialog = useDialog();
+  const { t } = useI18n();
   const [currentCategory, setCurrentCategory] = createSignal<'scripts' | 'files' | 'reports'>('scripts');
   const [currentPath, setCurrentPath] = createSignal('');
   const [files, setFiles] = createSignal<ServerFileItem[]>([]);
@@ -177,16 +179,15 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     await Promise.all(tasks);
   };
 
-  // 目标路径选项
-  const targetPathOptions = [
-    { value: '/lua/scripts/', label: '脚本目录 - /lua/scripts/' },
-    { value: '/lua/', label: '脚本模块目录 - /lua/' },
-    { value: '/res/', label: '资源目录 - /res/' },
-    { value: '/', label: '主目录 - /' },
-  ];
+  const targetPathOptions = createMemo(() => [
+    { value: '/lua/scripts/', label: t('files.target_scripts_dir') },
+    { value: '/lua/', label: t('files.target_modules_dir') },
+    { value: '/res/', label: t('files.target_resources_dir') },
+    { value: '/', label: t('files.target_home_dir') },
+  ]);
 
   const targetPathCollection = createMemo(() => 
-    createListCollection({ items: targetPathOptions.map(opt => opt.value) })
+    createListCollection({ items: targetPathOptions().map(opt => opt.value) })
   );
 
   let loadFilesRequestId = 0;
@@ -220,7 +221,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       }
     } catch (err) {
       if (requestId !== loadFilesRequestId) return;
-      setError('加载失败: ' + (err as Error).message);
+      setError(t('files.load_failed', { msg: (err as Error).message }));
       setFiles([]);
     } finally {
       if (requestId === loadFilesRequestId) {
@@ -416,7 +417,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     
     // 不能粘贴到相同目录（同一 category 且同一路径）
     if (cb.category === currentCategory() && cb.srcPath === currentPath()) {
-      await dialog.alert('不能粘贴到相同目录');
+      await dialog.alert(t('files.same_dir'));
       return;
     }
     
@@ -440,9 +441,16 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const data = await response.json();
       
       if (data.error) {
-        await dialog.alert(`${cb.mode === 'copy' ? '复制' : '移动'}失败: ` + data.error);
+        await dialog.alert(t('files.copy_move_failed', {
+          mode: cb.mode === 'copy' ? t('common.copy') : t('common.move'),
+          msg: data.error
+        }));
       } else if (data.errors && data.errors.length > 0) {
-        await dialog.alert(`部分操作失败 (${data.successCount}/${data.totalCount}):\n${data.errors.join('\n')}`);
+        await dialog.alert(t('files.partial_failed', {
+          success: data.successCount,
+          total: data.totalCount,
+          errors: data.errors.join('\n')
+        }));
       }
       
       // 剪切操作完成后清空剪贴板
@@ -452,7 +460,10 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       
       loadFiles();
     } catch (err) {
-      await dialog.alert(`${cb.mode === 'copy' ? '复制' : '移动'}失败: ` + (err as Error).message);
+      await dialog.alert(t('files.copy_move_failed', {
+        mode: cb.mode === 'copy' ? t('common.copy') : t('common.move'),
+        msg: (err as Error).message
+      }));
     }
   };
 
@@ -476,11 +487,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   const localizeLanControlArchiveError = (raw: unknown): string => {
     const message = String(raw || '').trim();
-    if (!message) return '未知错误';
+    if (!message) return t('common.unknown_error');
 
     const existsMatch = message.match(/^script "(.+)" already exists$/);
     if (existsMatch) {
-      return `脚本“${existsMatch[1]}”已存在`;
+      return t('archive.script_exists', { name: existsMatch[1] });
     }
 
     return message;
@@ -500,7 +511,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const params = new URLSearchParams({ category: source.category, path: source.path });
       const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/inspect?${params}`, { method: 'POST' });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.error) throw new Error(data.error || '读取中控脚本包失败');
+      if (!response.ok || data.error) throw new Error(data.error || t('archive.inspect_failed'));
       return data;
     }
     const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/inspect`, {
@@ -508,7 +519,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       body: buildLanControlArchiveFormData(source)
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.error) throw new Error(data.error || '读取中控脚本包失败');
+    if (!response.ok || data.error) throw new Error(data.error || t('archive.inspect_failed'));
     return data;
   };
 
@@ -524,7 +535,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       });
       const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/install?${params}`, { method: 'POST' });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.error) throw new Error(data.error || '安装中控脚本包失败');
+      if (!response.ok || data.error) throw new Error(data.error || t('archive.install_failed'));
       return data;
     }
     const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/install`, {
@@ -532,7 +543,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       body: buildLanControlArchiveFormData(source, { installName, overwrite })
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.error) throw new Error(data.error || '安装中控脚本包失败');
+    if (!response.ok || data.error) throw new Error(data.error || t('archive.install_failed'));
     return data;
   };
 
@@ -540,7 +551,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     const params = new URLSearchParams({ category: source.category, path: source.path });
     const response = await authFetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.error) throw new Error(data.error || '删除安装包失败');
+    if (!response.ok || data.error) throw new Error(data.error || t('archive.delete_package_failed'));
   };
 
   const closeLanControlArchiveDialog = (installed: boolean) => {
@@ -578,7 +589,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         lanControlArchiveResolve = resolve;
       });
     } catch (error) {
-      await dialog.alert(`读取中控脚本包失败: ${localizeLanControlArchiveError((error as Error).message)}`);
+      await dialog.alert(t('archive.inspect_failed_with_msg', { msg: localizeLanControlArchiveError((error as Error).message) }));
       return false;
     }
   };
@@ -590,7 +601,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       return;
     }
     if (!lanControlArchiveInstallName().trim()) {
-      setLanControlArchiveError('请输入安装名称');
+      setLanControlArchiveError(t('archive.install_name_required'));
       return;
     }
     setLanControlArchiveInstalling(true);
@@ -603,32 +614,32 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
           await deleteManagedLanControlArchivePackage(source);
         } catch (deleteError) {
           console.error('Delete LanControl archive package failed:', deleteError);
-          toast.showError(`安装成功，但删除安装包失败: ${localizeLanControlArchiveError((deleteError as Error).message)}`);
+          toast.showError(t('archive.installed_delete_failed', { msg: localizeLanControlArchiveError((deleteError as Error).message) }));
         }
       }
-      toast.showSuccess(`已安装中控脚本: ${installedName}`);
+      toast.showSuccess(t('archive.install_success', { name: installedName }));
       closeLanControlArchiveDialog(true);
       loadFiles();
     } catch (error) {
       const localizedMessage = localizeLanControlArchiveError((error as Error).message);
-      if (/已存在$/.test(localizedMessage) || /^script "(.+)" already exists$/.test(String((error as Error).message || ''))) {
+      if (localizedMessage === t('archive.script_exists', { name: lanControlArchiveInstallName().trim() }) || /^script "(.+)" already exists$/.test(String((error as Error).message || ''))) {
         setLanControlArchiveExists(true);
       }
-      setLanControlArchiveError(`安装失败: ${localizedMessage}`);
+      setLanControlArchiveError(t('archive.install_failed_with_msg', { msg: localizedMessage }));
       setLanControlArchiveInstalling(false);
     }
   };
 
   const getDeleteConfirmMessage = (file: ServerFileItem): string => {
     if (file.type !== 'dir') {
-      return `确定要删除 "${file.name}" 吗？`;
+      return t('files.delete_confirm', { name: file.name });
     }
 
     if (file.isSymlink === true) {
-      return `确定要删除目录符号链接 "${file.name}" 吗？此操作仅删除符号链接本体，不会删除目标目录中的内容。`;
+      return t('files.delete_dir_symlink_confirm', { name: file.name });
     }
 
-    return `确定要删除目录 "${file.name}" 吗？此操作会删除目录中的所有内容。`;
+    return t('files.delete_dir_confirm', { name: file.name });
   };
 
   const getBatchDeleteConfirmMessage = (selected: Set<string>): string => {
@@ -647,17 +658,20 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
     const detailParts: string[] = [];
     if (dirCount > 0) {
-      detailParts.push(`${dirCount} 个目录会连同目录内内容一并删除`);
+      detailParts.push(t('files.batch_delete_dir_detail', { count: dirCount }));
     }
     if (dirSymlinkCount > 0) {
-      detailParts.push(`${dirSymlinkCount} 个目录符号链接仅删除链接本体，不影响目标目录内容`);
+      detailParts.push(t('files.batch_delete_dir_symlink_detail', { count: dirSymlinkCount }));
     }
 
     if (detailParts.length === 0) {
-      return `确定要删除选中的 ${selected.size} 个项目吗？`;
+      return t('files.batch_delete_confirm', { count: selected.size });
     }
 
-    return `确定要删除选中的 ${selected.size} 个项目吗？其中${detailParts.join('，')}。`;
+    return t('files.batch_delete_confirm_with_details', {
+      count: selected.size,
+      details: detailParts.join(t('common.comma'))
+    });
   };
 
   const handleDelete = async (file: ServerFileItem) => {
@@ -668,10 +682,10 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const params = new URLSearchParams({ category: currentCategory(), path: filePath });
       const response = await authFetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
       const data = await response.json();
-      if (data.error) await dialog.alert('删除失败: ' + data.error);
+      if (data.error) await dialog.alert(t('files.delete_failed', { msg: data.error }));
       else loadFiles();
     } catch (err) {
-      await dialog.alert('删除失败: ' + (err as Error).message);
+      await dialog.alert(t('files.delete_failed', { msg: (err as Error).message }));
     }
   };
 
@@ -792,9 +806,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         });
       }
       
-      toast.showSuccess(`已发送 ${sentCount} 个文件请求`);
+      toast.showSuccess(t('files.send_device_success', { count: sentCount }));
     } catch (err) {
-      await dialog.alert('发送失败: ' + (err as Error).message);
+      await dialog.alert(t('files.send_failed', { msg: (err as Error).message }));
     } finally {
       setIsSendingToDevices(false);
     }
@@ -809,9 +823,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   // 创建
   const handleCreate = async (type: 'file' | 'dir') => {
-    const title = type === 'file' ? '新建文件' : '新建文件夹';
-    const message = type === 'file' ? '请输入文件名称' : '请输入文件夹名称';
-    const name = await dialog.prompt(title, message);
+    const title = type === 'file' ? t('common.new_file') : t('common.new_folder');
+    const message = type === 'file' ? t('files.new_file_prompt') : t('files.new_folder_prompt');
+    const name = await dialog.prompt(message, '', title);
     if (!name?.trim()) return;
     
     try {
@@ -821,16 +835,16 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         body: JSON.stringify({ category: currentCategory(), path: currentPath(), name: name.trim(), type })
       });
       const data = await response.json();
-      if (data.error) await dialog.alert('创建失败: ' + data.error);
+      if (data.error) await dialog.alert(t('files.create_failed', { msg: data.error }));
       else loadFiles();
     } catch (err) {
-      await dialog.alert('创建失败: ' + (err as Error).message);
+      await dialog.alert(t('files.create_failed', { msg: (err as Error).message }));
     }
   };
 
   // 重命名
   const handleRename = async (file: ServerFileItem) => {
-    const newName = await dialog.prompt('请输入新名称', file.name, '重命名');
+    const newName = await dialog.prompt(t('files.rename_prompt'), file.name, t('common.rename'));
     if (!newName?.trim() || newName.trim() === file.name) return;
     
     try {
@@ -840,10 +854,10 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         body: JSON.stringify({ category: currentCategory(), path: currentPath(), oldName: file.name, newName: newName.trim() })
       });
       const data = await response.json();
-      if (data.error) await dialog.alert('重命名失败: ' + data.error);
+      if (data.error) await dialog.alert(t('files.rename_failed', { msg: data.error }));
       else loadFiles();
     } catch (err) {
-      await dialog.alert('重命名失败: ' + (err as Error).message);
+      await dialog.alert(t('files.rename_failed', { msg: (err as Error).message }));
     }
   };
 
@@ -854,12 +868,12 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const params = new URLSearchParams({ category: currentCategory(), path: filePath });
       const response = await authFetch(`${props.serverBaseUrl}/api/server-files/read?${params}`);
       const data = await response.json();
-      if (data.error) { await dialog.alert('读取失败: ' + data.error); return; }
+      if (data.error) { await dialog.alert(t('files.read_failed', { msg: data.error })); return; }
       setEditorFileName(file.name);
       setEditorContent(data.content);
       setShowEditorModal(true);
     } catch (err) {
-      await dialog.alert('读取失败: ' + (err as Error).message);
+      await dialog.alert(t('files.read_failed', { msg: (err as Error).message }));
     }
   };
 
@@ -873,10 +887,10 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         body: JSON.stringify({ category: currentCategory(), path: filePath, content: editorContent() })
       });
       const data = await response.json();
-      if (data.error) await dialog.alert('保存失败: ' + data.error);
+      if (data.error) await dialog.alert(t('files.save_failed', { msg: data.error }));
       else setShowEditorModal(false);
     } catch (err) {
-      await dialog.alert('保存失败: ' + (err as Error).message);
+      await dialog.alert(t('files.save_failed', { msg: (err as Error).message }));
     } finally {
       setEditorSaving(false);
     }
@@ -919,9 +933,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         body: JSON.stringify({ category: currentCategory(), path: currentPath() })
       });
       const data = await response.json();
-      if (data.error) await dialog.alert('打开失败: ' + data.error);
+      if (data.error) await dialog.alert(t('files.open_failed', { msg: data.error }));
     } catch (err) {
-      await dialog.alert('打开失败: ' + (err as Error).message);
+      await dialog.alert(t('files.open_failed', { msg: (err as Error).message }));
     }
   };
 
@@ -959,11 +973,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         formData.append('path', targetPath);
         const response = await authFetch(`${props.serverBaseUrl}/api/server-files/upload`, { method: 'POST', body: formData });
         const data = await response.json();
-        if (data.error) await dialog.alert(`上传 ${relativePath} 失败: ` + data.error);
+        if (data.error) await dialog.alert(t('files.upload_item_failed', { name: relativePath, msg: data.error }));
       }
       loadFiles();
     } catch (err) {
-      await dialog.alert('上传失败: ' + (err as Error).message);
+      await dialog.alert(t('files.upload_failed', { msg: (err as Error).message }));
     } finally {
       setIsUploading(false);
     }
@@ -998,8 +1012,8 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       <div class={styles.modalOverlay} onMouseDown={mainBackdropClose.onMouseDown} onMouseUp={mainBackdropClose.onMouseUp}>
         <div class={styles.modalContent} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.modalHeader}>
-            <h2>服务器文件浏览器</h2>
-            <button class={styles.closeButton} onClick={props.onClose}>
+            <h2>{t('files.server_title')}</h2>
+            <button class={styles.closeButton} onClick={props.onClose} title={t('common.close')}>
               <IconXmark size={16} />
             </button>
           </div>
@@ -1011,21 +1025,21 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
               onClick={() => handleCategoryChange('scripts')}
             >
               <IconCode size={16} />
-              <span>脚本<span class={styles.desktopText}>目录</span></span>
+              <span>{t('files.scripts_root')}</span>
             </button>
             <button 
               class={`${styles.tab} ${currentCategory() === 'files' ? styles.active : ''}`} 
               onClick={() => handleCategoryChange('files')}
             >
               <IconBoxesStacked size={16} />
-              <span>资源<span class={styles.desktopText}>目录</span></span>
+              <span>{t('files.files_root')}</span>
             </button>
             <button 
               class={`${styles.tab} ${currentCategory() === 'reports' ? styles.active : ''}`} 
               onClick={() => handleCategoryChange('reports')}
             >
               <IconChartColumn size={16} />
-              <span>报告<span class={styles.desktopText}>目录</span></span>
+              <span>{t('files.reports_root')}</span>
             </button>
           </div>
           
@@ -1037,18 +1051,18 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 onClick={() => handleCreate('file')}
               >
                 <IconFileCirclePlus size={16} />
-                <span>新建文件</span>
+                <span>{t('common.new_file')}</span>
               </button>
               <button 
                 class={styles.actionButton} 
                 onClick={() => handleCreate('dir')}
               >
                 <IconFolderPlus size={16} />
-                <span>新建文件夹</span>
+                <span>{t('common.new_folder')}</span>
               </button>
               <button class={styles.actionButton} onClick={() => { void loadFiles(); }}>
                 <IconRotate size={16} />
-                <span>刷新</span>
+                <span>{t('common.refresh')}</span>
               </button>
               <button 
                 class={`${styles.actionButton} ${isSelectMode() ? styles.activeAction : ''}`} 
@@ -1058,16 +1072,16 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 }}
               >
                 <IconSquareCheck size={16} />
-                <span>选择模式</span>
+                <span>{t('common.select_mode')}</span>
               </button>
               <Show when={isLocal()}>
                 <button 
                   class={styles.actionButton} 
                   onClick={handleOpenLocal}
-                  title="在操作系统的文件资源管理器中打开当前目录"
+                  title={t('files.open_local_title')}
                 >
                   <IconFolderOpen size={16} />
-                  <span>在本机打开当前目录</span>
+                  <span>{t('files.open_local')}</span>
                 </button>
               </Show>
               <label class={styles.showHiddenLabel}>
@@ -1077,7 +1091,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                   checked={showHidden()} 
                   onChange={(e) => setShowHidden(e.currentTarget.checked)} 
                 />
-                <span>显示隐藏文件</span>
+                <span>{t('files.show_hidden')}</span>
               </label>
             </div>
           </div>
@@ -1087,39 +1101,40 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
               <div class={styles.selectInfo}>
                 <span class={styles.selectedCount}>
                   <span class={styles.mobileCheck}><IconCheck size={14} /></span>
-                  <span class={styles.desktopText}>已选择 </span>
-                  {selectedItems().size}
-                  <span class={styles.desktopText}> 项</span>
+                  {t('common.selected_items', { count: selectedItems().size })}
                 </span>
                 <Show when={clipboard()}>
                   <span class={styles.clipboardInfo}>
-                    剪贴板: {clipboard()!.items.length} 项 ({clipboard()!.mode === 'copy' ? '复制' : '剪切'})
+                    {t('files.clipboard', {
+                      count: clipboard()!.items.length,
+                      mode: clipboard()!.mode === 'copy' ? t('files.copy_mode') : t('files.cut_mode')
+                    })}
                   </span>
                 </Show>
               </div>
               <div class={styles.selectActions}>
                 <button class={styles.selectAction} onClick={selectAll}>
                   <IconCheckDouble size={14} />
-                  <span>全选</span>
+                  <span>{t('common.select_all')}</span>
                 </button>
                 <button class={styles.selectAction} onClick={clearSelection} disabled={selectedItems().size === 0}>
                   <IconCircleXmark size={14} />
-                  <span>清除选择</span>
+                  <span>{t('common.clear_selection')}</span>
                 </button>
                 
                 <div class={styles.selectDivider} />
                 
                 <button class={styles.selectAction} onClick={handleCopy} disabled={selectedItems().size === 0}>
                   <IconCopy size={14} />
-                  <span>复制</span>
+                  <span>{t('common.copy')}</span>
                 </button>
                 <button class={styles.selectAction} onClick={handleCut} disabled={selectedItems().size === 0}>
                   <IconScissors size={14} />
-                  <span>剪切</span>
+                  <span>{t('common.cut')}</span>
                 </button>
                 <button class={styles.selectAction} onClick={handlePaste} disabled={!canPaste()}>
                   <IconPaste size={14} />
-                  <span>粘贴</span>
+                  <span>{t('common.paste')}</span>
                 </button>
                 
                 <Show when={(props.selectedDevices?.length || 0) > 0}>
@@ -1130,7 +1145,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                     disabled={selectedItems().size === 0 || isSendingToDevices()}
                   >
                     <IconPaperPlane size={14} />
-                    <span>发送到设备 ({props.selectedDevices?.length})</span>
+                    <span>{t('files.send_to_devices', { count: props.selectedDevices?.length || 0 })}</span>
                   </button>
                 </Show>
                 
@@ -1138,7 +1153,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 
                 <button class={styles.deleteAction} onClick={handleBatchDelete} disabled={selectedItems().size === 0}>
                   <IconTrash size={14} />
-                  <span>删除</span>
+                  <span>{t('common.delete')}</span>
                 </button>
               </div>
             </div>
@@ -1148,7 +1163,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
           <div class={styles.breadcrumbs}>
             <button class={styles.breadcrumbItem} onClick={() => handleNavigate('')}>
               <IconHouse size={14} />
-              <span>根<span class={styles.desktopText}>目录</span></span>
+              <span>{t('files.root')}</span>
             </button>
             <For each={breadcrumbs()}>
               {(part, index) => (
@@ -1170,9 +1185,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
           
           {/* 文件列表表格 */}
           <div class={`${styles.fileList} ${styles.mainFileList} ${isDragOver() ? styles.dragOver : ''}`} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
-            <Show when={isDragOver()}><div class={styles.dropOverlay}><div class={styles.dropHint}><IconUpload size={20} /> 释放上传</div></div></Show>
-            <Show when={isUploading()}><div class={styles.uploadingOverlay}><div class={styles.uploadingHint}>上传中...</div></div></Show>
-            <Show when={isLoading()}><div class={styles.loading}>加载中...</div></Show>
+            <Show when={isDragOver()}><div class={styles.dropOverlay}><div class={styles.dropHint}><IconUpload size={20} /> {t('files.drop_to_upload')}</div></div></Show>
+            <Show when={isUploading()}><div class={styles.uploadingOverlay}><div class={styles.uploadingHint}>{t('common.uploading')}</div></div></Show>
+            <Show when={isLoading()}><div class={styles.loading}>{t('common.loading')}</div></Show>
             <Show when={error()}><div class={styles.error}>{error()}</div></Show>
             
             <Show when={!isLoading() && !error()}>
@@ -1181,9 +1196,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 <Show when={isSelectMode()}>
                   <div class={styles.tableCell} style={{ width: '40px' }}></div>
                 </Show>
-                <div class={`${styles.tableCell} ${styles.typeColumn}`}>类型</div>
-                <div class={`${styles.tableCell} ${styles.nameColumn}`}>名称</div>
-                <div class={`${styles.tableCell} ${styles.sizeColumn}`}>尺寸</div>
+                <div class={`${styles.tableCell} ${styles.typeColumn}`}>{t('files.type')}</div>
+                <div class={`${styles.tableCell} ${styles.nameColumn}`}>{t('files.name')}</div>
+                <div class={`${styles.tableCell} ${styles.sizeColumn}`}>{t('files.size')}</div>
               </div>
 
               <div class={styles.tableBody}>
@@ -1191,8 +1206,8 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                   when={files().length > 0}
                   fallback={
                     <div class={styles.emptyMessage}>
-                      <div>此目录为空</div>
-                      <div class={styles.emptyHint}>拖拽文件到此处上传</div>
+                      <div>{t('files.empty')}</div>
+                      <div class={styles.emptyHint}>{t('files.empty_upload_hint')}</div>
                     </div>
                   }
                 >
@@ -1260,15 +1275,15 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         <div class={styles.editorOverlay} onMouseDown={editorBackdropClose.onMouseDown} onMouseUp={editorBackdropClose.onMouseUp}>
           <div class={styles.editorModal} onMouseDown={(e) => e.stopPropagation()}>
             <div class={styles.editorHeader}>
-              <h3>编辑: {editorFileName()}</h3>
-              <button class={styles.closeButton} onClick={() => setShowEditorModal(false)}>
+              <h3>{t('files.edit_title', { name: editorFileName() })}</h3>
+              <button class={styles.closeButton} onClick={() => setShowEditorModal(false)} title={t('common.close')}>
                 <IconXmark size={16} />
               </button>
             </div>
             <textarea class={styles.editorTextarea} value={editorContent()} onInput={(e) => setEditorContent(e.currentTarget.value)} />
             <div class={styles.editorFooter}>
-              <button class={styles.cancelBtn} onClick={() => setShowEditorModal(false)}>取消</button>
-              <button class={styles.confirmBtn} onClick={handleSaveFile} disabled={editorSaving()}>{editorSaving() ? '保存中...' : '保存'}</button>
+              <button class={styles.cancelBtn} onClick={() => setShowEditorModal(false)}>{t('common.cancel')}</button>
+              <button class={styles.confirmBtn} onClick={handleSaveFile} disabled={editorSaving()}>{editorSaving() ? t('files.saving') : t('common.save')}</button>
             </div>
           </div>
         </div>
@@ -1278,10 +1293,10 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       <Show when={showImagePreview()}>
         <div class={styles.imagePreviewOverlay} onMouseDown={imagePreviewBackdropClose.onMouseDown} onMouseUp={imagePreviewBackdropClose.onMouseUp}>
           <div class={styles.imagePreviewContent} onMouseDown={(e) => e.stopPropagation()}>
-            <button class={styles.closeButton} onClick={() => setShowImagePreview(false)}>
+            <button class={styles.closeButton} onClick={() => setShowImagePreview(false)} title={t('common.close')}>
               <IconXmark size={16} />
             </button>
-            <img src={previewImageUrl()} alt="Preview" class={styles.previewImage} />
+            <img src={previewImageUrl()} alt={t('files.preview')} class={styles.previewImage} />
           </div>
         </div>
       </Show>
@@ -1291,39 +1306,39 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         <div class={styles.archiveOverlay} onMouseDown={lanControlArchiveBackdropClose.onMouseDown} onMouseUp={lanControlArchiveBackdropClose.onMouseUp}>
           <div class={styles.archiveModal} onMouseDown={(e) => e.stopPropagation()}>
             <div class={styles.archiveHeader}>
-              <h3>安装中控脚本包</h3>
-              <button class={styles.closeButton} onClick={() => !lanControlArchiveInstalling() && closeLanControlArchiveDialog(false)}>
+              <h3>{t('archive.install_title')}</h3>
+              <button class={styles.closeButton} onClick={() => !lanControlArchiveInstalling() && closeLanControlArchiveDialog(false)} title={t('common.close')}>
                 <IconXmark size={16} />
               </button>
             </div>
             <div class={styles.archiveBody}>
               <div class={styles.archiveInfo}>
                 <div class={styles.archiveInfoHeader}>
-                  <span class={styles.archiveInfoTitle}>脚本信息</span>
-                  <span class={styles.archiveInfoSubtitle}>{lanControlArchiveSource()?.displayName || lanControlArchiveMeta().name || '未命名脚本'}</span>
+                  <span class={styles.archiveInfoTitle}>{t('archive.script_info')}</span>
+                  <span class={styles.archiveInfoSubtitle}>{lanControlArchiveSource()?.displayName || lanControlArchiveMeta().name || t('archive.unnamed_script')}</span>
                 </div>
                 <div class={styles.archiveInfoContent}>
                   <div class={styles.archiveInfoField}>
-                    <span class={styles.archiveInfoLabel}>名称</span>
-                    <span class={styles.archiveInfoValue}>{lanControlArchiveMeta().name || '未命名脚本'}</span>
+                    <span class={styles.archiveInfoLabel}>{t('form.name')}</span>
+                    <span class={styles.archiveInfoValue}>{lanControlArchiveMeta().name || t('archive.unnamed_script')}</span>
                   </div>
                   <div class={styles.archiveInfoField}>
-                    <span class={styles.archiveInfoLabel}>版本</span>
-                    <span class={styles.archiveInfoValue}>{lanControlArchiveMeta().version || '未知'}</span>
+                    <span class={styles.archiveInfoLabel}>{t('common.version')}</span>
+                    <span class={styles.archiveInfoValue}>{lanControlArchiveMeta().version || t('common.unknown')}</span>
                   </div>
                   <div class={styles.archiveInfoField}>
-                    <span class={styles.archiveInfoLabel}>开发者</span>
-                    <span class={styles.archiveInfoValue}>{lanControlArchiveMeta().author || '未知'}</span>
+                    <span class={styles.archiveInfoLabel}>{t('form.developer')}</span>
+                    <span class={styles.archiveInfoValue}>{lanControlArchiveMeta().author || t('common.unknown')}</span>
                   </div>
                   <div class={styles.archiveInfoField}>
-                    <span class={styles.archiveInfoLabel}>使用说明</span>
-                    <div class={styles.archiveInstructions}>{lanControlArchiveMeta().description || '未知'}</div>
+                    <span class={styles.archiveInfoLabel}>{t('form.usage')}</span>
+                    <div class={styles.archiveInstructions}>{lanControlArchiveMeta().description || t('common.unknown')}</div>
                   </div>
                 </div>
               </div>
 
               <label class={styles.archiveField}>
-                <span class={styles.archiveInfoLabel}>安装名称</span>
+                <span class={styles.archiveInfoLabel}>{t('archive.install_name')}</span>
                 <input
                   class={styles.archiveInput}
                   value={lanControlArchiveInstallName()}
@@ -1344,7 +1359,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                     disabled={lanControlArchiveInstalling()}
                     onChange={(e) => setLanControlArchiveOverwrite(e.currentTarget.checked)}
                   />
-                  <span>目标已存在，覆盖安装</span>
+                  <span>{t('archive.overwrite_existing')}</span>
                 </label>
               </Show>
 
@@ -1357,7 +1372,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                     disabled={lanControlArchiveInstalling()}
                     onChange={(e) => setLanControlArchiveDeletePackage(e.currentTarget.checked)}
                   />
-                  <span>安装成功后删除安装包</span>
+                  <span>{t('archive.delete_after_install')}</span>
                 </label>
               </Show>
 
@@ -1371,14 +1386,14 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 disabled={lanControlArchiveInstalling()}
                 onClick={() => closeLanControlArchiveDialog(false)}
               >
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 class={styles.confirmBtn}
                 disabled={lanControlArchiveInstalling()}
                 onClick={() => { void confirmLanControlArchiveInstall(); }}
               >
-                {lanControlArchiveInstalling() ? '安装中...' : '安装'}
+                {lanControlArchiveInstalling() ? t('archive.installing') : t('archive.install')}
               </button>
             </div>
           </div>
@@ -1408,35 +1423,35 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 closeContextMenu();
               }}
             >
-              安装脚本包
+              {t('archive.install_package')}
             </ContextMenuButton>
           </Show>
           <Show when={contextMenuFile()?.type === 'file' && isTextFile(contextMenuFile()!.name)}>
             <ContextMenuButton icon={<IconICursor size={14} />} onClick={() => { handleEditFile(contextMenuFile()!); closeContextMenu(); }}>
-              编辑
+              {t('common.edit')}
             </ContextMenuButton>
           </Show>
           <Show when={contextMenuFile()?.type === 'file' && isImageFile(contextMenuFile()!.name)}>
             <ContextMenuButton icon={<IconEye size={14} />} onClick={() => { handlePreviewImage(contextMenuFile()!); closeContextMenu(); }}>
-              预览
+              {t('files.preview')}
             </ContextMenuButton>
           </Show>
           <ContextMenuButton icon={<IconPen size={14} />} onClick={() => { handleRename(contextMenuFile()!); closeContextMenu(); }}>
-            重命名
+            {t('common.rename')}
           </ContextMenuButton>
           <Show when={contextMenuFile()?.type === 'file'}>
             <ContextMenuButton icon={<IconDownload size={14} />} onClick={() => { handleDownload(contextMenuFile()!); closeContextMenu(); }}>
-              下载
+              {t('common.download')}
             </ContextMenuButton>
           </Show>
           <Show when={props.selectedDevices && props.selectedDevices.length > 0}>
             <ContextMenuButton icon={<IconPaperPlane size={14} />} onClick={() => { handleSendSingleItemToDevices(contextMenuFile()!); closeContextMenu(); }}>
-              发送到设备
+              {t('files.send_to_device')}
             </ContextMenuButton>
           </Show>
           <ContextMenuDivider />
           <ContextMenuButton icon={<IconTrash size={14} />} danger onClick={() => { handleDelete(contextMenuFile()!); closeContextMenu(); }}>
-            删除
+            {t('common.delete')}
           </ContextMenuButton>
         </>
       </ContextMenu>
@@ -1445,12 +1460,12 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       <Show when={showSendToDeviceModal()}>
         <div class={styles.createOverlay} onClick={() => setShowSendToDeviceModal(false)}>
           <div class={styles.createModal} onClick={(e) => e.stopPropagation()}>
-            <h3>发送到设备</h3>
+            <h3>{t('files.send_to_device')}</h3>
             
             {/* 文件列表预览 */}
             <div style={{ 'margin-bottom': '16px' }}>
               <div style={{ 'font-weight': '500', 'margin-bottom': '8px', 'color': 'var(--text-secondary)' }}>
-                选中文件 ({selectedItems().size} 个)
+                {t('files.selected_files', { count: selectedItems().size })}
               </div>
               <div class={`${styles.fileList} scroll-standard`} style={{ 'max-height': '120px', 'min-height': 'auto', 'border': '1px solid var(--border)', 'border-radius': '6px', 'padding': '8px' }}>
                 <For each={Array.from(selectedItems()).slice(0, 10)}>
@@ -1475,7 +1490,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 </For>
                 <Show when={selectedItems().size > 10}>
                   <div style={{ 'font-size': '12px', 'color': 'var(--text-muted)', 'padding-top': '4px' }}>
-                    ... 还有 {selectedItems().size - 10} 个文件
+                    {t('files.more_files', { count: selectedItems().size - 10 })}
                   </div>
                 </Show>
               </div>
@@ -1484,19 +1499,19 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
             {/* 设备列表预览 */}
             <div style={{ 'margin-bottom': '16px' }}>
               <div style={{ 'font-weight': '500', 'margin-bottom': '8px', 'color': 'var(--text-secondary)' }}>
-                目标设备 ({props.selectedDevices?.length || 0} 台)
+                {t('files.target_devices', { count: props.selectedDevices?.length || 0 })}
               </div>
               <div class={`${styles.fileList} scroll-standard`} style={{ 'max-height': '100px', 'min-height': 'auto', 'border': '1px solid var(--border)', 'border-radius': '6px', 'padding': '8px', 'text-align': 'left' }}>
                 <For each={props.selectedDevices?.slice(0, 5) || []}>
                   {(device) => (
                     <div style={{ 'padding': '4px 0', 'font-size': '13px', 'color': 'var(--text)' }}>
-                      📱 {device.system?.name || device.udid} ({device.system?.ip || 'unknown'})
+                      {device.system?.name || device.udid} ({device.system?.ip || t('common.unknown')})
                     </div>
                   )}
                 </For>
                 <Show when={(props.selectedDevices?.length || 0) > 5}>
                   <div style={{ 'font-size': '12px', 'color': 'var(--text-muted)', 'padding-top': '4px' }}>
-                    ... 还有 {(props.selectedDevices?.length || 0) - 5} 台设备
+                    {t('files.more_devices', { count: (props.selectedDevices?.length || 0) - 5 })}
                   </div>
                 </Show>
               </div>
@@ -1505,7 +1520,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
             {/* 目标路径选择 */}
             <div style={{ 'margin-bottom': '20px' }}>
               <div style={{ 'font-weight': '500', 'margin-bottom': '8px', 'color': 'var(--text-secondary)' }}>
-                目标路径
+                {t('files.target_path')}
               </div>
               <Select.Root
                 class="cbx-select-root"
@@ -1525,7 +1540,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                       'white-space': 'nowrap',
                       'text-align': 'left'
                     }}>
-                      {targetPathOptions.find(opt => opt.value === targetDevicePath())?.label || targetDevicePath()}
+                      {targetPathOptions().find(opt => opt.value === targetDevicePath())?.label || targetDevicePath()}
                     </span>
                     <span class="dropdown-arrow">▼</span>
                   </Select.Trigger>
@@ -1534,7 +1549,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                   <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
                     <Select.Content class="cbx-panel" style={{ width: 'var(--reference-width)' }}>
                       <Select.ItemGroup>
-                        <For each={targetPathOptions}>{(opt) => (
+                        <For each={targetPathOptions()}>{(opt) => (
                           <Select.Item item={opt.value} class="cbx-item">
                             <div class="cbx-item-content">
                               <Select.ItemIndicator>✓</Select.ItemIndicator>
@@ -1548,7 +1563,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 </Portal>
               </Select.Root>
               <div style={{ 'margin-top': '4px', 'font-size': '12px', 'color': 'var(--text-muted)' }}>
-                文件将被发送到设备上的此目录
+                {t('files.target_path_hint')}
               </div>
             </div>
 
@@ -1558,14 +1573,14 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 class={styles.cancelBtn}
                 onClick={() => setShowSendToDeviceModal(false)}
               >
-                取消
+                {t('common.cancel')}
               </button>
               <button 
                 class={styles.confirmBtn}
                 onClick={handleSendToDevices}
                 disabled={selectedItems().size === 0 || !props.selectedDevices?.length}
               >
-                发送
+                {t('common.send')}
               </button>
             </div>
           </div>

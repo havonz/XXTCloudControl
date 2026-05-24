@@ -1,5 +1,6 @@
 import { Component, createSignal, Show, createEffect } from 'solid-js';
 import { createBackdropClose } from '../hooks/useBackdropClose';
+import { useI18n } from '../i18n';
 import styles from './NewGroupModal.module.css';
 
 interface NewGroupModalProps {
@@ -9,6 +10,7 @@ interface NewGroupModalProps {
 }
 
 const NewGroupModal: Component<NewGroupModalProps> = (props) => {
+  const { t } = useI18n();
   const [name, setName] = createSignal('');
   const [isSubmitting, setIsSubmitting] = createSignal(false);
   let inputRef: HTMLInputElement | undefined;
@@ -48,13 +50,13 @@ const NewGroupModal: Component<NewGroupModalProps> = (props) => {
     <Show when={props.open}>
       <div class={styles.backdrop} onMouseDown={backdropClose.onMouseDown} onMouseUp={backdropClose.onMouseUp}>
         <div class={styles.modal} onMouseDown={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
-          <h3 class={styles.title}>新建分组</h3>
+          <h3 class={styles.title}>{t('group.new_title')}</h3>
           <form onSubmit={handleSubmit}>
             <input
               ref={inputRef}
               type="text"
               class={styles.input}
-              placeholder="输入分组名称"
+              placeholder={t('group.name_placeholder')}
               value={name()}
               onInput={(e) => setName(e.currentTarget.value)}
               disabled={isSubmitting()}
@@ -66,14 +68,14 @@ const NewGroupModal: Component<NewGroupModalProps> = (props) => {
                 onClick={props.onClose}
                 disabled={isSubmitting()}
               >
-                取消
+                {t('common.cancel')}
               </button>
               <button 
                 type="submit"
                 class={styles.submitButton}
                 disabled={!name().trim() || isSubmitting()}
               >
-                {isSubmitting() ? '创建中...' : '创建'}
+                {isSubmitting() ? t('common.creating') : t('common.create')}
               </button>
             </div>
           </form>

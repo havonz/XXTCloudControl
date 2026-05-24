@@ -9,7 +9,7 @@ import (
 
 func updateStatusHandler(c *gin.Context) {
 	if updaterService == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updater not initialized"})
+		jsonError(c, http.StatusServiceUnavailable, "updater not initialized")
 		return
 	}
 	c.JSON(http.StatusOK, updaterService.Status())
@@ -17,7 +17,7 @@ func updateStatusHandler(c *gin.Context) {
 
 func updateCheckHandler(c *gin.Context) {
 	if updaterService == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updater not initialized"})
+		jsonError(c, http.StatusServiceUnavailable, "updater not initialized")
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), getUpdateCheckTimeout(serverConfig.Update.Source))
@@ -35,7 +35,7 @@ func updateCheckHandler(c *gin.Context) {
 
 func updateDownloadHandler(c *gin.Context) {
 	if updaterService == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updater not initialized"})
+		jsonError(c, http.StatusServiceUnavailable, "updater not initialized")
 		return
 	}
 	status, err := updaterService.Download()
@@ -51,7 +51,7 @@ func updateDownloadHandler(c *gin.Context) {
 
 func updateDownloadCancelHandler(c *gin.Context) {
 	if updaterService == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updater not initialized"})
+		jsonError(c, http.StatusServiceUnavailable, "updater not initialized")
 		return
 	}
 	status, err := updaterService.CancelDownload()
@@ -64,14 +64,14 @@ func updateDownloadCancelHandler(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "download cancel requested",
+		"message": requestTranslator(c).TR("download cancel requested"),
 		"status":  status,
 	})
 }
 
 func updateApplyHandler(c *gin.Context) {
 	if updaterService == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updater not initialized"})
+		jsonError(c, http.StatusServiceUnavailable, "updater not initialized")
 		return
 	}
 	status, err := updaterService.Apply()
@@ -84,7 +84,7 @@ func updateApplyHandler(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "update apply started, server will restart shortly",
+		"message": requestTranslator(c).TR("update apply started, server will restart shortly"),
 		"status":  status,
 	})
 }

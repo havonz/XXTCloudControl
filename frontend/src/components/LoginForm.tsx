@@ -2,7 +2,9 @@ import { Component, createSignal, createEffect, onCleanup } from 'solid-js';
 import { AuthService, LoginCredentials } from '../services/AuthService';
 import { useTheme } from './ThemeContext';
 import { useToast } from './ToastContext';
+import LanguageSelect from './LanguageSelect';
 import { IconMoon, IconSun, IconDesktop } from '../icons';
+import { useI18n } from '../i18n';
 import styles from './LoginForm.module.css';
 
 const VERSION_CACHE_KEY = 'xxt_server_version';
@@ -51,6 +53,7 @@ const parseServerPort = (value: string): { server: string; port: string } | null
 
 const LoginForm: Component<LoginFormProps> = (props) => {
   const { themeMode, cycleTheme } = useTheme();
+  const { t, locale } = useI18n();
   const toast = useToast();
   // 使用当前页面的主机地址作为默认服务器地址
   const [server, setServer] = createSignal(window.location.hostname || 'localhost');
@@ -161,7 +164,8 @@ const LoginForm: Component<LoginFormProps> = (props) => {
         
         // Fetch server info (version and time) from control/info endpoint
         const response = await fetch(`${baseUrl}/api/control/info`, {
-          signal: versionFetchController.signal
+          signal: versionFetchController.signal,
+          headers: { 'Accept-Language': locale() }
         });
         if (response.ok) {
           const info = await response.json();
@@ -172,7 +176,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
             // 版本检查：如果缓存版本存在且与服务器版本不同，触发刷新
             const cachedVersion = localStorage.getItem(VERSION_CACHE_KEY);
             if (cachedVersion && cachedVersion !== info.version) {
-              toast.showWarning(`检测到新版本 ${info.version}，3秒后自动刷新...`, 3000);
+              toast.showWarning(t('app.update.detected_version', { version: info.version }), 3000);
               
               // 清除缓存版本并在3秒后刷新
               setTimeout(() => {
@@ -221,7 +225,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
   const formatServerTime = (unix: number) => {
     if (unix === 0) return '';
     const date = new Date(unix * 1000);
-    return date.toLocaleString('zh-CN', {
+    return date.toLocaleString(locale(), {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -324,11 +328,11 @@ const LoginForm: Component<LoginFormProps> = (props) => {
         
         // 验证服务器和端口
         if (!credentials.server.trim()) {
-          setValidationError('请输入服务器地址');
+          setValidationError(t('login.server_required'));
           return;
         }
         if (!credentials.port.trim()) {
-          setValidationError('请输入端口号');
+          setValidationError(t('login.port_required'));
           return;
         }
         
@@ -347,7 +351,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
     // 验证输入
     const validation = authService.validateCredentials(credentials);
     if (!validation.valid) {
-      setValidationError(validation.error || '输入验证失败');
+      setValidationError(validation.errorKey ? t(validation.errorKey) : (validation.error || t('login.validation_failed')));
       return;
     }
 
@@ -369,21 +373,27 @@ const LoginForm: Component<LoginFormProps> = (props) => {
     <div class={styles.loginContainer}>
       <div class={styles.loginCard}>
         <div class={styles.loginHeader}>
-          <button
-            onClick={cycleTheme}
-            class={styles.themeToggle}
-            title={themeMode() === 'system' ? '跟随系统' : themeMode() === 'light' ? '亮色模式' : '暗色模式'}
-            type="button"
-          >
-            {themeMode() === 'system' ? <IconDesktop size={18} /> : themeMode() === 'light' ? <IconSun size={18} /> : <IconMoon size={18} />}
-          </button>
+          <div class={styles.loginTools}>
+            <div class={styles.languageSelect}>
+              <LanguageSelect compact variant="login" />
+            </div>
+            <button
+              onClick={cycleTheme}
+              class={styles.themeToggle}
+              title={themeMode() === 'system' ? t('ui.theme_system') : themeMode() === 'light' ? t('ui.theme_light') : t('ui.theme_dark')}
+              aria-label={t('ui.theme_toggle')}
+              type="button"
+            >
+              {themeMode() === 'system' ? <IconDesktop size={18} /> : themeMode() === 'light' ? <IconSun size={18} /> : <IconMoon size={18} />}
+            </button>
+          </div>
           <h1>XXTCloudControl</h1>
-          <p>连接到您的云控制服务器</p>
+          <p>{t('login.subtitle')}</p>
         </div>
 
         <form onSubmit={handleSubmit} class={styles.loginForm}>
           <div class={styles.inputGroup}>
-            <label for="server">服务器地址</label>
+            <label for="server">{t('login.server_label')}</label>
             {showServerInput() ? (
               <input
                 id="server"
@@ -391,7 +401,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
                 value={server()}
                 onInput={(e) => handleServerInput(e.currentTarget.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="例如: 192.168.1.100 或 example.com"
+                placeholder={t('login.server_placeholder')}
                 class={styles.input}
                 disabled={props.isConnecting}
                 required
@@ -403,13 +413,13 @@ const LoginForm: Component<LoginFormProps> = (props) => {
                 onClick={toggleServerInput}
                 disabled={props.isConnecting}
               >
-                点击修改
+                {t('login.change_saved')}
               </button>
             )}
           </div>
 
           <div class={styles.inputGroup}>
-            <label for="port">端口</label>
+            <label for="port">{t('login.port_label')}</label>
             {showPortInput() ? (
               <input
                 id="port"
@@ -433,13 +443,13 @@ const LoginForm: Component<LoginFormProps> = (props) => {
                 onClick={togglePortInput}
                 disabled={props.isConnecting}
               >
-                点击修改
+                {t('login.change_saved')}
               </button>
             )}
           </div>
 
           <div class={styles.inputGroup}>
-            <label for="password">控制密码</label>
+            <label for="password">{t('login.password_label')}</label>
             {showPasswordInput() ? (
               <input
                 id="password"
@@ -447,7 +457,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
                 value={password()}
                 onInput={(e) => setPassword(e.currentTarget.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="输入控制密码"
+                placeholder={t('login.password_placeholder')}
                 class={styles.input}
                 disabled={props.isConnecting}
                 required
@@ -459,7 +469,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
                 onClick={clearStoredPassword}
                 disabled={props.isConnecting}
               >
-                清除本地密码
+                {t('login.clear_password')}
               </button>
             )}
           </div>
@@ -469,7 +479,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
               <div>{validationError() || props.error}</div>
               {props.error && (props.error.includes('认证') || props.error.includes('密码') || props.error.includes('拒绝')) && (
                 <div class={styles.errorHint}>
-                  提示：如果密码正确，请尝试校准本地时间与服务器时间同步。
+                  {t('login.time_hint')}
                 </div>
               )}
             </div>
@@ -483,20 +493,20 @@ const LoginForm: Component<LoginFormProps> = (props) => {
             {props.isConnecting ? (
               <>
                 <div class={styles.spinner}></div>
-                连接中...
+                {t('login.connecting')}
               </>
             ) : (
-              '登录'
+              t('login.button')
             )}
           </button>
         </form>
 
         <div class={styles.loginFooter}>
           {serverVersion() && (
-            <span class={styles.versionBadge}>服务器版本: {serverVersion()}</span>
+            <span class={styles.versionBadge}>{t('login.server_version', { version: serverVersion() })}</span>
           )}
           {serverUnixTime() > 0 && (
-            <span class={styles.timeBadge}>服务器时间: {formatServerTime(serverUnixTime())}</span>
+            <span class={styles.timeBadge}>{t('login.server_time', { time: formatServerTime(serverUnixTime()) })}</span>
           )}
         </div>
       </div>
