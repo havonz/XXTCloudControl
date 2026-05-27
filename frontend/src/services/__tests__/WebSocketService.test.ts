@@ -269,4 +269,28 @@ describe('WebSocketService script message updates', () => {
     expect((service as any).pendingRequestsById.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('触控命令按 finger 附加单调递增 touchTs', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-28T00:00:00.000Z'));
+
+    const service = new WebSocketService('ws://127.0.0.1:46980/api/ws', 'password');
+    service.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    socket.sent = [];
+
+    await service.touchDown('device-1', 10, 20, 1);
+    await service.touchMove('device-1', 11, 21, 1);
+
+    const first = JSON.parse(socket.sent[0]);
+    const second = JSON.parse(socket.sent[1]);
+    const firstBody = first.body.body;
+    const secondBody = second.body.body;
+
+    expect(firstBody).toMatchObject({ x: 10, y: 20, finger: 1 });
+    expect(secondBody).toMatchObject({ x: 11, y: 21, finger: 1 });
+    expect(firstBody.touchTs).toBe(Date.now());
+    expect(secondBody.touchTs).toBe(Date.now() + 1);
+  });
 });

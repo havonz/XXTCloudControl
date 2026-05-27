@@ -83,6 +83,7 @@ export class WebSocketService {
   private hasReceivedDeviceList = false; // 是否已收到设备列表响应
   private deviceUpdateTimer: number | null = null;
   private deviceUpdateQueued = false;
+  private lastTouchTsByFinger: Map<number, number> = new Map();
 
   constructor(url: string, password: string = '') {
     this.url = url;
@@ -1403,6 +1404,13 @@ export class WebSocketService {
     this.password = password;
   }
 
+  private nextTouchTs(finger: number): number {
+    const last = this.lastTouchTsByFinger.get(finger) ?? 0;
+    const next = Math.max(Date.now(), last + 1);
+    this.lastTouchTsByFinger.set(finger, next);
+    return next;
+  }
+
   // 发送触控命令（支持多设备）
   async sendTouchCommand(
     deviceUdids: string[],
@@ -1426,9 +1434,11 @@ export class WebSocketService {
         x: number;
         y: number;
         finger?: number;
+        touchTs: number;
       } = {
         x: x,
-        y: y
+        y: y,
+        touchTs: this.nextTouchTs(Number.isInteger(finger) ? finger : 1)
       };
       if (Number.isInteger(finger)) {
         body.finger = finger;
