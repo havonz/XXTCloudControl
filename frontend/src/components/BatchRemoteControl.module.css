@@ -394,6 +394,57 @@
   font-family: monospace;
 }
 
+.rotationControlGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rotationControlGroup label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.rotationButtons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.rotationButton {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.rotationButton:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
+.rotationButton:active {
+  transform: scale(0.96);
+}
+
+.rotationButton.active {
+  background: var(--btn-primary-bg);
+  color: var(--primary);
+}
+
 .wheelSettingsSection {
   position: relative;
   margin-left: auto;
@@ -679,19 +730,21 @@
 .videoContainer {
   position: relative;
   width: 100%;
-  aspect-ratio: 9 / 16;  /* 使用 aspect-ratio 更灵活 */
+  aspect-ratio: 9 / 16;
   background: var(--video-bg);
   overflow: hidden;
 }
 
 .deviceVideo {
   position: absolute;
-  top: 0;
-  left: 0;
+  top: 50%;
+  left: 50%;
   width: 100%;
   height: 100%;
   object-fit: contain;
   background: var(--video-bg);
+  transform: translate(-50%, -50%);
+  transform-origin: center center;
   cursor: pointer;
   touch-action: none;
   user-select: none;
@@ -854,6 +907,16 @@
 
 .batchRemoteModal.sidebarLayout .wheelSettingsFields {
   grid-template-columns: 1fr;
+}
+
+.batchRemoteModal.sidebarLayout .rotationButtons {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.batchRemoteModal.sidebarLayout .rotationButton {
+  width: 100%;
 }
 
 .batchRemoteModal.sidebarLayout .deviceGrid {

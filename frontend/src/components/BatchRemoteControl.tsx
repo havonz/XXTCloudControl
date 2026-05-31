@@ -1,7 +1,7 @@
 import { createSignal, For, Show, onCleanup, createEffect, onMount, createMemo } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
 import { CgMaximizeAlt, CgMinimizeAlt } from 'solid-icons/cg';
-import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconGear } from '../icons';
+import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconGear, IconMobileScreen } from '../icons';
 import styles from './BatchRemoteControl.module.css';
 import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
@@ -41,7 +41,15 @@ interface BatchRemoteSettings {
   resolution?: number;
   frameRate?: number;
   columns?: number;
+  rotation?: number;
   wheel?: Partial<RemoteWheelSettings>;
+}
+
+interface BatchVideoLayout {
+  frameWidth: number;
+  frameHeight: number;
+  containerWidth: number;
+  containerHeight: number;
 }
 
 function createDisconnectedViewState(): ConnectionViewState {
@@ -64,12 +72,22 @@ function getDeviceName(device: Device): string {
   return device.system?.name || device.udid.substring(0, 12) + '...';
 }
 
+function normalizeRotation(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return parsed === 90 || parsed === 180 || parsed === 270 ? parsed : 0;
+}
+
+function rotationToQuarter(rotation: number): number {
+  const quarter = Math.round(rotation / 90);
+  return ((quarter % 4) + 4) % 4;
+}
+
 export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const { t } = useI18n();
   const MOBILE_MAX_COLUMNS = 4;
   const DESKTOP_MAX_COLUMNS = 8;
   const VIEWPORT_MOBILE_BREAKPOINT = 768;
-  const COMPACT_PANEL_BREAKPOINT = 700;
+  const COMPACT_PANEL_BREAKPOINT = 885;
   const currentIsOpen = createMemo(() => props.isOpen);
   const currentDevices = createMemo(() => props.devices);
   const currentWebSocketService = createMemo(() => props.webSocketService);
@@ -78,7 +96,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const serviceByUdid = new Map<string, WebRTCService>();
   const streamByUdid = new Map<string, MediaStream>();
   const videoRefByUdid = new Map<string, HTMLVideoElement>();
+  const videoContainerObserverByUdid = new Map<string, ResizeObserver>();
   const lastAppliedResolutionByUdid = new Map<string, number>();
+  const [videoLayouts, setVideoLayouts] = createSignal<Record<string, BatchVideoLayout>>({});
   
   // 缓存的设备列表（不会因为 props.devices 状态更新而改变）
   const [cachedDevices, setCachedDevices] = createSignal<Device[]>([]);
@@ -118,7 +138,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   let persistSettingsTimer: ReturnType<typeof setTimeout> | null = null;
   const initialPanelWidth = savedSettings?.windowSize?.width ?? Math.round(window.innerWidth * 0.95);
   const [panelWidth, setPanelWidth] = createSignal(initialPanelWidth);
-  const isCompactPanel = createMemo(() => !isViewportMobile() && !isFullscreen() && panelWidth() < COMPACT_PANEL_BREAKPOINT);
+  const isCompactPanel = createMemo(() => !isViewportMobile() && panelWidth() < COMPACT_PANEL_BREAKPOINT);
   const usesSidebarLayout = createMemo(() => isViewportMobile() || isCompactPanel());
   const getLayoutMaxColumns = () => (usesSidebarLayout() ? MOBILE_MAX_COLUMNS : DESKTOP_MAX_COLUMNS);
   const deviceByUdid = createMemo(() => new Map(cachedDevices().map((device) => [device.udid, device])));
@@ -167,12 +187,15 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const initialResolution = savedSettings?.resolution ?? 0.2;
   const initialFrameRate = savedSettings?.frameRate ?? 10;
   const initialColumnPreference = clampColumns(savedSettings?.columns ?? 4, DESKTOP_MAX_COLUMNS);
+  const initialRotation = normalizeRotation(savedSettings?.rotation);
   const [columnPreference, setColumnPreference] = createSignal(initialColumnPreference);
   const [resolutionDraft, setResolutionDraft] = createSignal(initialResolution);
   const [appliedResolution, setAppliedResolution] = createSignal(initialResolution);
   const [frameRateDraft, setFrameRateDraft] = createSignal(initialFrameRate);
   const [appliedFrameRate, setAppliedFrameRate] = createSignal(initialFrameRate);
   const [columnsDraft, setColumnsDraft] = createSignal(clampColumns(initialColumnPreference, getLayoutMaxColumns()));
+  const [currentRotation, setCurrentRotation] = createSignal(initialRotation);
+  const isLandscapeRotation = () => currentRotation() === 90 || currentRotation() === 270;
   const appliedColumns = createMemo(() => clampColumns(columnPreference(), getLayoutMaxColumns()));
   const previewColumns = createMemo(() => clampColumns(columnsDraft(), getLayoutMaxColumns()));
   
@@ -184,6 +207,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   let isDisconnectingAll = false;
   let scheduledResolutionRefreshId: number | null = null;
   let scheduledIntersectionRefreshId: number | null = null;
+  let scheduledVideoLayoutRefreshId: number | null = null;
   let suppressIntersectionEffects = false;
   const bindFrameByUdid = new Map<string, number>();
   
@@ -261,6 +285,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       if (pendingWindowSize) {
         setWindowSize(pendingWindowSize);
         pendingWindowSize = null;
+        scheduleVideoLayoutRefresh();
       }
     });
   };
@@ -292,6 +317,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       resolution: appliedResolution(),
       frameRate: appliedFrameRate(),
       columns: columnPreference(),
+      rotation: currentRotation(),
       wheel: currentWheelSettings(),
     });
     writePersistedSettings();
@@ -341,15 +367,130 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
 
     if (stream) {
+      scheduleVideoFrameSizeSync(udid);
       queueMicrotask(() => {
-        video.play().catch((e: unknown) => {
-          if (e instanceof DOMException && e.name === 'AbortError') {
-            return;
-          }
-          console.error('[BatchRemote] Video play error:', e);
-        });
+        video.play()
+          .catch((e: unknown) => {
+            if (e instanceof DOMException && e.name === 'AbortError') {
+              return;
+            }
+            console.error('[BatchRemote] Video play error:', e);
+          })
+          .finally(() => scheduleVideoFrameSizeSync(udid));
       });
     }
+  };
+
+  const syncVideoLayout = (udid: string) => {
+    const video = videoRefByUdid.get(udid);
+    if (!video) return;
+
+    const container = video.parentElement;
+    const frameWidth = video.videoWidth || 0;
+    const frameHeight = video.videoHeight || 0;
+    const containerRect = container?.getBoundingClientRect();
+    const containerWidth = containerRect?.width ?? 0;
+    const containerHeight = containerRect?.height ?? 0;
+    const current = videoLayouts()[udid];
+
+    if (
+      current?.frameWidth === frameWidth &&
+      current?.frameHeight === frameHeight &&
+      Math.abs(current.containerWidth - containerWidth) < 0.5 &&
+      Math.abs(current.containerHeight - containerHeight) < 0.5
+    ) {
+      return;
+    }
+
+    setVideoLayouts((prev) => ({
+      ...prev,
+      [udid]: {
+        frameWidth,
+        frameHeight,
+        containerWidth,
+        containerHeight,
+      },
+    }));
+  };
+
+  const refreshAllVideoLayouts = () => {
+    videoRefByUdid.forEach((_video, udid) => syncVideoLayout(udid));
+  };
+
+  const scheduleVideoLayoutRefresh = () => {
+    if (scheduledVideoLayoutRefreshId !== null) return;
+    scheduledVideoLayoutRefreshId = requestAnimationFrame(() => {
+      scheduledVideoLayoutRefreshId = null;
+      refreshAllVideoLayouts();
+    });
+  };
+
+  const scheduleVideoFrameSizeSync = (udid: string) => {
+    const sync = (remaining: number) => {
+      syncVideoLayout(udid);
+      const video = videoRefByUdid.get(udid);
+      const container = video?.parentElement;
+      if (
+        !video ||
+        (video.videoWidth > 0 &&
+          video.videoHeight > 0 &&
+          !!container?.clientWidth &&
+          !!container?.clientHeight)
+      ) {
+        return;
+      }
+      if (remaining <= 0) return;
+      window.setTimeout(() => sync(remaining - 1), 250);
+    };
+
+    sync(20);
+    requestAnimationFrame(() => syncVideoLayout(udid));
+  };
+
+  const updateVideoContainerSize = (udid: string, width: number, height: number) => {
+    const current = videoLayouts()[udid];
+    if (current?.containerWidth === width && current?.containerHeight === height) return;
+
+    setVideoLayouts((prev) => ({
+      ...prev,
+      [udid]: {
+        frameWidth: current?.frameWidth ?? 0,
+        frameHeight: current?.frameHeight ?? 0,
+        containerWidth: width,
+        containerHeight: height,
+      },
+    }));
+  };
+
+  const cleanupVideoContainerObserver = (udid: string) => {
+    const observer = videoContainerObserverByUdid.get(udid);
+    if (!observer) return;
+    observer.disconnect();
+    videoContainerObserverByUdid.delete(udid);
+  };
+
+  const observeVideoContainer = (udid: string, video: HTMLVideoElement) => {
+    const container = video.parentElement;
+    if (!container) return;
+
+    cleanupVideoContainerObserver(udid);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      updateVideoContainerSize(udid, entry.contentRect.width, entry.contentRect.height);
+      scheduleVideoLayoutRefresh();
+    });
+    observer.observe(container);
+    videoContainerObserverByUdid.set(udid, observer);
+
+    const rect = container.getBoundingClientRect();
+    updateVideoContainerSize(udid, rect.width, rect.height);
+    syncVideoLayout(udid);
+  };
+
+  const cleanupAllVideoContainerObservers = () => {
+    videoContainerObserverByUdid.forEach((observer) => observer.disconnect());
+    videoContainerObserverByUdid.clear();
   };
 
   const scheduleBindStreamToVideo = (udid: string) => {
@@ -382,6 +523,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
     if (el) {
       videoRefByUdid.set(udid, el);
+      observeVideoContainer(udid, el);
+      scheduleVideoFrameSizeSync(udid);
       scheduleBindStreamToVideo(udid);
       return;
     }
@@ -389,6 +532,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (existing) {
       existing.srcObject = null;
     }
+    cleanupVideoContainerObserver(udid);
     videoRefByUdid.delete(udid);
   };
 
@@ -409,6 +553,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       cancelAnimationFrame(pendingBind);
       bindFrameByUdid.delete(udid);
     }
+    cleanupVideoContainerObserver(udid);
     setDeviceStream(udid, null);
     setConnectionStates(udid, createDisconnectedViewState());
   };
@@ -444,6 +589,12 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
   const calculateOptimalResolution = (device: Device, maxScale: number = appliedResolution(), columnCount: number = appliedColumns()): number => {
     let { nativeW, nativeH } = getDeviceNativeSize(device);
+    const isLandscape = isLandscapeRotation();
+    if (isLandscape) {
+      const originalW = nativeW;
+      nativeW = nativeH;
+      nativeH = originalW;
+    }
 
     const GRID_GAP = 12;
     const GRID_PADDING = 16;
@@ -452,10 +603,10 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const availableWidth = panelWidth - (GRID_PADDING * 2) - (GRID_GAP * (cols - 1));
     const cardWidth = Math.max(1, availableWidth / cols);
     const containerWidth = cardWidth;
-    const containerHeight = containerWidth * (16 / 9);
+    const containerAspect = isLandscape ? 16 / 9 : 9 / 16;
+    const containerHeight = containerWidth / containerAspect;
 
     const deviceAspect = nativeW / nativeH;
-    const containerAspect = 9 / 16;
 
     let displayWidth;
     let displayHeight;
@@ -737,6 +888,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       }
       if (newWidth !== size.width || newHeight !== size.height) {
         setWindowSize({ width: newWidth, height: newHeight });
+        scheduleVideoLayoutRefresh();
       }
 
       if (newX !== pos.x || newY !== pos.y || newWidth !== size.width || newHeight !== size.height) {
@@ -770,6 +922,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const newWidth = Math.max(400, resizeStart.width + deltaX);
     const newHeight = Math.max(300, resizeStart.height + deltaY);
     schedulePanelUpdate({ size: { width: newWidth, height: newHeight } });
+    scheduleVideoLayoutRefresh();
   };
 
   const handleResizeEnd = () => {
@@ -778,6 +931,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     setIsResizing(false);
     document.removeEventListener('mousemove', handleResizeMove);
     document.removeEventListener('mouseup', handleResizeEnd);
+    scheduleVideoLayoutRefresh();
     scheduleResolutionRefresh();
     scheduleIntersectionRefresh();
     flushSettings();
@@ -1113,12 +1267,72 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
   };
 
+  const setRotation = (degrees: number) => {
+    cleanupTouchState();
+    wheelBatcher.clear();
+    setCurrentRotation(degrees);
+    saveSettings({ rotation: degrees });
+    scheduleResolutionRefresh();
+    scheduleVideoLayoutRefresh();
+    requestAnimationFrame(() => {
+      videoRefByUdid.forEach((_video, udid) => scheduleVideoFrameSizeSync(udid));
+    });
+  };
+
+  const getDeviceVideoTransformStyle = (udid: string) => {
+    const rotation = currentRotation();
+    const storedLayout = videoLayouts()[udid];
+    const video = videoRefByUdid.get(udid);
+    const container = video?.parentElement;
+    const hasStoredLayout = !!storedLayout &&
+      storedLayout.frameWidth > 0 &&
+      storedLayout.frameHeight > 0 &&
+      storedLayout.containerWidth > 0 &&
+      storedLayout.containerHeight > 0;
+    const layout = hasStoredLayout ? storedLayout : (
+      video?.videoWidth && video?.videoHeight && container
+        ? {
+            frameWidth: video.videoWidth,
+            frameHeight: video.videoHeight,
+            containerWidth: container.clientWidth,
+            containerHeight: container.clientHeight,
+          }
+        : undefined
+    );
+    const transform = `translate(-50%, -50%) rotate(${rotation}deg)`;
+
+    if (
+      !layout ||
+      layout.frameWidth <= 0 ||
+      layout.frameHeight <= 0 ||
+      layout.containerWidth <= 0 ||
+      layout.containerHeight <= 0
+    ) {
+      return { transform };
+    }
+
+    const isSideways = rotation === 90 || rotation === 270;
+    const rotatedWidth = isSideways ? layout.frameHeight : layout.frameWidth;
+    const rotatedHeight = isSideways ? layout.frameWidth : layout.frameHeight;
+    const scale = Math.min(
+      layout.containerWidth / rotatedWidth,
+      layout.containerHeight / rotatedHeight,
+    );
+
+    return {
+      width: `${layout.frameWidth * scale}px`,
+      height: `${layout.frameHeight * scale}px`,
+      transform,
+    };
+  };
+
   // 坐标转换
   const convertToDeviceCoordinates = (event: MouseEvent | Touch, videoElement: HTMLVideoElement) => {
     return getNormalizedVideoCoordinates({
       clientX: event.clientX,
       clientY: event.clientY,
       videoElement,
+      rotation: currentRotation(),
     });
   };
 
@@ -1277,9 +1491,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       nx: coords.x,
       ny: coords.y,
       deltaY,
-      rotateQuarter: 0,
+      rotateQuarter: rotationToQuarter(currentRotation()),
       settings,
-      mergeKey: `${udid}|${targets.join(',')}`,
+      mergeKey: `${udid}|${targets.join(',')}|${rotationToQuarter(currentRotation())}`,
     });
 
     event.preventDefault();
@@ -1370,6 +1584,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       serviceByUdid.clear();
       streamByUdid.clear();
       videoRefByUdid.clear();
+      cleanupAllVideoContainerObservers();
+      setVideoLayouts({});
       lastAppliedResolutionByUdid.clear();
       
       // 延迟初始化可见性观察器，由可见性驱动连接
@@ -1390,6 +1606,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       setWheelSettingsOpen(false);
       setConnectionStates(reconcile({}));
       videoRefByUdid.clear();
+      cleanupAllVideoContainerObservers();
+      setVideoLayouts({});
       suppressIntersectionEffects = false;
       if (intersectionObserver) {
         intersectionObserver.disconnect();
@@ -1418,6 +1636,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       intersectionObserver.disconnect();
       intersectionObserver = null;
     }
+    if (scheduledVideoLayoutRefreshId !== null) {
+      cancelAnimationFrame(scheduledVideoLayoutRefreshId);
+      scheduledVideoLayoutRefreshId = null;
+    }
+    cleanupAllVideoContainerObservers();
     bindFrameByUdid.forEach((rafId) => cancelAnimationFrame(rafId));
     bindFrameByUdid.clear();
     flushQueuedPanelUpdate();
@@ -1722,6 +1945,47 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     </>
   );
 
+  const renderRotationButtons = () => (
+    <div class={styles.rotationButtons}>
+      <button
+        type="button"
+        class={`${styles.rotationButton} ${currentRotation() === 0 ? styles.active : ''}`}
+        onClick={() => setRotation(0)}
+        title={t('remote.rotation_normal')}
+        aria-label={t('remote.rotation_normal')}
+      >
+        <IconMobileScreen size={14} />
+      </button>
+      <button
+        type="button"
+        class={`${styles.rotationButton} ${currentRotation() === 90 ? styles.active : ''}`}
+        onClick={() => setRotation(90)}
+        title={t('remote.rotation_right')}
+        aria-label={t('remote.rotation_right')}
+      >
+        <IconMobileScreen size={14} style={{ transform: 'rotate(90deg)' }} />
+      </button>
+      <button
+        type="button"
+        class={`${styles.rotationButton} ${currentRotation() === 180 ? styles.active : ''}`}
+        onClick={() => setRotation(180)}
+        title={t('remote.rotation_180')}
+        aria-label={t('remote.rotation_180')}
+      >
+        <IconMobileScreen size={14} style={{ transform: 'rotate(180deg)' }} />
+      </button>
+      <button
+        type="button"
+        class={`${styles.rotationButton} ${currentRotation() === 270 ? styles.active : ''}`}
+        onClick={() => setRotation(270)}
+        title={t('remote.rotation_left')}
+        aria-label={t('remote.rotation_left')}
+      >
+        <IconMobileScreen size={14} style={{ transform: 'rotate(270deg)' }} />
+      </button>
+    </div>
+  );
+
   const renderMobileSidebar = () => (
     <>
       <div
@@ -1781,6 +2045,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
             </div>
           </div>
 
+          <div class={styles.wheelField}>
+            <span class={styles.wheelFieldLabel}>{t('remote.rotation')}</span>
+            {renderRotationButtons()}
+          </div>
+
           <div class={styles.mobileSidebarSection}>
             <label class={styles.mobileSidebarSectionLabel}>{t('remote.wheel_settings')}</label>
             <div class={styles.mobileSidebarWheelPanel}>
@@ -1805,6 +2074,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
             panelResizeObserver = new ResizeObserver((entries) => {
               const entry = entries[0];
               syncPanelWidth(entry?.contentRect.width ?? el.getBoundingClientRect().width);
+              scheduleVideoLayoutRefresh();
             });
             panelResizeObserver.observe(el);
             // 初始化位置（仅桌面端）
@@ -1814,6 +2084,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                 setWindowPos({ x: rect.left, y: rect.top });
                 setWindowSize({ width: rect.width, height: rect.height });
                 syncPanelWidth(rect.width);
+                scheduleVideoLayoutRefresh();
                 setWindowInitialized(true);
               });
             }
@@ -1951,6 +2222,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                   <span>{previewColumns()}</span>
                 </div>
 
+                <div class={styles.rotationControlGroup}>
+                  <label>{t('remote.rotation')}</label>
+                  {renderRotationButtons()}
+                </div>
+
                 <div class={styles.wheelSettingsSection} ref={(el) => { wheelSettingsRef = el; }}>
                   <button
                     type="button"
@@ -2010,7 +2286,10 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                       </div>
                       
                       {/* 视频区域 */}
-                      <div class={styles.videoContainer}>
+                      <div
+                        class={styles.videoContainer}
+                        style={{ 'aspect-ratio': isLandscapeRotation() ? '16 / 9' : '9 / 16' }}
+                      >
                         <Show 
                           when={hasStream()} 
                           fallback={
@@ -2032,9 +2311,15 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                           <video
                             ref={(el) => setVideoRef(device.udid, el)}
                             class={styles.deviceVideo}
+                            style={getDeviceVideoTransformStyle(device.udid)}
                             autoplay
                             playsinline
                             muted
+                            onLoadedMetadata={() => scheduleVideoFrameSizeSync(device.udid)}
+                            onLoadedData={() => scheduleVideoFrameSizeSync(device.udid)}
+                            onCanPlay={() => scheduleVideoFrameSizeSync(device.udid)}
+                            onPlaying={() => scheduleVideoFrameSizeSync(device.udid)}
+                            onResize={() => scheduleVideoFrameSizeSync(device.udid)}
                             onMouseDown={(e) => handleDeviceMouseDown(device.udid, e)}
                             onMouseMove={(e) => handleDeviceMouseMove(device.udid, e)}
                             onMouseUp={(e) => handleDeviceMouseUp(device.udid, e)}

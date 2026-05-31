@@ -73,6 +73,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const [currentFps, setCurrentFps] = createSignal(0);
   const [bitrate, setBitrate] = createSignal(0);
   const [currentResolution, setCurrentResolution] = createSignal(''); // 当前实际分辨率
+  const [videoFrameSize, setVideoFrameSize] = createSignal({ width: 0, height: 0 });
   const [remoteStream, setRemoteStream] = createSignal<MediaStream | null>(null);
   const [syncControl, setSyncControl] = createSignal(false); // 同步控制开关
   const [currentRotation, setCurrentRotation] = createSignal(0); // 旋转角度: 0, 90, 180, 270
@@ -294,6 +295,28 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   const clearCachedVideoRect = () => {
     cachedVideoRect = null;
+  };
+
+  const setVideoFrameSizeIfChanged = (width: number, height: number) => {
+    setVideoFrameSize((prev) => {
+      if (prev.width === width && prev.height === height) return prev;
+      clearCachedVideoRect();
+      return { width, height };
+    });
+  };
+
+  const syncVideoFrameSize = () => {
+    const width = videoRef?.videoWidth ?? 0;
+    const height = videoRef?.videoHeight ?? 0;
+
+    if (width > 0 && height > 0) {
+      setVideoFrameSizeIfChanged(width, height);
+      setCurrentResolution(`${width}x${height}`);
+      return;
+    }
+
+    setVideoFrameSizeIfChanged(0, 0);
+    setCurrentResolution('');
   };
 
   // 最大允许像素限制 (720 x 1280 = 921600)
@@ -560,12 +583,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
           }
         });
 
-        // 每秒更新当前视频实际分辨率
-        if (videoRef && videoRef.videoWidth > 0) {
-          setCurrentResolution(`${videoRef.videoWidth}x${videoRef.videoHeight}`);
-        } else {
-          setCurrentResolution('');
-        }
+        // 统计轮询能兜住部分浏览器未触发 resize 事件的码流尺寸变化。
+        syncVideoFrameSize();
       } catch (e) {
         console.error('Stats error:', e);
       }
@@ -602,33 +621,29 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     setSelectedControlDevice(deviceUdid);
   };
 
-  // 计算旋转后的视频样式
-  // 当旋转90°或270°时，视频的宽高互换，需要缩放以适应容器
   const getVideoTransformStyle = () => {
     const rotation = currentRotation();
-    
-    if (rotation === 0 || rotation === 180) {
-      // 不需要特殊处理
+    const container = displaySize();
+    const frame = videoFrameSize();
+
+    if (
+      container.width <= 0 ||
+      container.height <= 0 ||
+      frame.width <= 0 ||
+      frame.height <= 0
+    ) {
       return { transform: `rotate(${rotation}deg)` };
     }
-    
-    // 90° 或 270° 旋转：视频宽高互换
-    // 需要计算缩放比例，使旋转后的视频适应容器
-    if (!videoContainerRef) {
-      return { transform: `rotate(${rotation}deg)` };
-    }
-    
-    const containerWidth = videoContainerRef.clientWidth;
-    const containerHeight = videoContainerRef.clientHeight;
-    
-    // 旋转后，视频的"显示宽度"是原来的高度，"显示高度"是原来的宽度
-    // 我们需要让视频元素的宽高等于容器的高宽（交换）
-    // 然后旋转后刚好填满容器
-    // 计算缩放比例：取较小的那个比例，确保不超出
-    const scale = Math.min(containerWidth / containerHeight, containerHeight / containerWidth);
-    
+
+    const isSideways = rotation === 90 || rotation === 270;
+    const rotatedWidth = isSideways ? frame.height : frame.width;
+    const rotatedHeight = isSideways ? frame.width : frame.height;
+    const scale = Math.min(container.width / rotatedWidth, container.height / rotatedHeight);
+
     return { 
-      transform: `rotate(${rotation}deg) scale(${scale})`,
+      width: `${frame.width * scale}px`,
+      height: `${frame.height * scale}px`,
+      transform: `rotate(${rotation}deg)`,
     };
   };
 
@@ -1386,6 +1401,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   // 设置旋转角度
   const setRotation = (degrees: number) => {
+    clearCachedVideoRect();
     setCurrentRotation(degrees);
   };
 
@@ -1909,10 +1925,14 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   muted
                   onLoadedMetadata={() => {
                     debugLog('webrtc', '[WebRTC] Video metadata loaded:', videoRef?.videoWidth, 'x', videoRef?.videoHeight);
+                    syncVideoFrameSize();
                     videoRef?.play().catch(e => console.error('[WebRTC] Meta play error:', e));
                   }}
                   onPlay={() => debugLog('webrtc', '[WebRTC] Video started playing')}
-                  onResize={() => debugLog('webrtc', '[WebRTC] Video resized:', videoRef?.videoWidth, 'x', videoRef?.videoHeight)}
+                  onResize={() => {
+                    debugLog('webrtc', '[WebRTC] Video resized:', videoRef?.videoWidth, 'x', videoRef?.videoHeight);
+                    syncVideoFrameSize();
+                  }}
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
