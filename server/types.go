@@ -120,14 +120,18 @@ var passhash []byte
 
 // SafeConn is a thread-safe WebSocket connection wrapper
 type SafeConn struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn             *websocket.Conn
+	mu               sync.Mutex
+	writeMessageHook func(messageType int, data []byte) error
 }
 
 // WriteMessage writes a message to the WebSocket connection (thread-safe)
 func (sc *SafeConn) WriteMessage(messageType int, data []byte) error {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
+	if sc.writeMessageHook != nil {
+		return sc.writeMessageHook(messageType, data)
+	}
 	return sc.conn.WriteMessage(messageType, data)
 }
 

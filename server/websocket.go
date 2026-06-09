@@ -1019,6 +1019,13 @@ func handleMessage(conn *SafeConn, data Message) error {
 				deviceUDID := udid
 				dc := deviceConn
 				httpDebugf("[http-bin] Sending http/request-bin to device %s", udid)
+				if httpReq.BodySize > 0 {
+					// 请求体分片随后会到达，必须先让设备建立 pending_http_bin，否则早到分片会被丢弃。
+					if err := writeTextMessage(dc, httpBytes); err != nil {
+						log.Printf("[http-bin] Failed to send to device %s: %v", deviceUDID, err)
+					}
+					continue
+				}
 				runAsyncWrite(func() {
 					if err := writeTextMessage(dc, httpBytes); err != nil {
 						log.Printf("[http-bin] Failed to send to device %s: %v", deviceUDID, err)
