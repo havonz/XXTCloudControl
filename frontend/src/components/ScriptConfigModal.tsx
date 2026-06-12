@@ -10,6 +10,8 @@ interface ScriptConfigModalProps {
   scriptInfo?: ScriptInfo | null;
   onSubmit: (values: Record<string, any>) => void;
   onClose: () => void;
+  submitLabel?: string;
+  validateOnOpen?: boolean;
 }
 
 const ScriptConfigModal: Component<ScriptConfigModalProps> = (props) => {
@@ -22,6 +24,8 @@ const ScriptConfigModal: Component<ScriptConfigModalProps> = (props) => {
       scriptInfo={props.scriptInfo}
       onSubmit={props.onSubmit}
       onClose={props.onClose}
+      submitLabel={props.submitLabel}
+      validateOnOpen={props.validateOnOpen}
     />
   );
 };

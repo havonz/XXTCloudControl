@@ -1,8 +1,9 @@
 import { For, Show, createMemo, createRenderEffect, createSignal, onMount, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { Select, createListCollection } from '@ark-ui/solid';
+import { Combobox, Select, createListCollection } from '@ark-ui/solid';
 import { createFormRunnerStore } from '../services/formRunnerStore';
-import { ConfigItem, ScriptInfo } from '../utils/scriptConfig';
+import { ComboBoxConfigItem, ConfigItem, EditConfigItem, ScriptInfo, normalizeEditVisibleRows } from '../utils/scriptConfig';
+import { validateTextConfigValue, type TextValidationIssue } from '../utils/scriptRunOptions';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
 import { useI18n } from '../i18n';
@@ -16,6 +17,8 @@ interface FormRunnerProps {
   scriptInfo?: ScriptInfo | null;
   onSubmit: (values: Record<string, any>) => void;
   onClose?: () => void;
+  submitLabel?: string;
+  validateOnOpen?: boolean;
 }
 
 export default function FormRunner(props: FormRunnerProps) {
@@ -23,18 +26,8 @@ export default function FormRunner(props: FormRunnerProps) {
   const store = createFormRunnerStore();
   const [aboutOpen, setAboutOpen] = createSignal(false);
   const [formReady, setFormReady] = createSignal(false);
+  const [validationErrors, setValidationErrors] = createSignal<Record<string, string>>({});
   const aboutBackdropClose = createBackdropClose(() => setAboutOpen(false));
-
-  createRenderEffect(() => {
-    if (props.open) {
-      setFormReady(false);
-      store.initialize(props.items, props.initialValues);
-      queueMicrotask(() => setFormReady(true));
-    } else {
-      setAboutOpen(false);
-      setFormReady(false);
-    }
-  });
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -55,12 +48,66 @@ export default function FormRunner(props: FormRunnerProps) {
   });
 
   const handleSubmit = () => {
+    const errors = validateValues();
+    setValidationErrors(errors);
+    if (Object.keys(errors).length > 0) return;
     const result = store.submit(props.items);
     props.onSubmit(result);
   };
 
   const getStringValue = (key: string) => (store.getValue<string>(key) ?? '');
   const getArrayValue = (key: string) => (store.getValue<string[]>(key) ?? []);
+
+  const formatValidationIssue = (issue: TextValidationIssue): string => {
+    switch (issue.kind) {
+      case 'empty':
+        return t('form.non_empty_error');
+      case 'regex_unsupported':
+        return t('form.validation_regex_unsupported');
+      case 'regex_invalid':
+        return t('form.validation_regex_invalid');
+      case 'regex_mismatch':
+        return issue.message || t('form.validation_regex_mismatch');
+      default:
+        return t('form.validation_regex_mismatch');
+    }
+  };
+
+  const validateValues = (): Record<string, string> => {
+    const next: Record<string, string> = {};
+    props.items.forEach((item, index) => {
+      if (item.type !== 'Edit' && item.type !== 'ComboBox') return;
+      if (item.type === 'ComboBox' && (item as ComboBoxConfigItem).canEdit !== true) return;
+      const key = store.keyOf(item, index);
+      const issue = validateTextConfigValue(item as EditConfigItem | ComboBoxConfigItem, getStringValue(key));
+      if (issue) {
+        next[key] = formatValidationIssue(issue);
+      }
+    });
+    return next;
+  };
+
+  const clearValidationError = (key: string) => {
+    if (!validationErrors()[key]) return;
+    setValidationErrors((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  createRenderEffect(() => {
+    if (props.open) {
+      setFormReady(false);
+      store.initialize(props.items, props.initialValues);
+      setValidationErrors(props.validateOnOpen ? validateValues() : {});
+      queueMicrotask(() => setFormReady(true));
+    } else {
+      setAboutOpen(false);
+      setFormReady(false);
+      setValidationErrors({});
+    }
+  });
 
   const hasScriptInfo = createMemo(() => {
     const info = props.scriptInfo;
@@ -114,24 +161,97 @@ export default function FormRunner(props: FormRunnerProps) {
                             </Show>
                             
                             <Show when={item.type === 'Edit'}>
-                              <input
-                                type="text"
-                                placeholder={item.placeholder || t('form.input_placeholder')}
-                                value={getStringValue(key)}
-                                onInput={(e) => store.setValue(key, e.currentTarget.value)}
-                              />
+                              {(() => {
+                                const edit = item as EditConfigItem;
+                                const handleInput = (value: string) => {
+                                  store.setValue(key, value);
+                                  clearValidationError(key);
+                                };
+                                if (edit.allowMultiline) {
+                                  return (
+                                    <textarea
+                                      placeholder={edit.placeholder || t('form.input_placeholder')}
+                                      value={getStringValue(key)}
+                                      rows={normalizeEditVisibleRows(edit.visibleRows)}
+                                      aria-invalid={validationErrors()[key] ? 'true' : 'false'}
+                                      onInput={(e) => handleInput(e.currentTarget.value)}
+                                    />
+                                  );
+                                }
+                                return (
+                                  <input
+                                    type="text"
+                                    placeholder={edit.placeholder || t('form.input_placeholder')}
+                                    value={getStringValue(key)}
+                                    aria-invalid={validationErrors()[key] ? 'true' : 'false'}
+                                    onInput={(e) => handleInput(e.currentTarget.value)}
+                                  />
+                                );
+                              })()}
+                              <Show when={validationErrors()[key]}>
+                                <div class={styles.validationError}>{validationErrors()[key]}</div>
+                              </Show>
                             </Show>
                             
                             <Show when={item.type === 'ComboBox'}>
                               {(() => {
-                                const collection = createMemo(() => createListCollection({ items: item.item }));
+                                const combo = item as ComboBoxConfigItem;
+                                const options = Array.isArray(combo.item) ? combo.item : [];
+                                const collection = createMemo(() => createListCollection({ items: options }));
                                 const current = () => getStringValue(key);
                                 const value = () => current() ? [current()] : [];
+                                const handleValue = (next: string) => {
+                                  store.setValue(key, next);
+                                  clearValidationError(key);
+                                };
+                                if (combo.canEdit) {
+                                  return (
+                                    <>
+                                      <Combobox.Root
+                                        collection={collection()}
+                                        inputValue={current()}
+                                        value={options.includes(current()) ? value() : []}
+                                        allowCustomValue
+                                        openOnClick
+                                        invalid={!!validationErrors()[key]}
+                                        onInputValueChange={(e) => handleValue(e.inputValue)}
+                                        onValueChange={(e) => handleValue(String((e.items?.[0] ?? e.value?.[0] ?? '') as string))}
+                                      >
+                                        <Combobox.Control class="cbx">
+                                          <Combobox.Input
+                                            class="cbx-input"
+                                            placeholder={t('form.select_placeholder')}
+                                          />
+                                          <Combobox.Trigger class="cbx-trigger">▼</Combobox.Trigger>
+                                        </Combobox.Control>
+                                        <Portal>
+                                          <Combobox.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
+                                            <Combobox.Content class="cbx-panel">
+                                              <Combobox.ItemGroup>
+                                                <For each={options}>{(opt) => (
+                                                  <Combobox.Item item={opt} class="cbx-item">
+                                                    <div class="cbx-item-content">
+                                                      <Combobox.ItemIndicator>✓</Combobox.ItemIndicator>
+                                                      <Combobox.ItemText>{opt}</Combobox.ItemText>
+                                                    </div>
+                                                  </Combobox.Item>
+                                                )}</For>
+                                              </Combobox.ItemGroup>
+                                            </Combobox.Content>
+                                          </Combobox.Positioner>
+                                        </Portal>
+                                      </Combobox.Root>
+                                      <Show when={validationErrors()[key]}>
+                                        <div class={styles.validationError}>{validationErrors()[key]}</div>
+                                      </Show>
+                                    </>
+                                  );
+                                }
                                 return (
                                   <Select.Root
                                     collection={collection()}
                                     value={value()}
-                                    onValueChange={(e) => store.setValue(key, (e.items?.[0] as string) ?? '')}
+                                    onValueChange={(e) => handleValue((e.items?.[0] as string) ?? '')}
                                   >
                                     <Select.Control>
                                       <Select.Trigger class="cbx-select">
@@ -143,7 +263,7 @@ export default function FormRunner(props: FormRunnerProps) {
                                       <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
                                         <Select.Content class="cbx-panel">
                                           <Select.ItemGroup>
-                                            <For each={item.item}>{(opt) => (
+                                            <For each={options}>{(opt) => (
                                               <Select.Item item={opt} class="cbx-item">
                                                 <div class="cbx-item-content">
                                                   <Select.ItemIndicator>✓</Select.ItemIndicator>
@@ -231,7 +351,7 @@ export default function FormRunner(props: FormRunnerProps) {
             
             {/* Footer */}
             <div class={styles.footer}>
-              <button type="button" onClick={handleSubmit}>{t('form.save_config')}</button>
+              <button type="button" onClick={handleSubmit}>{props.submitLabel || t('form.save_config')}</button>
             </div>
           </div>
 

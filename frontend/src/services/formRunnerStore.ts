@@ -24,6 +24,7 @@ const computeInitialValue = (
       return [key, item.text ?? ''];
     }
     case 'ComboBox': {
+      const options = Array.isArray(item.item) ? item.item : [];
       if (typeof initByCaption === 'string') return [key, initByCaption];
       if (initByCaption && typeof initByCaption === 'object') {
         const select = (initByCaption as any).select;
@@ -31,15 +32,18 @@ const computeInitialValue = (
         if (typeof textValue === 'string' && (select === 0 || typeof select !== 'number')) {
           return [key, textValue];
         }
-        if (typeof select === 'number' && select > 0 && select <= item.item.length) {
-          return [key, item.item[select - 1]];
+        if (typeof select === 'number' && select > 0 && select <= options.length) {
+          return [key, options[select - 1]];
         }
       }
-      if (typeof initByCaption === 'number' && initByCaption > 0 && initByCaption <= item.item.length) {
-        return [key, item.item[initByCaption - 1]];
+      if (typeof initByCaption === 'number' && initByCaption > 0 && initByCaption <= options.length) {
+        return [key, options[initByCaption - 1]];
       }
       const idx = (item.select ?? 0) - 1;
-      return [key, idx >= 0 && idx < item.item.length ? item.item[idx] : ''];
+      if (idx >= 0 && idx < options.length) {
+        return [key, options[idx]];
+      }
+      return [key, item.canEdit ? (item.text ?? '') : ''];
     }
     case 'RadioGroup': {
       if (typeof initByCaption === 'number' && initByCaption > 0 && initByCaption <= item.item.length) {
@@ -86,8 +90,9 @@ const buildSubmitPayload = (items: ConfigItem[], values: Record<string, any>): R
         out[item.caption] = value ?? '';
         break;
       case 'ComboBox': {
+        const options = Array.isArray(item.item) ? item.item : [];
         const strVal = String(value ?? '');
-        const idx = item.item.indexOf(strVal);
+        const idx = options.indexOf(strVal);
         if (item.canEdit && idx < 0 && strVal !== '') {
           out[item.caption] = { select: 0, text: strVal };
         } else {

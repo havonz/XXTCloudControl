@@ -234,6 +234,7 @@
     "choose_script_first": "请先选择脚本",
     "script_started": "脚本已发送并启动",
     "script_started_count": "脚本已发送并启动 ({count} 台设备)",
+    "script_start_canceled": "已取消启动脚本",
     "partial_success": "部分成功: {success} 成功, {fail} 失败",
     "send_script_failed": "发送脚本失败: {msg}",
     "send_script_network_failed": "发送脚本网络错误",
@@ -471,6 +472,7 @@
     "script_config": "脚本配置",
     "input_placeholder": "请输入",
     "save_config": "保存配置",
+    "submit_and_start": "提交并启动",
     "about_script": "关于脚本",
     "name": "名称",
     "version": "版本",
@@ -483,7 +485,11 @@
     "group_config_title": "分组配置: {group} ({script})",
     "load_config_failed": "加载配置失败",
     "load_group_config_failed": "加载分组配置失败",
-    "save_config_failed": "保存配置失败"
+    "save_config_failed": "保存配置失败",
+    "non_empty_error": "该项不能为空",
+    "validation_regex_unsupported": "正则包含不支持的语法",
+    "validation_regex_invalid": "正则配置无效",
+    "validation_regex_mismatch": "格式不正确"
   },
   "log": {
     "title": "实时日志 - {name}",

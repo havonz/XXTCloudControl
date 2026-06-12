@@ -113,4 +113,39 @@ describe('useScriptConfigManager async state', () => {
 
     dispose();
   });
+
+  it('promptBeforeRun 会打开启动前配置并在提交后继续', async () => {
+    const authFetchMock = vi.mocked(authFetch);
+    authFetchMock
+      .mockResolvedValueOnce(makeJsonResponse({
+        RunOptions: { promptBeforeRun: true },
+        UI: [{ type: 'Edit', caption: '账号' }],
+        Config: { 账号: 'abc' },
+      }))
+      .mockResolvedValueOnce(makeJsonResponse({ success: true }));
+
+    let dispose!: () => void;
+    const manager = createRoot((rootDispose) => {
+      dispose = rootDispose;
+      return useScriptConfigManager();
+    });
+
+    const pending = manager.ensureGlobalLaunchConfig('demo');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(manager.isOpen()).toBe(true);
+    expect(manager.submitLabel()).toBe('提交并启动');
+
+    await manager.submitConfig({ 账号: 'abc' });
+
+    await expect(pending).resolves.toBe(true);
+    expect(authFetchMock).toHaveBeenLastCalledWith('/api/scripts/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'demo', config: { 账号: 'abc' } }),
+    });
+
+    dispose();
+  });
 });

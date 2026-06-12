@@ -5,11 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1061,6 +1063,229 @@ func buildMergedMainJSON(template map[string]interface{}, groupConfig map[string
 	return base64.StdEncoding.EncodeToString(newJSON), true
 }
 
+func scriptConfigMapValue(value interface{}) map[string]interface{} {
+	if value == nil {
+		return nil
+	}
+	if typed, ok := value.(map[string]interface{}); ok {
+		return typed
+	}
+	return nil
+}
+
+func mergeScriptConfig(base map[string]interface{}, override map[string]interface{}) map[string]interface{} {
+	merged := make(map[string]interface{})
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range override {
+		merged[key] = value
+	}
+	return merged
+}
+
+func scriptConfigNumberIndex(value interface{}) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int64:
+		return int(typed), true
+	case float64:
+		index := int(typed)
+		return index, typed == float64(index)
+	case json.Number:
+		index, err := strconv.Atoi(typed.String())
+		return index, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func scriptConfigComboOptions(item map[string]interface{}) []string {
+	switch raw := item["item"].(type) {
+	case []interface{}:
+		options := make([]string, 0, len(raw))
+		for _, entry := range raw {
+			options = append(options, fmt.Sprint(entry))
+		}
+		return options
+	case []string:
+		return append([]string(nil), raw...)
+	default:
+		return nil
+	}
+}
+
+func scriptConfigComboOptionText(item map[string]interface{}, index int) string {
+	options := scriptConfigComboOptions(item)
+	if index <= 0 || index > len(options) {
+		return ""
+	}
+	return options[index-1]
+}
+
+func scriptConfigEffectiveEditText(item map[string]interface{}, config map[string]interface{}, caption string) string {
+	if value, ok := config[caption]; ok {
+		if value == nil {
+			return ""
+		}
+		if text, ok := value.(string); ok {
+			return text
+		}
+		return fmt.Sprint(value)
+	}
+	if text, ok := item["text"].(string); ok {
+		return text
+	}
+	return ""
+}
+
+func scriptConfigEffectiveComboText(item map[string]interface{}, config map[string]interface{}, caption string) string {
+	if value, ok := config[caption]; ok {
+		if value == nil {
+			return ""
+		}
+		if text, ok := value.(string); ok {
+			return text
+		}
+		if index, ok := scriptConfigNumberIndex(value); ok {
+			return scriptConfigComboOptionText(item, index)
+		}
+		if objectValue, ok := value.(map[string]interface{}); ok {
+			if index, ok := scriptConfigNumberIndex(objectValue["select"]); ok && index > 0 {
+				return scriptConfigComboOptionText(item, index)
+			}
+			if text, ok := objectValue["text"].(string); ok {
+				return text
+			}
+			return ""
+		}
+		return fmt.Sprint(value)
+	}
+	if index, ok := scriptConfigNumberIndex(item["select"]); ok && index > 0 {
+		return scriptConfigComboOptionText(item, index)
+	}
+	if item["canEdit"] == true {
+		if text, ok := item["text"].(string); ok {
+			return text
+		}
+	}
+	return ""
+}
+
+func validateScriptTextConfigItem(item map[string]interface{}, config map[string]interface{}) error {
+	itemType := strings.TrimSpace(fmt.Sprint(item["type"]))
+	if itemType != "Edit" && itemType != "ComboBox" {
+		return nil
+	}
+	if itemType == "ComboBox" && item["canEdit"] != true {
+		return nil
+	}
+
+	caption := strings.TrimSpace(fmt.Sprint(item["caption"]))
+	if caption == "" {
+		caption = itemType
+	}
+
+	value := ""
+	if itemType == "ComboBox" {
+		value = scriptConfigEffectiveComboText(item, config, caption)
+	} else {
+		value = scriptConfigEffectiveEditText(item, config, caption)
+	}
+
+	if item["nonEmpty"] == true && value == "" {
+		return fmt.Errorf("script config field cannot be empty: %s", caption)
+	}
+
+	pattern, _ := item["validationRegex"].(string)
+	if pattern == "" {
+		return nil
+	}
+	regex, err := regexp.Compile("^(?:" + pattern + ")$")
+	if err != nil {
+		return fmt.Errorf("script config regex is invalid: %s", caption)
+	}
+	if !regex.MatchString(value) {
+		if message, ok := item["patternMessage"].(string); ok && message != "" {
+			return errors.New(message)
+		}
+		return fmt.Errorf("script config field format is invalid: %s", caption)
+	}
+	return nil
+}
+
+func validateScriptMainConfig(mainObj map[string]interface{}, config map[string]interface{}) error {
+	uiItems, ok := mainObj["UI"].([]interface{})
+	if !ok {
+		return nil
+	}
+	for _, rawItem := range uiItems {
+		item, ok := rawItem.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if err := validateScriptTextConfigItem(item, config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func loadScriptMainJSONForValidation(scriptPath string) (map[string]interface{}, bool, error) {
+	mainJSONPath := filepath.Join(scriptPath, "lua", "scripts", "main.json")
+	data, err := os.ReadFile(mainJSONPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	var mainObj map[string]interface{}
+	if err := json.Unmarshal(data, &mainObj); err != nil {
+		return nil, true, err
+	}
+	return mainObj, true, nil
+}
+
+func validateScriptRequestConfig(scriptPath string, devices []string, configIndex map[string]map[string]interface{}) error {
+	mainObj, exists, err := loadScriptMainJSONForValidation(scriptPath)
+	if err != nil {
+		if exists {
+			return fmt.Errorf("failed to parse main.json")
+		}
+		return err
+	}
+	if !exists {
+		return nil
+	}
+
+	baseConfig := scriptConfigMapValue(mainObj["Config"])
+	if len(devices) == 0 {
+		return validateScriptMainConfig(mainObj, baseConfig)
+	}
+
+	validated := make(map[string]struct{})
+	for _, udid := range devices {
+		groupConfig := configIndex[udid]
+		effectiveConfig := baseConfig
+		if groupConfig != nil {
+			effectiveConfig = mergeScriptConfig(baseConfig, groupConfig)
+		}
+		keyData, _ := json.Marshal(effectiveConfig)
+		key := string(keyData)
+		if _, ok := validated[key]; ok {
+			continue
+		}
+		if err := validateScriptMainConfig(mainObj, effectiveConfig); err != nil {
+			return err
+		}
+		validated[key] = struct{}{}
+	}
+	return nil
+}
+
 // scriptFileSender caches per-send payloads and handles main.json config merging.
 type scriptFileSender struct {
 	files             []scriptFileData
@@ -1213,6 +1438,14 @@ func scriptsSendHandler(c *gin.Context) {
 		}
 	}
 
+	configIndex := buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups)
+	if isDir {
+		if err := validateScriptRequestConfig(scriptPath, req.Devices, configIndex); err != nil {
+			jsonError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	filesToSend, err := collectScriptFilesCached(scriptPath, scriptName, isDir, isPiled)
 	if err != nil {
 		errorMsg := "failed to read script directory"
@@ -1227,7 +1460,7 @@ func scriptsSendHandler(c *gin.Context) {
 	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 
-	sender := newScriptFileSender(filesToSend, buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups))
+	sender := newScriptFileSender(filesToSend, configIndex)
 
 	deviceConns := snapshotDeviceConns(req.Devices)
 	for _, udid := range req.Devices {
@@ -1345,6 +1578,14 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		}
 	}
 
+	configIndex := buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups)
+	if isDir {
+		if err := validateScriptRequestConfig(scriptPath, req.Devices, configIndex); err != nil {
+			jsonError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	filesToSend, err := collectScriptFilesCached(scriptPath, scriptName, isDir, isPiled)
 	if err != nil {
 		errorMsg := "failed to read script directory"
@@ -1358,7 +1599,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	largeFileMD5 := calculateLargeFileMD5(filesToSend)
 	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 
-	sender := newScriptFileSender(filesToSend, buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups))
+	sender := newScriptFileSender(filesToSend, configIndex)
 
 	runName := scriptName
 	if isPiled {

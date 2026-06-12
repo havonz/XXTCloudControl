@@ -1,9 +1,33 @@
-export interface ConfigItem {
+export interface ConfigItemBase {
   type: string;
   caption: string;
   id?: string;
   [key: string]: any;
 }
+
+export interface EditConfigItem extends ConfigItemBase {
+  type: 'Edit';
+  text?: string;
+  placeholder?: string;
+  nonEmpty?: boolean;
+  validationRegex?: string;
+  patternMessage?: string;
+  allowMultiline?: boolean;
+  visibleRows?: number;
+}
+
+export interface ComboBoxConfigItem extends ConfigItemBase {
+  type: 'ComboBox';
+  item: string[];
+  select?: number;
+  text?: string;
+  canEdit?: boolean;
+  nonEmpty?: boolean;
+  validationRegex?: string;
+  patternMessage?: string;
+}
+
+export type ConfigItem = ConfigItemBase | EditConfigItem | ComboBoxConfigItem;
 
 export interface ScriptInfo {
   Name?: string;
@@ -17,7 +41,17 @@ export interface MainJson {
   UI?: ConfigItem[];
   Config?: Record<string, any>;
   ScriptInfo?: ScriptInfo;
+  RunOptions?: {
+    promptBeforeRun?: boolean;
+    [key: string]: any;
+  };
   [key: string]: any;
+}
+
+export function normalizeEditVisibleRows(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) return 1;
+  return Math.max(1, Math.min(12, Math.trunc(numeric)));
 }
 
 /**

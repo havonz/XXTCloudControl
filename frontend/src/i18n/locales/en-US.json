@@ -234,6 +234,7 @@
     "choose_script_first": "Select a script first",
     "script_started": "Script sent and started",
     "script_started_count": "Script sent and started ({count} device(s))",
+    "script_start_canceled": "Script start canceled",
     "partial_success": "Partially succeeded: {success} succeeded, {fail} failed",
     "send_script_failed": "Failed to send script: {msg}",
     "send_script_network_failed": "Network error while sending script",
@@ -471,6 +472,7 @@
     "script_config": "Script Config",
     "input_placeholder": "Enter value",
     "save_config": "Save Config",
+    "submit_and_start": "Submit and Start",
     "about_script": "About Script",
     "name": "Name",
     "version": "Version",
@@ -483,7 +485,11 @@
     "group_config_title": "Group Config: {group} ({script})",
     "load_config_failed": "Failed to load config",
     "load_group_config_failed": "Failed to load group config",
-    "save_config_failed": "Failed to save config"
+    "save_config_failed": "Failed to save config",
+    "non_empty_error": "This field cannot be empty",
+    "validation_regex_unsupported": "The regex uses unsupported syntax",
+    "validation_regex_invalid": "The regex is invalid",
+    "validation_regex_mismatch": "Invalid format"
   },
   "log": {
     "title": "Live Logs - {name}",

@@ -193,7 +193,8 @@
 }
 
 /* Input styles */
-.field input {
+.field input,
+.field textarea {
   width: 100%;
   box-sizing: border-box;
   font-size: 13px;
@@ -205,13 +206,32 @@
   outline: none;
 }
 
-.field input:focus {
+.field textarea {
+  min-height: 38px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.field input:focus,
+.field textarea:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 15%, transparent);
 }
 
-.field input::placeholder {
+.field input[aria-invalid="true"],
+.field textarea[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
   color: var(--muted-2);
+}
+
+.validationError {
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 /* Scrollbar styles for scroll area */

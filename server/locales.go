@@ -107,6 +107,9 @@ var translations = map[string]map[string]string{
 		"failed to read script directory":                       "读取脚本目录失败",
 		"failed to read script file":                            "读取脚本文件失败",
 		"script root is not a directory":                        "脚本根路径不是目录",
+		"script config field cannot be empty":                   "脚本配置项不能为空",
+		"script config field format is invalid":                 "脚本配置项格式不正确",
+		"script config regex is invalid":                        "脚本配置正则无效",
 		"item path is required":                                 "项目路径不能为空",
 		"item path must be relative":                            "项目路径必须是相对路径",
 		"item path is invalid":                                  "项目路径无效",
@@ -232,6 +235,9 @@ func (t Translator) translateDynamic(message string) string {
 		"failed to remove source symlink: ",
 		"failed to remove source directory: ",
 		"failed to remove source file: ",
+		"script config field cannot be empty: ",
+		"script config field format is invalid: ",
+		"script config regex is invalid: ",
 	}
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(message, prefix) {

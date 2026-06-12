@@ -322,6 +322,8 @@ const GroupList: Component<GroupListProps> = (props) => {
         items={scriptConfigManager.uiItems()}
         initialValues={scriptConfigManager.initialValues()}
         scriptInfo={scriptConfigManager.scriptInfo()}
+        submitLabel={scriptConfigManager.submitLabel()}
+        validateOnOpen={scriptConfigManager.validateOnOpen()}
         onClose={scriptConfigManager.closeConfig}
         onSubmit={scriptConfigManager.submitConfig}
       />

@@ -695,54 +695,97 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   const handleSendAndStartScript = async () => {
     if (props.selectedDevices().length === 0) return;
-    
+
+    type LaunchBatch = {
+      deviceIds: string[];
+      scriptName: string;
+      selectedGroups: string[];
+      groupId?: string;
+      groupName?: string;
+    };
+
+    const selectedDeviceIds = props.selectedDevices().map((d: Device) => d.udid);
+    const groupedDevices = props.getGroupedDevicesForLaunch?.(selectedDeviceIds) || [];
+    const batches: LaunchBatch[] = [];
+
+    if (groupedDevices.length > 0) {
+      for (const group of groupedDevices) {
+        const rawScriptName = group.scriptPath || serverScriptName();
+        const scriptToRun = resolveScriptName(rawScriptName);
+
+        if (!rawScriptName && !serverScriptName()) {
+          console.warn(`分组 ${group.groupName} 没有绑定脚本且未选择全局脚本，跳过`);
+          continue;
+        }
+
+        batches.push({
+          deviceIds: group.deviceIds,
+          scriptName: scriptToRun,
+          selectedGroups: [group.groupId],
+          groupId: group.groupId,
+          groupName: group.groupName,
+        });
+      }
+    } else {
+      const effectiveScriptName = resolveScriptName(serverScriptName());
+
+      if (effectiveScriptName === '' && serverScriptName() !== DEVICE_SELECTED_PLACEHOLDER) {
+        showToastMessage(t('device_list.choose_script_first'));
+        return;
+      }
+
+      batches.push({
+        deviceIds: selectedDeviceIds,
+        scriptName: effectiveScriptName,
+        selectedGroups: ['__all__'],
+      });
+    }
+
+    for (const batch of batches) {
+      if (!batch.scriptName) continue;
+      const confirmed = batch.groupId
+        ? await scriptConfigManager.ensureGroupLaunchConfig(batch.groupId, batch.groupName || batch.groupId, batch.scriptName)
+        : await scriptConfigManager.ensureGlobalLaunchConfig(batch.scriptName);
+      if (!confirmed) {
+        showToastMessage(t('device_list.script_start_canceled'));
+        return;
+      }
+    }
+
     setIsSubmittingScriptAction(true);
     try {
-      // 获取按分组分配的设备列表
-      const selectedDeviceIds = props.selectedDevices().map((d: Device) => d.udid);
       selectedDeviceIds.forEach((udid) => {
         setDeviceMessage(udid, t('device_list.msg_starting_script'));
       });
-      const groupedDevices = props.getGroupedDevicesForLaunch?.(selectedDeviceIds) || [];
-      
+
       if (groupedDevices.length > 0) {
         // 按分组分批发送
         let successCount = 0;
         let failCount = 0;
-        
-        for (const group of groupedDevices) {
-          // 使用分组绑定的脚本，如果没有则使用全局选择的脚本
-          const rawScriptName = group.scriptPath || serverScriptName();
-          const scriptToRun = resolveScriptName(rawScriptName);
-          
-          // Skip only if: no script at all (empty raw) AND global is also empty/unset
-          if (!rawScriptName && !serverScriptName()) {
-            console.warn(`分组 ${group.groupName} 没有绑定脚本且未选择全局脚本，跳过`);
-            continue;
-          }
-          
+
+        for (const batch of batches) {
           try {
             const response = await authFetch('/api/scripts/send-and-start', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                devices: group.deviceIds,
-                name: scriptToRun,
-                selectedGroups: [group.groupId],
+                devices: batch.deviceIds,
+                name: batch.scriptName,
+                selectedGroups: batch.selectedGroups,
                 serverBaseUrl: getTransferBaseUrl(),
               }),
             });
             
             const result = await response.json();
             if (result.success) {
-              successCount += group.deviceIds.length;
+              successCount += batch.deviceIds.length;
             } else {
-              failCount += group.deviceIds.length;
-              console.error(`分组 ${group.groupName} 发送失败:`, result.error);
+              failCount += batch.deviceIds.length;
+              console.error(`分组 ${batch.groupName || batch.groupId} 发送失败:`, result.error);
             }
           } catch (error) {
-            failCount += group.deviceIds.length;
-            console.error(`分组 ${group.groupName} 发送错误:`, error);
+            failCount += batch.deviceIds.length;
+            console.error(`分组 ${batch.groupName || batch.groupId} 发送错误:`, error);
           }
         }
         
@@ -753,21 +796,14 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         }
       } else {
         // 没有分组（选中"所有设备"），使用全局配置
-        const effectiveScriptName = resolveScriptName(serverScriptName());
-        
-        // Only block if nothing is selected at all
-        if (effectiveScriptName === '' && serverScriptName() !== DEVICE_SELECTED_PLACEHOLDER) {
-          showToastMessage(t('device_list.choose_script_first'));
-          return;
-        }
-        
+        const batch = batches[0];
         const response = await authFetch('/api/scripts/send-and-start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            devices: selectedDeviceIds,
-            name: effectiveScriptName,
-            selectedGroups: ['__all__'],
+            devices: batch.deviceIds,
+            name: batch.scriptName,
+            selectedGroups: batch.selectedGroups,
             serverBaseUrl: getTransferBaseUrl(),
           }),
         });
@@ -2364,6 +2400,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         items={scriptConfigManager.uiItems()}
         initialValues={scriptConfigManager.initialValues()}
         scriptInfo={scriptConfigManager.scriptInfo()}
+        submitLabel={scriptConfigManager.submitLabel()}
+        validateOnOpen={scriptConfigManager.validateOnOpen()}
         onClose={scriptConfigManager.closeConfig}
         onSubmit={scriptConfigManager.submitConfig}
       />
