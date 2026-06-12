@@ -21,6 +21,7 @@
 - Go 代码使用 `gofmt`，保持显式错误处理与清晰的函数边界。
 - 前端使用 TypeScript/TSX，2 空格缩进，单引号与分号一致；组件文件名使用 PascalCase（如 `DeviceList.tsx`）。
 - 所有下拉框（Dropdown/Select）应使用 `@ark-ui/solid` 的 `Select` 组件，并配合 `index.css` 中的 `cbx-item`、`cbx-select` 等类名，以确保样式跟随项目主题。
+- Solid JSX 中避免用 IIFE/内联函数读取 signal 或 store 后返回整棵可编辑控件子树；输入值、校验错误等响应式读取应留在稳定组件的属性或文本节点里更新。否则输入时会重建 DOM 节点，导致失焦、光标跳动或 IME 中断。
 - **禁止硬编码配色**：严禁在 CSS 中使用十六进制（如 `#ffffff`）或原生颜色名称。必须使用 `index.css` 中定义的 CSS 变量（如 `var(--panel)`, `var(--text)`, `var(--primary)` 等）以支持主题切换。
 - **动效一致性**：交互元素应包含平滑过渡（如 `transition: all 0.15s ease`），点击操作建议增加微弱的位移或缩放反馈（如 `transform: scale(0.98)`）。
 - CSS Modules 类名使用 camelCase（如 `headerTop`），全局样式仅放在 `frontend/src/index.css`。

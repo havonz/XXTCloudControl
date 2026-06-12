@@ -133,6 +133,197 @@ export default function FormRunner(props: FormRunnerProps) {
     });
   };
 
+  const EditControl = (controlProps: { item: EditConfigItem; itemKey: string }) => {
+    const value = () => getStringValue(controlProps.itemKey);
+    const error = () => validationErrors()[controlProps.itemKey];
+    const invalid = () => error() ? 'true' as const : 'false' as const;
+    const placeholder = () => controlProps.item.placeholder || t('form.input_placeholder');
+    const handleInput = (value: string) => {
+      store.setValue(controlProps.itemKey, value);
+      clearValidationError(controlProps.itemKey);
+    };
+
+    return (
+      <>
+        <Show
+          when={controlProps.item.allowMultiline}
+          fallback={
+            <input
+              type="text"
+              placeholder={placeholder()}
+              value={value()}
+              aria-invalid={invalid()}
+              onInput={(e) => handleInput(e.currentTarget.value)}
+            />
+          }
+        >
+          <textarea
+            placeholder={placeholder()}
+            value={value()}
+            rows={normalizeEditVisibleRows(controlProps.item.visibleRows)}
+            aria-invalid={invalid()}
+            onInput={(e) => handleInput(e.currentTarget.value)}
+          />
+        </Show>
+        <Show when={error()}>
+          <div class={styles.validationError}>{error()}</div>
+        </Show>
+      </>
+    );
+  };
+
+  const ComboBoxControl = (controlProps: { item: ComboBoxConfigItem; itemKey: string }) => {
+    const options = () => Array.isArray(controlProps.item.item) ? controlProps.item.item : [];
+    const collection = createMemo(() => createListCollection({ items: options() }));
+    const current = () => getStringValue(controlProps.itemKey);
+    const value = () => current() ? [current()] : [];
+    const error = () => validationErrors()[controlProps.itemKey];
+    const handleValue = (next: string) => {
+      store.setValue(controlProps.itemKey, next);
+      clearValidationError(controlProps.itemKey);
+    };
+
+    return (
+      <Show
+        when={controlProps.item.canEdit}
+        fallback={
+          <Select.Root
+            collection={collection()}
+            value={value()}
+            onValueChange={(e) => handleValue((e.items?.[0] as string) ?? '')}
+          >
+            <Select.Control>
+              <Select.Trigger class="cbx-select">
+                <span>{current() || t('form.select_placeholder')}</span>
+                <span class="dropdown-arrow">▼</span>
+              </Select.Trigger>
+            </Select.Control>
+            <Portal>
+              <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
+                <Select.Content class="cbx-panel">
+                  <Select.ItemGroup>
+                    <For each={options()}>{(opt) => (
+                      <Select.Item item={opt} class="cbx-item">
+                        <div class="cbx-item-content">
+                          <Select.ItemIndicator>✓</Select.ItemIndicator>
+                          <Select.ItemText>{opt}</Select.ItemText>
+                        </div>
+                      </Select.Item>
+                    )}</For>
+                  </Select.ItemGroup>
+                </Select.Content>
+              </Select.Positioner>
+            </Portal>
+            <Select.HiddenSelect />
+          </Select.Root>
+        }
+      >
+        <>
+          <Combobox.Root
+            collection={collection()}
+            inputValue={current()}
+            value={options().includes(current()) ? value() : []}
+            allowCustomValue
+            openOnClick
+            invalid={!!error()}
+            onInputValueChange={(e) => handleValue(e.inputValue)}
+            onValueChange={(e) => handleValue(String((e.items?.[0] ?? e.value?.[0] ?? '') as string))}
+          >
+            <Combobox.Control class="cbx">
+              <Combobox.Input
+                class="cbx-input"
+                placeholder={t('form.select_placeholder')}
+              />
+              <Combobox.Trigger class="cbx-trigger">▼</Combobox.Trigger>
+            </Combobox.Control>
+            <Portal>
+              <Combobox.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
+                <Combobox.Content class="cbx-panel">
+                  <Combobox.ItemGroup>
+                    <For each={options()}>{(opt) => (
+                      <Combobox.Item item={opt} class="cbx-item">
+                        <div class="cbx-item-content">
+                          <Combobox.ItemIndicator>✓</Combobox.ItemIndicator>
+                          <Combobox.ItemText>{opt}</Combobox.ItemText>
+                        </div>
+                      </Combobox.Item>
+                    )}</For>
+                  </Combobox.ItemGroup>
+                </Combobox.Content>
+              </Combobox.Positioner>
+            </Portal>
+          </Combobox.Root>
+          <Show when={error()}>
+            <div class={styles.validationError}>{error()}</div>
+          </Show>
+        </>
+      </Show>
+    );
+  };
+
+  const RadioGroupControl = (controlProps: { item: ConfigItem; itemKey: string }) => {
+    const cols = Math.max(1, controlProps.item.numPerLine || 1);
+    const gridStyle = `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
+    const current = () => getStringValue(controlProps.itemKey);
+
+    return (
+      <div class={styles.frGrid} style={gridStyle}>
+        <For each={controlProps.item.item}>{(opt) => {
+          const active = () => current() === opt;
+          const onClick = () => store.setValue(controlProps.itemKey, opt);
+          return (
+            <div
+              class={`${styles.frSeg} ${styles.frSegRg} ${active() ? styles.active : ''}`}
+              role="button"
+              onClick={onClick}
+            >
+              {opt}
+            </div>
+          );
+        }}</For>
+      </div>
+    );
+  };
+
+  const CheckBoxGroupControl = (controlProps: { item: CheckBoxGroupConfigItem; itemKey: string }) => {
+    const cols = Math.max(1, controlProps.item.numPerLine || 1);
+    const gridStyle = `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
+    const current = () => getArrayValue(controlProps.itemKey);
+    const currentIndexes = () => selectedTextIndexes(controlProps.item.item, current());
+    const visibleIndexes = () => orderedCheckBoxIndexes(controlProps.item.item.length, currentIndexes(), controlProps.item.orderedSelection);
+    let gridRef: HTMLDivElement | undefined;
+
+    return (
+      <div ref={(el) => { gridRef = el; }} class={styles.frGrid} style={gridStyle}>
+        <For each={visibleIndexes()}>{(optionIndex) => {
+          const opt = controlProps.item.item[optionIndex - 1] ?? '';
+          const active = () => current().includes(opt);
+          const toggle = () => {
+            const firstRects = controlProps.item.orderedSelection ? captureChoiceRects(gridRef) : undefined;
+            store.setValue<string[]>(controlProps.itemKey, prev => {
+              const next = Array.isArray(prev) ? [...prev] : [];
+              const idx = next.indexOf(opt);
+              if (idx >= 0) next.splice(idx, 1);
+              else next.push(opt);
+              return next;
+            });
+            playChoiceOrderAnimation(gridRef, firstRects);
+          };
+          return (
+            <div
+              class={`${styles.frSeg} ${styles.frSegCg} ${active() ? styles.active : ''}`}
+              data-choice-key={String(optionIndex)}
+              role="button"
+              onClick={toggle}
+            >
+              {opt}
+            </div>
+          );
+        }}</For>
+      </div>
+    );
+  };
+
   createRenderEffect(() => {
     if (props.open) {
       setFormReady(false);
@@ -198,192 +389,19 @@ export default function FormRunner(props: FormRunnerProps) {
                             </Show>
                             
                             <Show when={item.type === 'Edit'}>
-                              {(() => {
-                                const edit = item as EditConfigItem;
-                                const handleInput = (value: string) => {
-                                  store.setValue(key, value);
-                                  clearValidationError(key);
-                                };
-                                if (edit.allowMultiline) {
-                                  return (
-                                    <textarea
-                                      placeholder={edit.placeholder || t('form.input_placeholder')}
-                                      value={getStringValue(key)}
-                                      rows={normalizeEditVisibleRows(edit.visibleRows)}
-                                      aria-invalid={validationErrors()[key] ? 'true' : 'false'}
-                                      onInput={(e) => handleInput(e.currentTarget.value)}
-                                    />
-                                  );
-                                }
-                                return (
-                                  <input
-                                    type="text"
-                                    placeholder={edit.placeholder || t('form.input_placeholder')}
-                                    value={getStringValue(key)}
-                                    aria-invalid={validationErrors()[key] ? 'true' : 'false'}
-                                    onInput={(e) => handleInput(e.currentTarget.value)}
-                                  />
-                                );
-                              })()}
-                              <Show when={validationErrors()[key]}>
-                                <div class={styles.validationError}>{validationErrors()[key]}</div>
-                              </Show>
+                              <EditControl item={item as EditConfigItem} itemKey={key} />
                             </Show>
                             
                             <Show when={item.type === 'ComboBox'}>
-                              {(() => {
-                                const combo = item as ComboBoxConfigItem;
-                                const options = Array.isArray(combo.item) ? combo.item : [];
-                                const collection = createMemo(() => createListCollection({ items: options }));
-                                const current = () => getStringValue(key);
-                                const value = () => current() ? [current()] : [];
-                                const handleValue = (next: string) => {
-                                  store.setValue(key, next);
-                                  clearValidationError(key);
-                                };
-                                if (combo.canEdit) {
-                                  return (
-                                    <>
-                                      <Combobox.Root
-                                        collection={collection()}
-                                        inputValue={current()}
-                                        value={options.includes(current()) ? value() : []}
-                                        allowCustomValue
-                                        openOnClick
-                                        invalid={!!validationErrors()[key]}
-                                        onInputValueChange={(e) => handleValue(e.inputValue)}
-                                        onValueChange={(e) => handleValue(String((e.items?.[0] ?? e.value?.[0] ?? '') as string))}
-                                      >
-                                        <Combobox.Control class="cbx">
-                                          <Combobox.Input
-                                            class="cbx-input"
-                                            placeholder={t('form.select_placeholder')}
-                                          />
-                                          <Combobox.Trigger class="cbx-trigger">▼</Combobox.Trigger>
-                                        </Combobox.Control>
-                                        <Portal>
-                                          <Combobox.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
-                                            <Combobox.Content class="cbx-panel">
-                                              <Combobox.ItemGroup>
-                                                <For each={options}>{(opt) => (
-                                                  <Combobox.Item item={opt} class="cbx-item">
-                                                    <div class="cbx-item-content">
-                                                      <Combobox.ItemIndicator>✓</Combobox.ItemIndicator>
-                                                      <Combobox.ItemText>{opt}</Combobox.ItemText>
-                                                    </div>
-                                                  </Combobox.Item>
-                                                )}</For>
-                                              </Combobox.ItemGroup>
-                                            </Combobox.Content>
-                                          </Combobox.Positioner>
-                                        </Portal>
-                                      </Combobox.Root>
-                                      <Show when={validationErrors()[key]}>
-                                        <div class={styles.validationError}>{validationErrors()[key]}</div>
-                                      </Show>
-                                    </>
-                                  );
-                                }
-                                return (
-                                  <Select.Root
-                                    collection={collection()}
-                                    value={value()}
-                                    onValueChange={(e) => handleValue((e.items?.[0] as string) ?? '')}
-                                  >
-                                    <Select.Control>
-                                      <Select.Trigger class="cbx-select">
-                                        <span>{current() || t('form.select_placeholder')}</span>
-                                        <span class="dropdown-arrow">▼</span>
-                                      </Select.Trigger>
-                                    </Select.Control>
-                                    <Portal>
-                                      <Select.Positioner style={{ 'z-index': 10200, width: 'var(--reference-width)' }}>
-                                        <Select.Content class="cbx-panel">
-                                          <Select.ItemGroup>
-                                            <For each={options}>{(opt) => (
-                                              <Select.Item item={opt} class="cbx-item">
-                                                <div class="cbx-item-content">
-                                                  <Select.ItemIndicator>✓</Select.ItemIndicator>
-                                                  <Select.ItemText>{opt}</Select.ItemText>
-                                                </div>
-                                              </Select.Item>
-                                            )}</For>
-                                          </Select.ItemGroup>
-                                        </Select.Content>
-                                      </Select.Positioner>
-                                    </Portal>
-                                    <Select.HiddenSelect />
-                                  </Select.Root>
-                                );
-                              })()}
+                              <ComboBoxControl item={item as ComboBoxConfigItem} itemKey={key} />
                             </Show>
                             
                             <Show when={item.type === 'RadioGroup'}>
-                              {(() => {
-                                const n = item.numPerLine || 1;
-                                const cols = Math.max(1, n);
-                                const gridStyle = `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
-                                const current = () => getStringValue(key);
-                                return (
-                                  <div class={styles.frGrid} style={gridStyle}>
-                                    <For each={item.item}>{(opt) => {
-                                      const active = () => current() === opt;
-                                      const onClick = () => store.setValue(key, opt);
-                                      return (
-                                        <div 
-                                          class={`${styles.frSeg} ${styles.frSegRg} ${active() ? styles.active : ''}`} 
-                                          role="button" 
-                                          onClick={onClick}
-                                        >
-                                          {opt}
-                                        </div>
-                                      );
-                                    }}</For>
-                                  </div>
-                                );
-                              })()}
+                              <RadioGroupControl item={item} itemKey={key} />
                             </Show>
                             
                             <Show when={item.type === 'CheckBoxGroup'}>
-                              {(() => {
-                                const group = item as CheckBoxGroupConfigItem;
-                                const n = item.numPerLine || 1;
-                                const cols = Math.max(1, n);
-                                const gridStyle = `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
-                                const current = () => getArrayValue(key);
-                                const currentIndexes = () => selectedTextIndexes(group.item, current());
-                                const visibleIndexes = () => orderedCheckBoxIndexes(group.item.length, currentIndexes(), group.orderedSelection);
-                                let gridRef: HTMLDivElement | undefined;
-                                return (
-                                  <div ref={(el) => { gridRef = el; }} class={styles.frGrid} style={gridStyle}>
-                                    <For each={visibleIndexes()}>{(optionIndex) => {
-                                      const opt = group.item[optionIndex - 1] ?? '';
-                                      const active = () => current().includes(opt);
-                                      const toggle = () => {
-                                        const firstRects = group.orderedSelection ? captureChoiceRects(gridRef) : undefined;
-                                        store.setValue<string[]>(key, prev => {
-                                          const next = Array.isArray(prev) ? [...prev] : [];
-                                          const idx = next.indexOf(opt);
-                                          if (idx >= 0) next.splice(idx, 1);
-                                          else next.push(opt);
-                                          return next;
-                                        });
-                                        playChoiceOrderAnimation(gridRef, firstRects);
-                                      };
-                                      return (
-                                        <div 
-                                          class={`${styles.frSeg} ${styles.frSegCg} ${active() ? styles.active : ''}`} 
-                                          data-choice-key={String(optionIndex)}
-                                          role="button" 
-                                          onClick={toggle}
-                                        >
-                                          {opt}
-                                        </div>
-                                      );
-                                    }}</For>
-                                  </div>
-                                );
-                              })()}
+                              <CheckBoxGroupControl item={item as CheckBoxGroupConfigItem} itemKey={key} />
                             </Show>
                           </div>
                         );
