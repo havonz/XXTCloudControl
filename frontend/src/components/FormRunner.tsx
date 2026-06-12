@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createRenderEffect, createSignal, onMount, onCleanup } from 'solid-js';
+import { For, Show, createMemo, createRenderEffect, createSignal, onMount, onCleanup, untrack } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { Combobox, Select, createListCollection } from '@ark-ui/solid';
 import { createFormRunnerStore } from '../services/formRunnerStore';
@@ -137,7 +137,7 @@ export default function FormRunner(props: FormRunnerProps) {
     if (props.open) {
       setFormReady(false);
       store.initialize(props.items, props.initialValues);
-      setValidationErrors(props.validateOnOpen ? validateValues() : {});
+      setValidationErrors(props.validateOnOpen ? untrack(validateValues) : {});
       queueMicrotask(() => setFormReady(true));
     } else {
       setAboutOpen(false);

@@ -695,6 +695,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   const handleSendAndStartScript = async () => {
     if (props.selectedDevices().length === 0) return;
+    if (isSubmittingScriptAction()) return;
 
     type LaunchBatch = {
       deviceIds: string[];
@@ -741,19 +742,19 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       });
     }
 
-    for (const batch of batches) {
-      if (!batch.scriptName) continue;
-      const confirmed = batch.groupId
-        ? await scriptConfigManager.ensureGroupLaunchConfig(batch.groupId, batch.groupName || batch.groupId, batch.scriptName)
-        : await scriptConfigManager.ensureGlobalLaunchConfig(batch.scriptName);
-      if (!confirmed) {
-        showToastMessage(t('device_list.script_start_canceled'));
-        return;
-      }
-    }
-
     setIsSubmittingScriptAction(true);
     try {
+      for (const batch of batches) {
+        if (!batch.scriptName) continue;
+        const confirmed = batch.groupId
+          ? await scriptConfigManager.ensureGroupLaunchConfig(batch.groupId, batch.groupName || batch.groupId, batch.scriptName)
+          : await scriptConfigManager.ensureGlobalLaunchConfig(batch.scriptName);
+        if (!confirmed) {
+          showToastMessage(t('device_list.script_start_canceled'));
+          return;
+        }
+      }
+
       selectedDeviceIds.forEach((udid) => {
         setDeviceMessage(udid, t('device_list.msg_starting_script'));
       });
