@@ -96,6 +96,15 @@ func TestResolveManifestURLsPriority(t *testing.T) {
 	}
 
 	DefaultUpdateManifestURLsCSV = ""
+	got = resolveManifestURLs(UpdateSourceConfig{})
+	want = []string{
+		"https://xxtccc-packages.xxtouch.app/releases/latest/download/update-manifest.json",
+		"https://github.com/havonz/XXTCloudControl/releases/latest/download/update-manifest.json",
+	}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("resolveManifestURLs should use R2 before GitHub for default repo, got %#v", got)
+	}
+
 	got = resolveManifestURLs(UpdateSourceConfig{Repository: "custom/repo"})
 	if len(got) != 1 || got[0] != "https://github.com/custom/repo/releases/latest/download/update-manifest.json" {
 		t.Fatalf("resolveManifestURLs should fall back to repository, got %#v", got)

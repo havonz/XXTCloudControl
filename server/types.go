@@ -105,7 +105,7 @@ var DefaultConfig = ServerConfig{
 		PromptOnNewVersion: true,
 		IgnoredVersions:    []string{},
 		Source: UpdateSourceConfig{
-			Repository:                    "havonz/XXTCloudControl",
+			Repository:                    defaultUpdateRepository,
 			RequestTimeoutSeconds:         60,
 			DownloadConnectTimeoutSeconds: 60,
 		},

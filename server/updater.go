@@ -30,6 +30,9 @@ const (
 	updateStageDownloaded  = "downloaded"
 	updateStageApplying    = "applying"
 	updateStageFailed      = "failed"
+
+	defaultUpdateRepository = "havonz/XXTCloudControl"
+	defaultUpdateBaseURL    = "https://xxtccc-packages.xxtouch.app"
 )
 
 // UpdateAsset describes a single update artifact in update-manifest.json.
@@ -1063,9 +1066,13 @@ func resolveManifestURLs(source UpdateSourceConfig) []string {
 
 	repo := strings.TrimSpace(source.Repository)
 	if repo == "" {
-		repo = "havonz/XXTCloudControl"
+		repo = defaultUpdateRepository
 	}
-	return []string{"https://github.com/" + repo + "/releases/latest/download/update-manifest.json"}
+	githubURL := "https://github.com/" + repo + "/releases/latest/download/update-manifest.json"
+	if repo == defaultUpdateRepository {
+		return []string{defaultUpdateBaseURL + "/releases/latest/download/update-manifest.json", githubURL}
+	}
+	return []string{githubURL}
 }
 
 func resolveAssetDownloadURLs(asset UpdateAsset) []string {

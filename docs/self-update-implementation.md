@@ -13,10 +13,13 @@
 - 仅更新运行文件（二进制 + `frontend/` 静态资源）。
 - 不更新 Docker 镜像本身；Docker 模式仅改写容器可写层。
 
-## 2. 发布侧依赖（GitHub Release）
+## 2. 发布侧依赖（R2 + GitHub Release）
 
 当前实现默认从以下入口拉取 manifest：
-- `https://github.com/<repo>/releases/latest/download/update-manifest.json`
+- `https://xxtccc-packages.xxtouch.app/releases/latest/download/update-manifest.json`
+- `https://github.com/havonz/XXTCloudControl/releases/latest/download/update-manifest.json`（兜底）
+
+如果通过 `update.source.manifestUrls`、`update.source.manifestUrl` 或发布构建注入值配置了来源，则使用配置来源。自定义 `update.source.repository` 只在没有上述来源时回退到对应 GitHub Release。
 
 manifest 结构由 `UpdateManifest` 定义（`server/updater.go`）：
 1. `version`
@@ -92,9 +95,10 @@ JSON 字段：
 4. `update.promptOnNewVersion`
 5. `update.ignoredVersions`
 6. `update.source.repository`
-7. `update.source.manifestUrl`
-8. `update.source.requestTimeoutSeconds`
-9. `update.source.downloadConnectTimeoutSeconds`
+7. `update.source.manifestUrls`
+8. `update.source.manifestUrl`
+9. `update.source.requestTimeoutSeconds`
+10. `update.source.downloadConnectTimeoutSeconds`
 
 环境变量覆盖（`server/config.go`）：
 1. `XXTCC_UPDATE_ENABLED`
@@ -103,9 +107,10 @@ JSON 字段：
 4. `XXTCC_UPDATE_PROMPT_ON_NEW_VERSION`
 5. `XXTCC_UPDATE_IGNORED_VERSIONS`
 6. `XXTCC_UPDATE_REPOSITORY`
-7. `XXTCC_UPDATE_MANIFEST_URL`
-8. `XXTCC_UPDATE_TIMEOUT_SECONDS`（check 超时）
-9. `XXTCC_UPDATE_DOWNLOAD_CONNECT_TIMEOUT_SECONDS`（下载连接超时）
+7. `XXTCC_UPDATE_MANIFEST_URLS`
+8. `XXTCC_UPDATE_MANIFEST_URL`
+9. `XXTCC_UPDATE_TIMEOUT_SECONDS`（check 超时）
+10. `XXTCC_UPDATE_DOWNLOAD_CONNECT_TIMEOUT_SECONDS`（下载连接超时）
 
 ## 6. 超时模型（当前实现）
 
@@ -145,7 +150,7 @@ JSON 字段：
 
 ### 8.1 检查更新（check）
 
-1. 解析 manifest URL（`manifestUrl` 优先，否则 `repository` 的 latest 入口）。
+1. 解析 manifest URL（`manifestUrls` 优先，其次 `manifestUrl`，默认仓库走 R2 latest 入口并以 GitHub 兜底，自定义 `repository` 回退到 GitHub latest 入口）。
 2. 拉取并解析 `update-manifest.json`。
 3. 按当前 `GOOS/GOARCH` 选择资产。
 4. 比较 `manifest.version` 与当前 `Version`。
