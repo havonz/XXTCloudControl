@@ -2,8 +2,9 @@ import { For, Show, createMemo, createRenderEffect, createSignal, onMount, onCle
 import { Portal } from 'solid-js/web';
 import { Combobox, Select, createListCollection } from '@ark-ui/solid';
 import { createFormRunnerStore } from '../services/formRunnerStore';
-import { ComboBoxConfigItem, ConfigItem, EditConfigItem, ScriptInfo, normalizeEditVisibleRows } from '../utils/scriptConfig';
+import { CheckBoxGroupConfigItem, ComboBoxConfigItem, ConfigItem, EditConfigItem, ScriptInfo, normalizeEditVisibleRows } from '../utils/scriptConfig';
 import { validateTextConfigValue, type TextValidationIssue } from '../utils/scriptRunOptions';
+import { orderedCheckBoxIndexes, selectedTextIndexes } from '../utils/checkboxGroupOrder';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
 import { useI18n } from '../i18n';
@@ -20,6 +21,42 @@ interface FormRunnerProps {
   submitLabel?: string;
   validateOnOpen?: boolean;
 }
+
+type ChoiceRects = Map<string, DOMRect>;
+
+const shouldReduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+
+const captureChoiceRects = (grid: HTMLElement | undefined): ChoiceRects | undefined => {
+  if (!grid || shouldReduceMotion()) return undefined;
+  const rects: ChoiceRects = new Map();
+  grid.querySelectorAll<HTMLElement>('[data-choice-key]').forEach((element) => {
+    const key = element.dataset.choiceKey;
+    if (key) rects.set(key, element.getBoundingClientRect());
+  });
+  return rects;
+};
+
+const playChoiceOrderAnimation = (grid: HTMLElement | undefined, firstRects: ChoiceRects | undefined) => {
+  if (!grid || !firstRects || shouldReduceMotion()) return;
+  requestAnimationFrame(() => {
+    grid.querySelectorAll<HTMLElement>('[data-choice-key]').forEach((element) => {
+      const key = element.dataset.choiceKey;
+      const first = key ? firstRects.get(key) : undefined;
+      if (!first) return;
+      const last = element.getBoundingClientRect();
+      const dx = first.left - last.left;
+      const dy = first.top - last.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+      element.animate(
+        [
+          { transform: `translate(${dx}px, ${dy}px)` },
+          { transform: 'translate(0, 0)' }
+        ],
+        { duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
+      );
+    });
+  });
+};
 
 export default function FormRunner(props: FormRunnerProps) {
   const { t } = useI18n();
@@ -309,15 +346,21 @@ export default function FormRunner(props: FormRunnerProps) {
                             
                             <Show when={item.type === 'CheckBoxGroup'}>
                               {(() => {
+                                const group = item as CheckBoxGroupConfigItem;
                                 const n = item.numPerLine || 1;
                                 const cols = Math.max(1, n);
                                 const gridStyle = `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
                                 const current = () => getArrayValue(key);
+                                const currentIndexes = () => selectedTextIndexes(group.item, current());
+                                const visibleIndexes = () => orderedCheckBoxIndexes(group.item.length, currentIndexes(), group.orderedSelection);
+                                let gridRef: HTMLDivElement | undefined;
                                 return (
-                                  <div class={styles.frGrid} style={gridStyle}>
-                                    <For each={item.item}>{(opt) => {
+                                  <div ref={(el) => { gridRef = el; }} class={styles.frGrid} style={gridStyle}>
+                                    <For each={visibleIndexes()}>{(optionIndex) => {
+                                      const opt = group.item[optionIndex - 1] ?? '';
                                       const active = () => current().includes(opt);
                                       const toggle = () => {
+                                        const firstRects = group.orderedSelection ? captureChoiceRects(gridRef) : undefined;
                                         store.setValue<string[]>(key, prev => {
                                           const next = Array.isArray(prev) ? [...prev] : [];
                                           const idx = next.indexOf(opt);
@@ -325,10 +368,12 @@ export default function FormRunner(props: FormRunnerProps) {
                                           else next.push(opt);
                                           return next;
                                         });
+                                        playChoiceOrderAnimation(gridRef, firstRects);
                                       };
                                       return (
                                         <div 
                                           class={`${styles.frSeg} ${styles.frSegCg} ${active() ? styles.active : ''}`} 
+                                          data-choice-key={String(optionIndex)}
                                           role="button" 
                                           onClick={toggle}
                                         >

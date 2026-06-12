@@ -27,7 +27,15 @@ export interface ComboBoxConfigItem extends ConfigItemBase {
   patternMessage?: string;
 }
 
-export type ConfigItem = ConfigItemBase | EditConfigItem | ComboBoxConfigItem;
+export interface CheckBoxGroupConfigItem extends ConfigItemBase {
+  type: 'CheckBoxGroup';
+  item: string[];
+  select?: number[];
+  numPerLine?: number;
+  orderedSelection?: boolean;
+}
+
+export type ConfigItem = ConfigItemBase | EditConfigItem | ComboBoxConfigItem | CheckBoxGroupConfigItem;
 
 export interface ScriptInfo {
   Name?: string;

@@ -42,4 +42,24 @@ describe('formRunnerStore', () => {
     expect(initialValue).toBe('custom');
     expect(payload).toEqual({ 模式: { select: 0, text: 'custom' } });
   });
+
+  it('CheckBoxGroup 按当前选中顺序提交序号数组', () => {
+    let payload: Record<string, any> = {};
+
+    createRoot((dispose) => {
+      const store = createFormRunnerStore();
+      const items: ConfigItem[] = [{
+        type: 'CheckBoxGroup',
+        caption: '多选项',
+        item: ['1', '2', '3', '4', '5', '6'],
+        orderedSelection: true,
+      }];
+      store.initialize(items);
+      store.setValue('多选项', ['6', '3', '2']);
+      payload = store.submit(items);
+      dispose();
+    });
+
+    expect(payload).toEqual({ 多选项: [6, 3, 2] });
+  });
 });

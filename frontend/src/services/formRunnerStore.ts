@@ -1,5 +1,6 @@
 import { createStore, reconcile } from 'solid-js/store';
 import { ConfigItem } from '../utils/scriptConfig';
+import { selectedTextIndexes } from '../utils/checkboxGroupOrder';
 
 export type FormRunnerInitialMap = Record<string, any>;
 
@@ -107,11 +108,7 @@ const buildSubmitPayload = (items: ConfigItem[], values: Record<string, any>): R
       }
       case 'CheckBoxGroup': {
         const arr = Array.isArray(value) ? (value as string[]) : [];
-        const indexes = arr
-          .map(text => item.item.indexOf(text))
-          .filter(i => i >= 0)
-          .map(i => i + 1);
-        out[item.caption] = indexes;
+        out[item.caption] = selectedTextIndexes(item.item, arr);
         break;
       }
       default:
