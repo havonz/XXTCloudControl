@@ -1,4 +1,5 @@
 import { Component, createSignal, onCleanup, createMemo, createEffect } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { useToast } from './components/ToastContext';
 import { WebSocketService, Device } from './services/WebSocketService';
 import { AuthService, LoginCredentials } from './services/AuthService';
@@ -57,6 +58,11 @@ interface UpdateStatusPayload {
   state: UpdateState;
 }
 
+interface UpdatePanelPosition {
+  left: number;
+  top: number;
+}
+
 const App: Component = () => {
   const toast = useToast();
   const { themeMode, cycleTheme } = useTheme();
@@ -78,6 +84,7 @@ const App: Component = () => {
   const [serverVersion, setServerVersion] = createSignal('');
   const [updateStatus, setUpdateStatus] = createSignal<UpdateStatusPayload | null>(null);
   const [updatePanelOpen, setUpdatePanelOpen] = createSignal(false);
+  const [updatePanelPosition, setUpdatePanelPosition] = createSignal<UpdatePanelPosition>({ left: 0, top: 0 });
   const [updateBusyAction, setUpdateBusyAction] = createSignal<UpdateBusyAction>('');
   const [cancelingDownload, setCancelingDownload] = createSignal(false);
   
@@ -114,6 +121,7 @@ const App: Component = () => {
   const pendingLargeDownloads = new Map<string, PendingLargeDownload>();
   const authService = AuthService.getInstance();
   const fileTransferService = FileTransferService.getInstance();
+  let updateTriggerRef: HTMLButtonElement | undefined;
   let updatePanelRef: HTMLDivElement | undefined;
   let updateReconnectTimer: ReturnType<typeof setInterval> | null = null;
   let updateStatusPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -143,10 +151,37 @@ const App: Component = () => {
     }
   };
 
-  const handleGlobalMouseDown = (e: MouseEvent) => {
+  const positionUpdatePanel = () => {
+    if (!updateTriggerRef) return;
+    const rect = updateTriggerRef.getBoundingClientRect();
+    const panelWidth = window.matchMedia('(max-width: 768px)').matches ? 260 : 320;
+    const viewportPadding = 8;
+    const maxLeft = Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding);
+    const left = Math.min(Math.max(viewportPadding, rect.left), maxLeft);
+    const top = rect.bottom + 8;
+    setUpdatePanelPosition({ left, top });
+  };
+
+  const toggleUpdatePanel = () => {
+    const nextOpen = !updatePanelOpen();
+    if (nextOpen) {
+      positionUpdatePanel();
+    }
+    setUpdatePanelOpen(nextOpen);
+  };
+
+  const handleUpdatePanelViewportChange = () => {
+    if (updatePanelOpen()) {
+      positionUpdatePanel();
+    }
+  };
+
+  const handleGlobalPointerDown = (e: PointerEvent) => {
     if (!updatePanelOpen()) return;
     const target = e.target as Node | null;
-    if (updatePanelRef && target && !updatePanelRef.contains(target)) {
+    const isInsidePanel = updatePanelRef && target && updatePanelRef.contains(target);
+    const isInsideTrigger = updateTriggerRef && target && updateTriggerRef.contains(target);
+    if (!isInsidePanel && !isInsideTrigger) {
       setUpdatePanelOpen(false);
     }
   };
@@ -479,12 +514,16 @@ const App: Component = () => {
   // Setup global event listeners
   document.addEventListener('contextmenu', handleGlobalContextMenu);
   document.addEventListener('keydown', handleGlobalKeyDown);
-  document.addEventListener('mousedown', handleGlobalMouseDown);
+  document.addEventListener('pointerdown', handleGlobalPointerDown, true);
+  window.addEventListener('resize', handleUpdatePanelViewportChange);
+  window.addEventListener('scroll', handleUpdatePanelViewportChange, true);
 
   onCleanup(() => {
     document.removeEventListener('contextmenu', handleGlobalContextMenu);
     document.removeEventListener('keydown', handleGlobalKeyDown);
-    document.removeEventListener('mousedown', handleGlobalMouseDown);
+    document.removeEventListener('pointerdown', handleGlobalPointerDown, true);
+    window.removeEventListener('resize', handleUpdatePanelViewportChange);
+    window.removeEventListener('scroll', handleUpdatePanelViewportChange, true);
     stopUpdateReconnectPolling();
     stopUpdateStatusPolling();
     if (wsService) {
@@ -1112,6 +1151,12 @@ const App: Component = () => {
     }, 1000);
   });
 
+  createEffect(() => {
+    if (updatePanelOpen()) {
+      requestAnimationFrame(positionUpdatePanel);
+    }
+  });
+
   // Handle adding selected devices to a group
   const handleAddDevicesToGroup = async (groupId: string): Promise<boolean> => {
     const deviceIds = selectedDevices().map(d => d.udid);
@@ -1154,66 +1199,76 @@ const App: Component = () => {
               <img src="/favicon-48.png" alt="Logo" class={styles.logo} />
               <h1 class={styles.appTitle}>{t('app.title')}</h1>
               {serverVersion() && (
-                <div class={styles.versionUpdateEntry} ref={updatePanelRef}>
+                <div class={styles.versionUpdateEntry}>
                   <button
+                    ref={updateTriggerRef}
                     class={`${styles.versionBadge} ${styles.versionBadgeButton} ${updateStatus()?.state?.hasUpdate ? styles.versionBadgeHighlight : ''}`}
-                    onClick={() => setUpdatePanelOpen(!updatePanelOpen())}
+                    onClick={toggleUpdatePanel}
                     title={t('app.update.title')}
                     disabled={!isAuthenticated()}
                   >
                     {serverVersion()}
                   </button>
                   {updatePanelOpen() && (
-                    <div class={styles.updatePanel}>
-                      <div class={styles.updatePanelTitle}>{t('app.update.title')}</div>
-                      <div class={styles.updateMeta}>
-                        <div class={styles.updateMetaItem}>
-                          <span>{t('app.update.current_version')}</span>
-                          <code class={styles.updateValue}>{updateStatus()?.currentVersion || serverVersion() || '-'}</code>
-                        </div>
-                        <div class={styles.updateMetaItem}>
-                          <span>{t('app.update.latest_version')}</span>
-                          <code class={styles.updateValue}>{updateStatus()?.state?.latestVersion || '-'}</code>
-                        </div>
-                        <div class={styles.updateMetaItem}>
-                          <span>{t('app.update.status')}</span>
-                          <span class={styles.updateValue}>{formatUpdateStage(updateStatus()?.state?.stage)}</span>
-                        </div>
-                      </div>
-                      {updateStatus()?.state?.lastError && (
-                        <div class={styles.updateError}>{updateStatus()?.state?.lastError}</div>
-                      )}
-                      {isDownloadingUpdate() && (
-                        <div class={styles.updateProgress}>
-                          <div class={styles.updateProgressText}>{downloadProgressText()}</div>
-                          <div class={styles.updateProgressTrack}>
-                            <div
-                              class={`${styles.updateProgressFill} ${hasDownloadTotal() ? '' : styles.updateProgressFillIndeterminate}`}
-                              style={{ width: hasDownloadTotal() ? `${downloadProgressPercent()}%` : '35%' }}
-                            />
+                    <Portal>
+                      <div
+                        ref={updatePanelRef}
+                        class={styles.updatePanel}
+                        style={{
+                          left: `${updatePanelPosition().left}px`,
+                          top: `${updatePanelPosition().top}px`
+                        }}
+                      >
+                        <div class={styles.updatePanelTitle}>{t('app.update.title')}</div>
+                        <div class={styles.updateMeta}>
+                          <div class={styles.updateMetaItem}>
+                            <span>{t('app.update.current_version')}</span>
+                            <code class={styles.updateValue}>{updateStatus()?.currentVersion || serverVersion() || '-'}</code>
+                          </div>
+                          <div class={styles.updateMetaItem}>
+                            <span>{t('app.update.latest_version')}</span>
+                            <code class={styles.updateValue}>{updateStatus()?.state?.latestVersion || '-'}</code>
+                          </div>
+                          <div class={styles.updateMetaItem}>
+                            <span>{t('app.update.status')}</span>
+                            <span class={styles.updateValue}>{formatUpdateStage(updateStatus()?.state?.stage)}</span>
                           </div>
                         </div>
-                      )}
-                      {updateStatus()?.config?.enabled === false && (
-                        <div class={styles.updateError}>{t('app.server_disabled_update')}</div>
-                      )}
-                      <div class={styles.updateActions}>
-                        <button
-                          class={styles.updateActionButton}
-                          disabled={!!updateBusyAction() || !isAuthenticated()}
-                          onClick={handleCheckUpdate}
-                        >
-                          {updateBusyAction() === 'check' ? t('app.update.checking') : t('app.update.check')}
-                        </button>
-                        <button
-                          class={`${styles.updateActionButton} ${isUpdateMainDanger() ? styles.updateActionDanger : ''}`}
-                          disabled={updateMainButtonDisabled()}
-                          onClick={handleUpdateMainAction}
-                        >
-                          {updateMainButtonLabel()}
-                        </button>
+                        {updateStatus()?.state?.lastError && (
+                          <div class={styles.updateError}>{updateStatus()?.state?.lastError}</div>
+                        )}
+                        {isDownloadingUpdate() && (
+                          <div class={styles.updateProgress}>
+                            <div class={styles.updateProgressText}>{downloadProgressText()}</div>
+                            <div class={styles.updateProgressTrack}>
+                              <div
+                                class={`${styles.updateProgressFill} ${hasDownloadTotal() ? '' : styles.updateProgressFillIndeterminate}`}
+                                style={{ width: hasDownloadTotal() ? `${downloadProgressPercent()}%` : '35%' }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        {updateStatus()?.config?.enabled === false && (
+                          <div class={styles.updateError}>{t('app.server_disabled_update')}</div>
+                        )}
+                        <div class={styles.updateActions}>
+                          <button
+                            class={styles.updateActionButton}
+                            disabled={!!updateBusyAction() || !isAuthenticated()}
+                            onClick={handleCheckUpdate}
+                          >
+                            {updateBusyAction() === 'check' ? t('app.update.checking') : t('app.update.check')}
+                          </button>
+                          <button
+                            class={`${styles.updateActionButton} ${isUpdateMainDanger() ? styles.updateActionDanger : ''}`}
+                            disabled={updateMainButtonDisabled()}
+                            onClick={handleUpdateMainAction}
+                          >
+                            {updateMainButtonLabel()}
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    </Portal>
                   )}
                 </div>
               )}

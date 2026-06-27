@@ -163,16 +163,14 @@
 }
 
 .updatePanel {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
+  position: fixed;
   width: 320px;
   border: 1px solid var(--border);
   background: var(--panel);
   border-radius: 10px;
   box-shadow: var(--batch-remote-shadow);
   padding: 12px;
-  z-index: 30;
+  z-index: 10300;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -341,7 +339,6 @@
 
   .updatePanel {
     width: 260px;
-    left: -36px;
   }
 
   .updateActions {
