@@ -303,6 +303,17 @@
   pointer-events: none;
 }
 
+.hardwareKeyboardActive {
+  background: var(--primary);
+  color: var(--text-on-gradient);
+  border-color: var(--primary);
+}
+
+.hardwareKeyboardError {
+  color: var(--error);
+  font-size: 12px;
+}
+
 .selectAllLabel {
   display: flex;
   align-items: center;

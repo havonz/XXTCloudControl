@@ -39,6 +39,16 @@ export interface WebRTCServiceEvents {
   onTrack?: (stream: MediaStream) => void;
   onClipboard?: (contentType: 'text' | 'image', content: string) => void;
   onClipboardError?: (error: string) => void;
+  onDataChannelOpen?: () => void;
+  onHardwareKeyboardState?: (state: HardwareKeyboardState) => void;
+}
+
+export interface HardwareKeyboardState {
+  action: 'status' | 'connect' | 'disconnect';
+  supported: boolean;
+  ok: boolean;
+  connected: boolean;
+  message?: string;
 }
 
 interface ClipboardChunkMessage {
@@ -483,6 +493,13 @@ export class WebRTCService {
     });
   }
 
+  sendHardwareKeyboardCommand(action: 'status' | 'connect' | 'disconnect'): void {
+    this.sendDataChannelCommand({
+      type: 'hardware_keyboard',
+      action
+    });
+  }
+
   /**
    * 通过 DataChannel 发送粘贴命令
    */
@@ -543,6 +560,10 @@ export class WebRTCService {
   private setupDataChannel(): void {
     if (!this.dataChannel) return;
 
+    this.dataChannel.onopen = () => {
+      this.events.onDataChannelOpen?.();
+    };
+
     this.dataChannel.onerror = (error) => {
       console.error('DataChannel error:', error);
     };
@@ -559,6 +580,19 @@ export class WebRTCService {
         } else if (data.type === 'clipboard_error') {
           // 剪贴板错误
           this.events.onClipboardError?.(data.error || '未知错误');
+        } else if (
+          data.type === 'hardware_keyboard_state' &&
+          (data.action === 'status' || data.action === 'connect' || data.action === 'disconnect') &&
+          typeof data.ok === 'boolean' &&
+          typeof data.connected === 'boolean'
+        ) {
+          this.events.onHardwareKeyboardState?.({
+            action: data.action,
+            supported: true,
+            ok: data.ok,
+            connected: data.connected,
+            message: typeof data.message === 'string' ? data.message : undefined,
+          });
         }
       } catch (e) {
         console.error('DataChannel message parse error:', e);

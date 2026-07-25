@@ -542,6 +542,39 @@ curl -L -o out.bin \
 ### 设备端上线
 
 设备端发送 `app/state`，并在 `body.system.udid` 中提供唯一标识。
+支持全局硬件键盘的设备同时声明以下可选能力；字段缺失或不为 `true` 时，控制端不会发送硬件键盘命令：
+
+```json
+{
+  "type": "app/state",
+  "body": {
+    "cloudControl": {
+      "protocolVersion": 2,
+      "features": {
+        "globalHardwareKeyboard": true
+      }
+    },
+    "system": {
+      "udid": "udid1"
+    }
+  }
+}
+```
+
+控制端通过 `control/command` 下发 `key/global-keyboard`，设备端以相同类型回复。`owner` 标识一次实时控制会话，设备只允许匹配的 owner 断开其键盘：
+
+```json
+{
+  "devices": ["udid1"],
+  "type": "key/global-keyboard",
+  "body": {
+    "action": "status",
+    "owner": "controller-session-id"
+  }
+}
+```
+
+`action` 支持 `status`、`connect`、`disconnect`。响应 `body` 包含 `action`、`owner`、`supported`、`ok`、`connected`，失败时可附带 `message`。
 
 ### 设备断开
 

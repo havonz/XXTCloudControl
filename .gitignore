@@ -171,7 +171,8 @@ cython_debug/
 .pypirc
 
 /xxtcloudserver.json
-/device-client
+/device-client/*
+!/device-client/open-cloud-control-client.lua
 /build
 /server/data/
 /server/certs/

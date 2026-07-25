@@ -235,6 +235,60 @@ func parseControlCommandBody(body interface{}) (ControlCommand, error) {
 	return out, nil
 }
 
+func parseGlobalHardwareKeyboardBody(body interface{}) (string, string, error) {
+	bodyMap, err := decodeBodyMap(body)
+	if err != nil {
+		return "", "", err
+	}
+	action, ok := toString(bodyMap["action"])
+	if !ok || (action != "status" && action != "connect" && action != "disconnect") {
+		return "", "", fmt.Errorf("invalid key/global-keyboard action")
+	}
+	owner, ok := toString(bodyMap["owner"])
+	if !ok || owner == "" {
+		return "", "", fmt.Errorf("invalid key/global-keyboard owner")
+	}
+	return action, owner, nil
+}
+
+// updateHardwareKeyboardOwnersLocked records only keyboards a controller may
+// need to release if its socket disappears. Caller must hold mu.Lock.
+func updateHardwareKeyboardOwnersLocked(conn *SafeConn, owner, action string, devices []string, online map[string]*SafeConn) {
+	if action != "connect" {
+		return
+	}
+	owners := hardwareKeyboardOwners[conn]
+	if owners == nil {
+		owners = make(map[string]map[string]bool)
+		hardwareKeyboardOwners[conn] = owners
+	}
+	targets := owners[owner]
+	if targets == nil {
+		targets = make(map[string]bool)
+		owners[owner] = targets
+	}
+	for _, udid := range devices {
+		if online[udid] != nil {
+			targets[udid] = true
+		}
+	}
+}
+
+// completeHardwareKeyboardDisconnectLocked forgets a lease only after the
+// device confirms that the matching owner no longer has a keyboard.
+func completeHardwareKeyboardDisconnectLocked(owner, udid string) {
+	for controllerConn, owners := range hardwareKeyboardOwners {
+		targets := owners[owner]
+		delete(targets, udid)
+		if len(targets) == 0 {
+			delete(owners, owner)
+		}
+		if len(owners) == 0 {
+			delete(hardwareKeyboardOwners, controllerConn)
+		}
+	}
+}
+
 func toCommands(value interface{}) ([]Command, bool) {
 	switch v := value.(type) {
 	case nil:
@@ -446,6 +500,11 @@ func snapshotDeviceConnsByIDsLocked(deviceIDs []string) map[string]*SafeConn {
 type deviceTarget struct {
 	udid string
 	conn *SafeConn
+}
+
+type hardwareKeyboardCleanupTarget struct {
+	conn  *SafeConn
+	owner string
 }
 
 func snapshotAllDeviceTargets() []deviceTarget {
@@ -728,7 +787,12 @@ func forwardDeviceMessageToControllers(conn *SafeConn, data Message) error {
 		return err
 	}
 	for _, controllerConn := range controllerList {
-		writeTextMessageAsync(controllerConn, encodedData)
+		if data.Type == "key/global-keyboard" {
+			// 键盘归属状态依赖响应顺序，当前设备读循环内同步写入可保持 FIFO。
+			_ = writeTextMessage(controllerConn, encodedData)
+		} else {
+			writeTextMessageAsync(controllerConn, encodedData)
+		}
 	}
 	return nil
 }
@@ -799,13 +863,27 @@ func handleMessage(conn *SafeConn, data Message) error {
 		if err != nil {
 			return err
 		}
+		var keyboardAction, keyboardOwner string
+		if cmdBody.Type == "key/global-keyboard" {
+			keyboardAction, keyboardOwner, err = parseGlobalHardwareKeyboardBody(cmdBody.Body)
+			if err != nil {
+				return err
+			}
+		}
 
 		ensureController(conn)
 
 		var deviceConns map[string]*SafeConn
-		mu.RLock()
-		deviceConns = snapshotDeviceConnsByIDsLocked(cmdBody.Devices)
-		mu.RUnlock()
+		if cmdBody.Type == "key/global-keyboard" {
+			mu.Lock()
+			deviceConns = snapshotDeviceConnsByIDsLocked(cmdBody.Devices)
+			updateHardwareKeyboardOwnersLocked(conn, keyboardOwner, keyboardAction, cmdBody.Devices, deviceConns)
+			mu.Unlock()
+		} else {
+			mu.RLock()
+			deviceConns = snapshotDeviceConnsByIDsLocked(cmdBody.Devices)
+			mu.RUnlock()
+		}
 
 		cmdMsg := Message{
 			Type:      cmdBody.Type,
@@ -824,7 +902,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 				if readableName != "" {
 					broadcastDeviceMessage(udid, readableName)
 				}
-				writeTextMessageAsync(deviceConn, cmdBytes)
+				if cmdBody.Type == "key/global-keyboard" {
+					// 该低频命令会改变租约状态，必须先完成本次写入再处理后续命令或断线清理。
+					if err := writeTextMessage(deviceConn, cmdBytes); err != nil {
+						log.Printf("Failed to send hardware keyboard command to %s: %v", udid, err)
+					}
+				} else {
+					writeTextMessageAsync(deviceConn, cmdBytes)
+				}
 			}
 		}
 
@@ -1201,6 +1286,18 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 		return nil
 
+	case "key/global-keyboard":
+		bodyMap, ok := data.Body.(map[string]interface{})
+		if ok && bodyMap["action"] == "disconnect" && bodyMap["ok"] == true {
+			owner, ownerOK := bodyMap["owner"].(string)
+			if udid, udidOK := getDeviceUDIDByConn(conn); ownerOK && owner != "" && udidOK {
+				mu.Lock()
+				completeHardwareKeyboardDisconnectLocked(owner, udid)
+				mu.Unlock()
+			}
+		}
+		return forwardDeviceMessageToControllers(conn, data)
+
 	case "app/state":
 		bodyMap, ok := data.Body.(map[string]interface{})
 		if !ok {
@@ -1380,10 +1477,11 @@ func sendMessageAsync(conn *SafeConn, msg Message) {
 // handleDisconnection handles WebSocket disconnection
 func handleDisconnection(conn *SafeConn) {
 	var (
-		unsubscribeTargets []*SafeConn
-		disconnectTargets  []*SafeConn
-		disconnectUDID     string
-		disconnectedUDID   string
+		unsubscribeTargets             []*SafeConn
+		hardwareKeyboardCleanupTargets []hardwareKeyboardCleanupTarget
+		disconnectTargets              []*SafeConn
+		disconnectUDID                 string
+		disconnectedUDID               string
 	)
 
 	mu.Lock()
@@ -1402,6 +1500,17 @@ func handleDisconnection(conn *SafeConn) {
 				delete(binaryRoutes, id)
 			}
 		}
+		for owner, udids := range hardwareKeyboardOwners[conn] {
+			for udid := range udids {
+				if deviceConn, exists := deviceLinks[udid]; exists {
+					hardwareKeyboardCleanupTargets = append(hardwareKeyboardCleanupTargets, hardwareKeyboardCleanupTarget{
+						conn:  deviceConn,
+						owner: owner,
+					})
+				}
+			}
+		}
+		delete(hardwareKeyboardOwners, conn)
 		delete(controllers, conn)
 		mu.Unlock()
 
@@ -1413,6 +1522,17 @@ func handleDisconnection(conn *SafeConn) {
 				for _, deviceConn := range unsubscribeTargets {
 					writeTextMessageAsync(deviceConn, unsubscribePayload)
 				}
+			}
+		}
+		for _, target := range hardwareKeyboardCleanupTargets {
+			if err := sendMessage(target.conn, Message{
+				Type: "key/global-keyboard",
+				Body: map[string]interface{}{
+					"action": "disconnect",
+					"owner":  target.owner,
+				},
+			}); err != nil {
+				log.Printf("Failed to clean up hardware keyboard owner %s: %v", target.owner, err)
 			}
 		}
 		return
@@ -1433,6 +1553,17 @@ func handleDisconnection(conn *SafeConn) {
 		delete(deviceLinks, udid)
 		delete(deviceLife, udid)
 		delete(logSubscriptions, udid)
+		for controllerConn, owners := range hardwareKeyboardOwners {
+			for owner, udids := range owners {
+				delete(udids, udid)
+				if len(udids) == 0 {
+					delete(owners, owner)
+				}
+			}
+			if len(owners) == 0 {
+				delete(hardwareKeyboardOwners, controllerConn)
+			}
+		}
 		for id, route := range binaryRoutes {
 			if route != nil {
 				for _, deviceID := range route.Devices {

@@ -2,9 +2,13 @@ import { createSignal, onCleanup, createEffect, Show, onMount, For, createMemo }
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconCopy, IconPaperPlane, IconLinkSlash, IconLink, IconMobileScreen, IconUser, IconUsers, IconGear } from '../icons';
 import styles from './WebRTCControl.module.css';
-import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
+import { WebRTCService, type HardwareKeyboardState, type WebRTCStartOptions } from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
-import type { WebSocketService } from '../services/WebSocketService';
+import {
+  supportsGlobalHardwareKeyboard,
+  type GlobalHardwareKeyboardState,
+  type WebSocketService,
+} from '../services/WebSocketService';
 import { getDeviceHttpPort } from '../utils/device';
 import { MultiTouchSessionManager, type TouchPoint } from '../utils/multiTouchSession';
 import { debugLog, debugWarn } from '../utils/debugLogger';
@@ -28,6 +32,16 @@ export interface WebRTCControlProps {
   selectedDevices: () => Device[];
   webSocketService: WebSocketService | null;
   password: string;
+}
+
+type WsHardwareKeyboardViewState = GlobalHardwareKeyboardState & {
+  pending?: boolean;
+};
+
+interface ForwardedKeyboardRoute {
+  service: WebRTCService | null;
+  wsTargets: string[];
+  wsKeyCode: string;
 }
 
 const RC_WHEEL_ENABLED_KEY = 'xxt_remote_ws_wheel_enabled';
@@ -65,6 +79,7 @@ function rotationToQuarter(rotation: number): number {
 
 export default function WebRTCControl(props: WebRTCControlProps) {
   const { t } = useI18n();
+  const hardwareKeyboardOwner = `cloud-single-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const [selectedControlDevice, setSelectedControlDevice] = createSignal<string>('');
   const [connectionState, setConnectionState] = createSignal<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [resolution, setResolution] = createSignal(0.6); // 这里的 resolution 现在解释为 "最高允许分辨率"
@@ -78,7 +93,14 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const [syncControl, setSyncControl] = createSignal(false); // 同步控制开关
   const [currentRotation, setCurrentRotation] = createSignal(0); // 旋转角度: 0, 90, 180, 270
   const [keyboardIndicator, setKeyboardIndicator] = createSignal(''); // 键盘指示器
+  const [webrtcHardwareKeyboard, setWebrtcHardwareKeyboard] = createSignal<HardwareKeyboardState | null>(null);
+  const [webrtcHardwareKeyboardPending, setWebrtcHardwareKeyboardPending] = createSignal(false);
+  const [wsHardwareKeyboards, setWsHardwareKeyboards] = createSignal<Record<string, WsHardwareKeyboardViewState>>({});
   let keyboardIndicatorTimeout: number | undefined;
+  const requestedWsHardwareKeyboardStatus = new Set<string>();
+  const wsHardwareKeyboardConnectIssued = new Set<string>();
+  const pendingWsHardwareKeyboardDisconnects = new Set<string>();
+  let webrtcHardwareKeyboardConnectIssued = false;
 
   // 剪贴板模态框状态
   const [clipboardModalOpen, setClipboardModalOpen] = createSignal(false);
@@ -248,7 +270,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   let lastTimestamp = 0;
   let lastAppliedResolution = 0;
   let lastAppliedFrameRate = 0;
-  const forwardedKeyboardKeys = new Set<string>();
+  const forwardedKeyboardRoutes = new Map<string, ForwardedKeyboardRoute>();
   const suppressedKeyboardKeys = new Set<string>();
   const clipboardShortcutModifierCodes = new Set<string>();
   let lastClipboardShortcutModifierDownAt = 0;
@@ -412,6 +434,154 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
   };
 
+  const isHardwareKeyboardCapable = (udid: string) => {
+    return supportsGlobalHardwareKeyboard(props.selectedDevices().find(device => device.udid === udid));
+  };
+
+  const activeWsHardwareKeyboardTargets = () => {
+    return getTargetDevices().filter(isHardwareKeyboardCapable);
+  };
+
+  const hardwareKeyboardStates = createMemo(() => {
+    const states: Array<{ channel: 'webrtc' | 'ws'; udid: string; state: HardwareKeyboardState | GlobalHardwareKeyboardState }> = [];
+    const currentUdid = selectedControlDevice();
+    const currentState = webrtcHardwareKeyboard();
+    if (currentUdid && isHardwareKeyboardCapable(currentUdid) && currentState?.supported) {
+      states.push({ channel: 'webrtc', udid: currentUdid, state: currentState });
+    }
+    const wsStates = wsHardwareKeyboards();
+    for (const udid of activeWsHardwareKeyboardTargets()) {
+      const state = wsStates[udid];
+      if (state?.supported) {
+        states.push({ channel: 'ws', udid, state });
+      }
+    }
+    return states;
+  });
+
+  const hardwareKeyboardConnected = createMemo(() => {
+    const states = hardwareKeyboardStates();
+    return states.length > 0 && states.every(({ state }) => state.connected);
+  });
+
+  const hardwareKeyboardTargetsResolved = createMemo(() => {
+    const currentUdid = selectedControlDevice();
+    if (
+      currentUdid &&
+      isHardwareKeyboardCapable(currentUdid) &&
+      !webrtcHardwareKeyboard()
+    ) {
+      return false;
+    }
+    const states = wsHardwareKeyboards();
+    return activeWsHardwareKeyboardTargets().every(udid => states[udid] !== undefined);
+  });
+
+  const hardwareKeyboardPending = createMemo(() => {
+    return webrtcHardwareKeyboardPending() ||
+      activeWsHardwareKeyboardTargets().some(udid => wsHardwareKeyboards()[udid]?.pending);
+  });
+
+  const updateWsHardwareKeyboardState = (
+    udid: string,
+    state: WsHardwareKeyboardViewState
+  ) => {
+    setWsHardwareKeyboards(current => ({
+      ...current,
+      [udid]: state,
+    }));
+  };
+
+  const sendWsHardwareKeyboardCommand = (
+    udids: string[],
+    action: 'status' | 'connect' | 'disconnect'
+  ) => {
+    const targets = action === 'disconnect'
+      ? udids.filter(udid => !pendingWsHardwareKeyboardDisconnects.has(udid))
+      : udids;
+    if (!props.webSocketService || targets.length === 0) {
+      return;
+    }
+    const current = wsHardwareKeyboards();
+    const next = { ...current };
+    for (const udid of targets) {
+      const state = current[udid];
+      if (state) {
+        next[udid] = { ...state, pending: action !== 'status' };
+      }
+      if (action === 'connect') {
+        wsHardwareKeyboardConnectIssued.add(udid);
+      } else if (action === 'disconnect') {
+        pendingWsHardwareKeyboardDisconnects.add(udid);
+      }
+    }
+    setWsHardwareKeyboards(next);
+    void props.webSocketService.sendGlobalHardwareKeyboardCommand(targets, action, hardwareKeyboardOwner);
+  };
+
+  const disconnectWsHardwareKeyboards = (udids: string[]) => {
+    const owned = udids.filter(udid =>
+      wsHardwareKeyboardConnectIssued.has(udid) ||
+      wsHardwareKeyboards()[udid]?.connected ||
+      wsHardwareKeyboards()[udid]?.pending
+    );
+    if (owned.length > 0) {
+      sendWsHardwareKeyboardCommand(owned, 'disconnect');
+    }
+  };
+
+  createEffect(() => {
+    if (!props.isOpen || !syncControl() || !props.webSocketService) {
+      const previousTargets = [...requestedWsHardwareKeyboardStatus];
+      requestedWsHardwareKeyboardStatus.clear();
+      disconnectWsHardwareKeyboards(previousTargets);
+      return;
+    }
+
+    const targets = activeWsHardwareKeyboardTargets();
+    const targetSet = new Set(targets);
+    const removedTargets = [...requestedWsHardwareKeyboardStatus].filter(udid => !targetSet.has(udid));
+    disconnectWsHardwareKeyboards(removedTargets);
+    for (const udid of removedTargets) {
+      requestedWsHardwareKeyboardStatus.delete(udid);
+    }
+
+    const unqueried = targets.filter(udid => !requestedWsHardwareKeyboardStatus.has(udid));
+    if (unqueried.length > 0) {
+      for (const udid of unqueried) {
+        requestedWsHardwareKeyboardStatus.add(udid);
+      }
+      void props.webSocketService.sendGlobalHardwareKeyboardCommand(
+        unqueried,
+        'status',
+        hardwareKeyboardOwner
+      );
+    }
+  });
+
+  createEffect(() => {
+    const udid = selectedControlDevice();
+    if (!props.isOpen || connectionState() !== 'connected' || !udid) {
+      return;
+    }
+    if (!isHardwareKeyboardCapable(udid)) {
+      if (
+        webrtcHardwareKeyboardConnectIssued ||
+        webrtcHardwareKeyboardPending() ||
+        webrtcHardwareKeyboard()?.connected
+      ) {
+        webrtcService?.sendHardwareKeyboardCommand('disconnect');
+        setWebrtcHardwareKeyboard(null);
+        setWebrtcHardwareKeyboardPending(false);
+        webrtcHardwareKeyboardConnectIssued = false;
+      }
+      return;
+    }
+    if (!webrtcHardwareKeyboard()) {
+      webrtcService?.sendHardwareKeyboardCommand('status');
+    }
+  });
+
   const currentWheelSettings = (): RemoteWheelSettings => normalizeRemoteWheelSettings({
     enabled: wheelEnabled(),
     natural: wheelNatural(),
@@ -435,7 +605,12 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (!device || !props.webSocketService) return;
 
     setConnectionState('connecting');
+    setWebrtcHardwareKeyboard(null);
+    setWebrtcHardwareKeyboardPending(false);
+    webrtcHardwareKeyboardConnectIssued = false;
 
+    let service: WebRTCService | null = null;
+    let inactiveHardwareKeyboardCleanupAttempted = false;
     try {
       if (webrtcService) {
         await webrtcService.cleanup();
@@ -443,26 +618,32 @@ export default function WebRTCControl(props: WebRTCControlProps) {
       
       const httpPort = getDeviceHttpPort(device);
 
-      webrtcService = new WebRTCService(
+      service = new WebRTCService(
         props.webSocketService,
         device.udid,
         props.password,
         {
           onConnected: () => {
+            if (webrtcService !== service) return;
             setConnectionState('connected');
             startStatsMonitoring();
           },
           onDisconnected: () => {
+            if (webrtcService !== service) return;
             setConnectionState('disconnected');
+            setWebrtcHardwareKeyboard(null);
+            setWebrtcHardwareKeyboardPending(false);
             stopStatsMonitoring();
             resetLocalInputState();
           },
           onError: (error) => {
+            if (webrtcService !== service) return;
             console.error('WebRTC error:', error);
             setConnectionState('disconnected');
             resetLocalInputState();
           },
           onTrack: (stream) => {
+            if (webrtcService !== service) return;
             debugLog('webrtc', '[WebRTC] Setting remote stream signal');
             setRemoteStream(stream);
           },
@@ -483,10 +664,57 @@ export default function WebRTCControl(props: WebRTCControlProps) {
             console.error('Clipboard error:', error);
             setClipboardContent('');
             setClipboardImageData(null);
+          },
+          onDataChannelOpen: () => {
+            if (webrtcService === service && isHardwareKeyboardCapable(device.udid)) {
+              service?.sendHardwareKeyboardCommand('status');
+            }
+          },
+          onHardwareKeyboardState: (state) => {
+            if (webrtcService !== service) {
+              if (
+                state.connected &&
+                state.action !== 'disconnect' &&
+                (state.ok || state.action === 'connect') &&
+                !inactiveHardwareKeyboardCleanupAttempted
+              ) {
+                inactiveHardwareKeyboardCleanupAttempted = true;
+                service?.sendHardwareKeyboardCommand('disconnect');
+              } else if (state.action === 'disconnect' && state.supported && !state.ok) {
+                showKeyboardIndicator(t('remote.hardware_keyboard_failed'));
+              }
+              return;
+            }
+            if (state.action === 'disconnect' && state.ok) {
+              webrtcHardwareKeyboardConnectIssued = false;
+            }
+            const active = props.isOpen &&
+              selectedControlDevice() === device.udid &&
+              isHardwareKeyboardCapable(device.udid);
+            if (!active) {
+              if (
+                state.connected &&
+                state.action !== 'disconnect' &&
+                (state.ok || state.action === 'connect') &&
+                !inactiveHardwareKeyboardCleanupAttempted
+              ) {
+                inactiveHardwareKeyboardCleanupAttempted = true;
+                service?.sendHardwareKeyboardCommand('disconnect');
+              } else if (state.action === 'disconnect' && state.supported && !state.ok) {
+                showKeyboardIndicator(t('remote.hardware_keyboard_failed'));
+              }
+              return;
+            }
+            setWebrtcHardwareKeyboardPending(false);
+            setWebrtcHardwareKeyboard(state);
+            if (state.supported && !state.ok) {
+              showKeyboardIndicator(t('remote.hardware_keyboard_failed'));
+            }
           }
         },
         httpPort
       );
+      webrtcService = service;
 
       const options: WebRTCStartOptions = {
         resolution: targetResolution(),
@@ -496,10 +724,12 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
       lastAppliedResolution = targetResolution();
       lastAppliedFrameRate = frameRate();
-      await webrtcService.startStream(options);
+      await service.startStream(options);
     } catch (error) {
       console.error('Failed to start WebRTC stream:', error);
-      setConnectionState('disconnected');
+      if (webrtcService === service) {
+        setConnectionState('disconnected');
+      }
     }
   };
 
@@ -507,6 +737,8 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   const stopStream = async () => {
     cleanupTouchState();
     wheelBatcher.clear();
+    releaseAllForwardedKeyboardKeys();
+    disconnectOwnedHardwareKeyboards();
     if (webrtcService) {
       await webrtcService.stopStream();
       webrtcService = null;
@@ -878,32 +1110,35 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     return wsKeyCodeMap[key] || key.toUpperCase();
   };
 
-  function sendKeyCommandToCurrentDevice(key: string, action: 'down' | 'up' | 'press'): void {
-    webrtcService?.sendKeyCommand(key, action);
-  }
-
-  function sendKeyCommandToTargetDevices(keyCode: string, action: 'down' | 'up'): void {
-    const targetDevices = getTargetDevices();
-    if (targetDevices.length === 0 || !props.webSocketService) {
-      return;
-    }
-
-    if (action === 'down') {
-      void props.webSocketService.keyDownMultiple(targetDevices, keyCode);
-      return;
-    }
-
-    void props.webSocketService.keyUpMultiple(targetDevices, keyCode);
-  }
-
   function sendSynchronizedKeyCommand(key: string, action: 'down' | 'up'): void {
-    sendKeyCommandToCurrentDevice(key, action);
-    sendKeyCommandToTargetDevices(getWsKeyCode(key), action);
-    rememberForwardedKeyboardKey(key, action);
+    let route = forwardedKeyboardRoutes.get(key);
+    if (!route) {
+      route = {
+        service: webrtcService,
+        wsTargets: getTargetDevices(),
+        wsKeyCode: getWsKeyCode(key),
+      };
+      if (action === 'down') {
+        forwardedKeyboardRoutes.set(key, route);
+      }
+    }
+
+    route.service?.sendKeyCommand(key, action);
+    if (route.wsTargets.length > 0 && props.webSocketService) {
+      if (action === 'down') {
+        void props.webSocketService.keyDownMultiple(route.wsTargets, route.wsKeyCode);
+      } else {
+        void props.webSocketService.keyUpMultiple(route.wsTargets, route.wsKeyCode);
+      }
+    }
+
+    if (action === 'up') {
+      forwardedKeyboardRoutes.delete(key);
+    }
   }
 
   function sendSynchronizedKeyPress(key: string, wsKeyCode: string = getWsKeyCode(key)): void {
-    sendKeyCommandToCurrentDevice(key, 'press');
+    webrtcService?.sendKeyCommand(key, 'press');
 
     const targetDevices = getTargetDevices();
     if (targetDevices.length === 0 || !props.webSocketService) {
@@ -913,27 +1148,93 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     void props.webSocketService.pressKeyMultiple(targetDevices, wsKeyCode);
   }
 
-  function rememberForwardedKeyboardKey(key: string, action: 'down' | 'up'): void {
+  function releaseForwardedKeyboardKey(key: string): void {
     if (!key) {
       return;
     }
 
-    if (action === 'down') {
-      forwardedKeyboardKeys.add(key);
+    const route = forwardedKeyboardRoutes.get(key);
+    if (!route) {
       return;
     }
 
-    forwardedKeyboardKeys.delete(key);
+    route.service?.sendKeyCommand(key, 'up');
+    if (route.wsTargets.length > 0 && props.webSocketService) {
+      void props.webSocketService.keyUpMultiple(route.wsTargets, route.wsKeyCode);
+    }
+    forwardedKeyboardRoutes.delete(key);
   }
 
-  function releaseForwardedKeyboardKey(key: string): void {
-    if (!key || !forwardedKeyboardKeys.has(key)) {
+  function releaseAllForwardedKeyboardKeys(): void {
+    for (const key of [...forwardedKeyboardRoutes.keys()]) {
+      releaseForwardedKeyboardKey(key);
+    }
+  }
+
+  createEffect(() => {
+    const wsService = props.webSocketService;
+    const activeTargets = new Set(props.isOpen ? getTargetDevices() : []);
+    if (!wsService) {
       return;
     }
 
-    sendKeyCommandToCurrentDevice(key, 'up');
-    sendKeyCommandToTargetDevices(getWsKeyCode(key), 'up');
-    forwardedKeyboardKeys.delete(key);
+    for (const route of forwardedKeyboardRoutes.values()) {
+      const removedTargets = route.wsTargets.filter(udid => !activeTargets.has(udid));
+      if (removedTargets.length === 0) {
+        continue;
+      }
+      void wsService.keyUpMultiple(removedTargets, route.wsKeyCode);
+      route.wsTargets = route.wsTargets.filter(udid => activeTargets.has(udid));
+    }
+  });
+
+  function disconnectOwnedHardwareKeyboards(): void {
+    const currentState = webrtcHardwareKeyboard();
+    if (
+      webrtcHardwareKeyboardConnectIssued ||
+      webrtcHardwareKeyboardPending() ||
+      (currentState?.supported && currentState.connected)
+    ) {
+      webrtcService?.sendHardwareKeyboardCommand('disconnect');
+    }
+    const wsTargets = [...new Set([
+      ...wsHardwareKeyboardConnectIssued,
+      ...Object.entries(wsHardwareKeyboards())
+        .filter(([, state]) => state.supported && (state.connected || state.pending))
+        .map(([udid]) => udid),
+    ])];
+    if (wsTargets.length > 0) {
+      void props.webSocketService?.sendGlobalHardwareKeyboardCommand(
+        wsTargets,
+        'disconnect',
+        hardwareKeyboardOwner
+      );
+    }
+    setWebrtcHardwareKeyboard(null);
+    setWebrtcHardwareKeyboardPending(false);
+    webrtcHardwareKeyboardConnectIssued = false;
+    setWsHardwareKeyboards({});
+    requestedWsHardwareKeyboardStatus.clear();
+  }
+
+  function toggleHardwareKeyboard(): void {
+    const action = hardwareKeyboardConnected() ? 'disconnect' : 'connect';
+    releaseAllForwardedKeyboardKeys();
+
+    const currentState = webrtcHardwareKeyboard();
+    if (currentState?.supported && currentState.connected !== (action === 'connect')) {
+      setWebrtcHardwareKeyboardPending(true);
+      if (action === 'connect') {
+        webrtcHardwareKeyboardConnectIssued = true;
+      }
+      webrtcService?.sendHardwareKeyboardCommand(action);
+    }
+
+    const wsTargets = activeWsHardwareKeyboardTargets().filter(udid => {
+      const state = wsHardwareKeyboards()[udid];
+      return state?.supported && state.connected !== (action === 'connect');
+    });
+    sendWsHardwareKeyboardCommand(wsTargets, action);
   }
 
   function suppressKeyboardKeys(keys: string[]): void {
@@ -952,7 +1253,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     e.preventDefault();
     if (action === 'up') {
       suppressedKeyboardKeys.delete(key);
-      forwardedKeyboardKeys.delete(key);
+      forwardedKeyboardRoutes.delete(key);
     }
     return true;
   }
@@ -1026,7 +1327,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
 
     suppressedKeyboardKeys.delete(key);
-    forwardedKeyboardKeys.delete(key);
+    forwardedKeyboardRoutes.delete(key);
     return true;
   }
 
@@ -1526,6 +1827,54 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     
     // 监听剪贴板响应
     const unsubscribe = props.webSocketService?.onMessage((message: any) => {
+      if (
+        message.type === 'key/global-keyboard' &&
+        typeof message.udid === 'string' &&
+        message.body?.owner === hardwareKeyboardOwner &&
+        (message.body.action === 'status' || message.body.action === 'connect' || message.body.action === 'disconnect') &&
+        typeof message.body.supported === 'boolean' &&
+        typeof message.body.ok === 'boolean' &&
+        typeof message.body.connected === 'boolean'
+      ) {
+        const isActiveTarget = props.isOpen &&
+          syncControl() &&
+          activeWsHardwareKeyboardTargets().includes(message.udid);
+        if (message.body.action === 'disconnect' && message.body.ok) {
+          wsHardwareKeyboardConnectIssued.delete(message.udid);
+        }
+        pendingWsHardwareKeyboardDisconnects.delete(message.udid);
+        if (message.body.action !== 'disconnect' && !message.body.connected) {
+          wsHardwareKeyboardConnectIssued.delete(message.udid);
+        }
+        if (
+          message.body.connected &&
+          !isActiveTarget &&
+          message.body.action !== 'disconnect' &&
+          (message.body.ok || wsHardwareKeyboardConnectIssued.has(message.udid))
+        ) {
+          sendWsHardwareKeyboardCommand([message.udid], 'disconnect');
+          return;
+        }
+        if (!isActiveTarget && message.body.action === 'disconnect' && !message.body.ok) {
+          if (message.body.supported) {
+            showKeyboardIndicator(t('remote.hardware_keyboard_failed'));
+          }
+          return;
+        }
+        updateWsHardwareKeyboardState(message.udid, {
+          action: message.body.action,
+          owner: message.body.owner,
+          supported: message.body.supported,
+          ok: message.body.ok,
+          connected: message.body.connected,
+          message: typeof message.body.message === 'string' ? message.body.message : undefined,
+          pending: false,
+        });
+        if (message.body.supported && !message.body.ok) {
+          showKeyboardIndicator(t('remote.hardware_keyboard_failed'));
+        }
+        return;
+      }
       if (message.type === 'pasteboard/read' && message.body) {
         setClipboardLoading(false);
         const { uti, data } = message.body;
@@ -1576,7 +1925,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   onCleanup(() => {
     cleanupTouchState();
     stopStream();
-    forwardedKeyboardKeys.clear();
+    forwardedKeyboardRoutes.clear();
     suppressedKeyboardKeys.clear();
     clipboardShortcutModifierCodes.clear();
     if (clipboardTextareaFocusFrame !== undefined) {
@@ -1988,6 +2337,19 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   <button class={`${styles.deviceButton} ${styles.btnSuccess}`} onClick={handleCopyFromDevice} title={t('remote.copy_from_device')}>
                     <IconCopy size={14} /> {t('common.copy')}
                   </button>
+                  <Show when={hardwareKeyboardTargetsResolved() && hardwareKeyboardStates().length > 0}>
+                    <button
+                      class={`${styles.deviceButton} ${styles.btnSecondary} ${hardwareKeyboardConnected() ? styles.hardwareKeyboardActive : ''}`}
+                      onClick={toggleHardwareKeyboard}
+                      disabled={hardwareKeyboardPending()}
+                      title={hardwareKeyboardConnected() ? t('remote.disconnect_hardware_keyboard') : t('remote.connect_hardware_keyboard')}
+                    >
+                      <Show when={hardwareKeyboardConnected()} fallback={<IconLink size={14} />}>
+                        <IconLinkSlash size={14} />
+                      </Show>
+                      {hardwareKeyboardConnected() ? t('remote.disconnect_keyboard') : t('remote.connect_keyboard')}
+                    </button>
+                  </Show>
                   <button class={`${styles.deviceButton} ${styles.btnPrimary}`} onClick={handlePasteToDevice} title={t('remote.paste_to_device')}>
                     <IconPaste size={14} /> {t('remote.paste')}
                   </button>

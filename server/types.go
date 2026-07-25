@@ -282,13 +282,14 @@ type AppSettings struct {
 // Global state variables
 var (
 	// Device management
-	deviceTable      = make(map[string]interface{})
-	deviceLinks      = make(map[string]*SafeConn)
-	deviceLinksMap   = make(map[*SafeConn]string)
-	controllers      = make(map[*SafeConn]bool)
-	deviceLife       = make(map[string]int)
-	logSubscriptions = make(map[string]map[*SafeConn]bool)
-	binaryRoutes     = make(map[string]*BinaryRoute)
+	deviceTable            = make(map[string]interface{})
+	deviceLinks            = make(map[string]*SafeConn)
+	deviceLinksMap         = make(map[*SafeConn]string)
+	controllers            = make(map[*SafeConn]bool)
+	deviceLife             = make(map[string]int)
+	logSubscriptions       = make(map[string]map[*SafeConn]bool)
+	binaryRoutes           = make(map[string]*BinaryRoute)
+	hardwareKeyboardOwners = make(map[*SafeConn]map[string]map[string]bool)
 
 	// Mutex for device state
 	mu sync.RWMutex

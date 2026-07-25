@@ -18,6 +18,21 @@ export interface Device {
   [key: string]: any;
 }
 
+export type HardwareKeyboardAction = 'status' | 'connect' | 'disconnect';
+
+export interface GlobalHardwareKeyboardState {
+  action: HardwareKeyboardAction;
+  owner: string;
+  supported: boolean;
+  ok: boolean;
+  connected: boolean;
+  message?: string;
+}
+
+export function supportsGlobalHardwareKeyboard(device: Device | null | undefined): boolean {
+  return device?.cloudControl?.features?.globalHardwareKeyboard === true;
+}
+
 type RemoteWheelCommandPayload = RemoteWheelSettings & {
   deltaY: number;
   rotateQuarter: number;
@@ -1635,6 +1650,25 @@ export class WebSocketService {
   // 按键抬起（多设备）
   async keyUpMultiple(deviceUdids: string[], keyCode: string): Promise<void> {
     return this.sendKeyCommand(deviceUdids, 'key/up', keyCode);
+  }
+
+  async sendGlobalHardwareKeyboardCommand(
+    deviceUdids: string[],
+    action: HardwareKeyboardAction,
+    owner: string
+  ): Promise<void> {
+    if (deviceUdids.length === 0 || !owner) {
+      return;
+    }
+
+    this.sendDeviceCommand(deviceUdids, 'key/global-keyboard', {
+      body: {
+        action,
+        owner,
+      },
+      missingDevicesMessage: '未选择设备，无法切换硬件键盘',
+      errorMessage: '切换硬件键盘失败:',
+    });
   }
 
   // 模拟Home键（单设备）

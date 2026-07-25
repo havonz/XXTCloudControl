@@ -1,11 +1,19 @@
 import { createSignal, For, Show, onCleanup, createEffect, onMount, createMemo } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
 import { CgMaximizeAlt, CgMinimizeAlt } from 'solid-icons/cg';
-import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconGear, IconMobileScreen } from '../icons';
+import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconGear, IconMobileScreen, IconLink, IconLinkSlash } from '../icons';
 import styles from './BatchRemoteControl.module.css';
-import { WebRTCService, type WebRTCStartOptions } from '../services/WebRTCService';
+import {
+  WebRTCService,
+  type HardwareKeyboardState,
+  type WebRTCStartOptions,
+} from '../services/WebRTCService';
 import type { Device } from '../services/AuthService';
-import type { WebSocketService } from '../services/WebSocketService';
+import {
+  supportsGlobalHardwareKeyboard,
+  type GlobalHardwareKeyboardState,
+  type WebSocketService,
+} from '../services/WebSocketService';
 import { getDeviceHttpPort } from '../utils/device';
 import { MultiTouchSessionManager, type TouchPoint } from '../utils/multiTouchSession';
 import { debugLog, debugWarn } from '../utils/debugLogger';
@@ -52,6 +60,26 @@ interface BatchVideoLayout {
   containerHeight: number;
 }
 
+interface BatchHardwareKeyboardState extends GlobalHardwareKeyboardState {
+  channel: 'webrtc' | 'ws';
+  pending: boolean;
+}
+
+interface ActiveKeyboardRoute {
+  deviceKey: string;
+  viaWebRTC: string[];
+  viaWebSocket: string[];
+}
+
+interface HardwareKeyboardMigration {
+  from: 'webrtc' | 'ws';
+  to: 'webrtc' | 'ws' | null;
+  disconnected: boolean;
+  resolved: boolean;
+  promise: Promise<void>;
+  resolve: () => void;
+}
+
 function createDisconnectedViewState(): ConnectionViewState {
   return {
     state: 'disconnected',
@@ -84,6 +112,7 @@ function rotationToQuarter(rotation: number): number {
 
 export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const { t } = useI18n();
+  const hardwareKeyboardOwner = `cloud-batch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const MOBILE_MAX_COLUMNS = 4;
   const DESKTOP_MAX_COLUMNS = 8;
   const VIEWPORT_MOBILE_BREAKPOINT = 768;
@@ -105,6 +134,19 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   
   // 被勾选的设备 UDID 集合
   const [checkedDevices, setCheckedDevices] = createSignal<Set<string>>(new Set());
+  const [hardwareKeyboards, setHardwareKeyboards] = createSignal<Record<string, BatchHardwareKeyboardState>>({});
+  const [hardwareKeyboardError, setHardwareKeyboardError] = createSignal('');
+  const desiredHardwareKeyboardDevices = new Set<string>();
+  const issuedWsHardwareKeyboardConnects = new Set<string>();
+  const pendingWsHardwareKeyboardDisconnects = new Set<string>();
+  const requestedWsHardwareKeyboardStatus = new Set<string>();
+  const lastHardwareKeyboardRoute = new Map<string, 'webrtc' | 'ws'>();
+  const hardwareKeyboardRouteOverrides = new Map<string, 'ws'>();
+  const activeKeyboardRoutes = new Map<string, ActiveKeyboardRoute>();
+  const hardwareKeyboardMigrations = new Map<string, HardwareKeyboardMigration>();
+  const openWebRTCDataChannels = new Set<string>();
+  let previousKeyboardTargetUdids = new Set<string>();
+  let hardwareKeyboardErrorTimer: number | undefined;
   
   // 全选状态（计算属性：当所有设备都被勾选时为 true）
   const isAllSelected = () => {
@@ -547,6 +589,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
 
     serviceByUdid.delete(udid);
+    openWebRTCDataChannels.delete(udid);
     lastAppliedResolutionByUdid.delete(udid);
     const pendingBind = bindFrameByUdid.get(udid);
     if (pendingBind !== undefined) {
@@ -943,7 +986,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   };
   // 获取当前选中的设备列表 (被勾选的)
   const getCheckedDevicesList = (): string[] => {
-    return [...checkedDevices()];
+    const available = new Set(currentDevices().map(device => device.udid));
+    return [...checkedDevices()].filter(udid => available.has(udid));
   };
   
   // 获取其他被勾选的设备（排除当前操作的设备）
@@ -974,7 +1018,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const viaWebSocket: string[] = [];
 
     for (const udid of udids) {
-      if (getService(udid) && getConnectionState(udid).state === 'connected') {
+      if (
+        !hardwareKeyboardRouteOverrides.has(udid) &&
+        getService(udid) &&
+        getConnectionState(udid).state === 'connected'
+      ) {
         viaWebRTC.push(udid);
       } else {
         viaWebSocket.push(udid);
@@ -983,6 +1031,502 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
 
     return { viaWebRTC, viaWebSocket };
   };
+
+  const getHardwareKeyboardRoute = (udid: string): 'webrtc' | 'ws' => {
+    const routeOverride = hardwareKeyboardRouteOverrides.get(udid);
+    if (routeOverride) {
+      return routeOverride;
+    }
+    return getService(udid) && getConnectionState(udid).state === 'connected' ? 'webrtc' : 'ws';
+  };
+
+  const isHardwareKeyboardCapable = (udid: string) => {
+    return supportsGlobalHardwareKeyboard(currentDevices().find(device => device.udid === udid));
+  };
+
+  const showHardwareKeyboardError = () => {
+    setHardwareKeyboardError(t('remote.hardware_keyboard_failed'));
+    if (hardwareKeyboardErrorTimer !== undefined) {
+      clearTimeout(hardwareKeyboardErrorTimer);
+    }
+    hardwareKeyboardErrorTimer = window.setTimeout(() => {
+      hardwareKeyboardErrorTimer = undefined;
+      setHardwareKeyboardError('');
+    }, 3000);
+  };
+
+  const releaseActiveKeyboardRoutesForDevice = (udid: string) => {
+    for (const [code, route] of activeKeyboardRoutes) {
+      if (route.viaWebRTC.includes(udid)) {
+        getService(udid)?.sendKeyCommand(route.deviceKey, 'up');
+        route.viaWebRTC = route.viaWebRTC.filter(target => target !== udid);
+      }
+      if (route.viaWebSocket.includes(udid)) {
+        void currentWebSocketService()?.keyUpMultiple([udid], route.deviceKey);
+        route.viaWebSocket = route.viaWebSocket.filter(target => target !== udid);
+      }
+      if (route.viaWebRTC.length === 0 && route.viaWebSocket.length === 0) {
+        activeKeyboardRoutes.delete(code);
+      }
+    }
+  };
+
+  createEffect(() => {
+    const available = new Set(currentDevices().map(device => device.udid));
+    const nextTargets = new Set(
+      [...checkedDevices()].filter(udid => available.has(udid))
+    );
+    for (const udid of previousKeyboardTargetUdids) {
+      if (!nextTargets.has(udid)) {
+        releaseActiveKeyboardRoutesForDevice(udid);
+      }
+    }
+    previousKeyboardTargetUdids = nextTargets;
+  });
+
+  function sendBatchWsHardwareKeyboardCommand(
+    udids: string[],
+    action: 'status' | 'connect' | 'disconnect'
+  ) {
+    const wsService = currentWebSocketService();
+    const targets = action === 'disconnect'
+      ? udids.filter(udid => !pendingWsHardwareKeyboardDisconnects.has(udid))
+      : udids;
+    if (!wsService || targets.length === 0) {
+      return;
+    }
+    if (action === 'connect') {
+      for (const udid of targets) {
+        desiredHardwareKeyboardDevices.add(udid);
+        issuedWsHardwareKeyboardConnects.add(udid);
+      }
+    } else if (action === 'disconnect') {
+      for (const udid of targets) {
+        pendingWsHardwareKeyboardDisconnects.add(udid);
+      }
+    }
+    setHardwareKeyboards(current => {
+      const next = { ...current };
+      for (const udid of targets) {
+        const state = current[udid];
+        if (state) {
+          const migrationTarget = hardwareKeyboardMigrations.get(udid)?.to;
+          if (action === 'disconnect' && !migrationTarget && state.channel !== 'ws') {
+            continue;
+          }
+          next[udid] = {
+            ...state,
+            channel: migrationTarget ?? 'ws',
+            pending: action !== 'status' || state.pending,
+          };
+        }
+      }
+      return next;
+    });
+    void wsService.sendGlobalHardwareKeyboardCommand(targets, action, hardwareKeyboardOwner);
+  }
+
+  const selectedHardwareKeyboardStates = createMemo(() => {
+    const checked = checkedDevices();
+    const states = hardwareKeyboards();
+    return cachedDevices()
+      .filter(device => checked.has(device.udid) && isHardwareKeyboardCapable(device.udid))
+      .map(device => ({ udid: device.udid, state: states[device.udid] }))
+      .filter(({ udid, state }) =>
+        state?.supported && state.channel === getHardwareKeyboardRoute(udid)
+      ) as Array<{ udid: string; state: BatchHardwareKeyboardState }>;
+  });
+
+  const allSelectedHardwareKeyboardsConnected = createMemo(() => {
+    const targets = selectedHardwareKeyboardStates();
+    return targets.length > 0 && targets.every(({ state }) => state.connected);
+  });
+
+  const selectedHardwareKeyboardTargetsResolved = createMemo(() => {
+    const checked = checkedDevices();
+    const states = hardwareKeyboards();
+    return cachedDevices()
+      .filter(device => checked.has(device.udid) && isHardwareKeyboardCapable(device.udid))
+      .every(device => states[device.udid]?.channel === getHardwareKeyboardRoute(device.udid));
+  });
+
+  const selectedHardwareKeyboardPending = createMemo(() => {
+    return selectedHardwareKeyboardStates().some(({ state }) => state.pending);
+  });
+
+  const removeHardwareKeyboardState = (udid: string) => {
+    setHardwareKeyboards(current => {
+      if (!current[udid]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[udid];
+      return next;
+    });
+  };
+
+  const sendHardwareKeyboardActionToRoute = (
+    udid: string,
+    route: 'webrtc' | 'ws'
+  ) => {
+    if (
+      !currentIsOpen() ||
+      !checkedDevices().has(udid) ||
+      !isHardwareKeyboardCapable(udid)
+    ) {
+      return;
+    }
+
+    const action = desiredHardwareKeyboardDevices.has(udid) ? 'connect' : 'status';
+    if (route === 'webrtc') {
+      const service = getService(udid);
+      if (!service || !openWebRTCDataChannels.has(udid)) {
+        return;
+      }
+      requestedWsHardwareKeyboardStatus.delete(udid);
+      service.sendHardwareKeyboardCommand(action);
+    } else {
+      if (!currentWebSocketService()) {
+        return;
+      }
+      requestedWsHardwareKeyboardStatus.add(udid);
+      sendBatchWsHardwareKeyboardCommand([udid], action);
+    }
+    lastHardwareKeyboardRoute.set(udid, route);
+  };
+
+  const tryFinishHardwareKeyboardMigration = (udid: string) => {
+    const migration = hardwareKeyboardMigrations.get(udid);
+    if (!migration || !migration.disconnected) {
+      return;
+    }
+
+    if (
+      !currentIsOpen() ||
+      !checkedDevices().has(udid) ||
+      !isHardwareKeyboardCapable(udid)
+    ) {
+      migration.to = null;
+    }
+    if (migration.to === null) {
+      hardwareKeyboardMigrations.delete(udid);
+      lastHardwareKeyboardRoute.delete(udid);
+      hardwareKeyboardRouteOverrides.delete(udid);
+      return;
+    }
+
+    const targetReady = migration.to === 'webrtc'
+      ? !!getService(udid) && openWebRTCDataChannels.has(udid)
+      : !!currentWebSocketService();
+    if (!targetReady) {
+      return;
+    }
+
+    const route = migration.to;
+    hardwareKeyboardMigrations.delete(udid);
+    if (route === 'webrtc') {
+      hardwareKeyboardRouteOverrides.delete(udid);
+    }
+    sendHardwareKeyboardActionToRoute(udid, route);
+  };
+
+  const confirmHardwareKeyboardMigration = (
+    udid: string,
+    route: 'webrtc' | 'ws'
+  ) => {
+    const migration = hardwareKeyboardMigrations.get(udid);
+    if (!migration || migration.from !== route) {
+      return;
+    }
+
+    migration.disconnected = true;
+    if (!migration.resolved) {
+      migration.resolved = true;
+      migration.resolve();
+    }
+    tryFinishHardwareKeyboardMigration(udid);
+  };
+
+  const rollbackHardwareKeyboardMigration = (
+    udid: string,
+    route: 'webrtc' | 'ws',
+    state: HardwareKeyboardState | GlobalHardwareKeyboardState
+  ) => {
+    const migration = hardwareKeyboardMigrations.get(udid);
+    if (!migration || migration.from !== route) {
+      return;
+    }
+
+    hardwareKeyboardMigrations.delete(udid);
+    if (!migration.resolved) {
+      migration.resolved = true;
+      migration.resolve();
+    }
+    if (migration.to === null) {
+      desiredHardwareKeyboardDevices.delete(udid);
+      pendingWsHardwareKeyboardDisconnects.delete(udid);
+      requestedWsHardwareKeyboardStatus.delete(udid);
+      lastHardwareKeyboardRoute.delete(udid);
+      hardwareKeyboardRouteOverrides.delete(udid);
+      removeHardwareKeyboardState(udid);
+      return;
+    }
+    if (route === 'ws') {
+      hardwareKeyboardRouteOverrides.set(udid, 'ws');
+    }
+    lastHardwareKeyboardRoute.set(udid, route);
+    setHardwareKeyboards(current => ({
+      ...current,
+      [udid]: {
+        action: state.action,
+        owner: 'owner' in state ? state.owner : hardwareKeyboardOwner,
+        supported: state.supported,
+        ok: state.ok,
+        connected: state.connected,
+        message: state.message,
+        channel: route,
+        pending: false,
+      },
+    }));
+  };
+
+  const beginHardwareKeyboardMigration = (
+    udid: string,
+    from: 'webrtc' | 'ws',
+    to: 'webrtc' | 'ws' | null,
+    oldRouteDisconnected = false
+  ): HardwareKeyboardMigration => {
+    const existing = hardwareKeyboardMigrations.get(udid);
+    if (existing) {
+      existing.to = to;
+      if (to === null) {
+        removeHardwareKeyboardState(udid);
+      } else {
+        setHardwareKeyboards(current => {
+          const state = current[udid];
+          if (!state) {
+            return current;
+          }
+          return {
+            ...current,
+            [udid]: { ...state, channel: to, pending: true },
+          };
+        });
+      }
+      if (oldRouteDisconnected && existing.from === from) {
+        confirmHardwareKeyboardMigration(udid, from);
+      } else {
+        tryFinishHardwareKeyboardMigration(udid);
+      }
+      return existing;
+    }
+
+    let resolve = () => {};
+    const promise = new Promise<void>(done => {
+      resolve = done;
+    });
+    const migration: HardwareKeyboardMigration = {
+      from,
+      to,
+      disconnected: false,
+      resolved: false,
+      promise,
+      resolve,
+    };
+    hardwareKeyboardMigrations.set(udid, migration);
+    releaseActiveKeyboardRoutesForDevice(udid);
+
+    const state = hardwareKeyboards()[udid];
+    if (to === null) {
+      removeHardwareKeyboardState(udid);
+    } else if (state) {
+      setHardwareKeyboards(current => ({
+        ...current,
+        [udid]: { ...state, channel: to, pending: true },
+      }));
+    }
+
+    const oldRouteMayOwnKeyboard =
+      desiredHardwareKeyboardDevices.has(udid) ||
+      (state?.channel === from && (state.connected || state.pending)) ||
+      (from === 'ws' && (
+        issuedWsHardwareKeyboardConnects.has(udid) ||
+        pendingWsHardwareKeyboardDisconnects.has(udid)
+      ));
+    if (oldRouteDisconnected || !oldRouteMayOwnKeyboard) {
+      confirmHardwareKeyboardMigration(udid, from);
+    } else if (from === 'ws') {
+      if (currentWebSocketService()) {
+        sendBatchWsHardwareKeyboardCommand([udid], 'disconnect');
+      } else {
+        confirmHardwareKeyboardMigration(udid, from);
+      }
+    } else {
+      const service = getService(udid);
+      if (service && openWebRTCDataChannels.has(udid)) {
+        service.sendHardwareKeyboardCommand('disconnect');
+      } else {
+        confirmHardwareKeyboardMigration(udid, from);
+      }
+    }
+
+    return migration;
+  };
+
+  const waitForHardwareKeyboardDisconnect = (
+    migration: HardwareKeyboardMigration,
+    timeoutMs = 500
+  ) => {
+    if (migration.disconnected) {
+      return Promise.resolve();
+    }
+    return new Promise<void>(resolve => {
+      let settled = false;
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = window.setTimeout(finish, timeoutMs);
+      void migration.promise.then(finish);
+    });
+  };
+
+  const disconnectBatchHardwareKeyboardTargets = (udids: string[]) => {
+    const states = hardwareKeyboards();
+    const viaWebRTC = new Set<string>();
+    const viaWebSocket = new Set<string>();
+    for (const udid of udids) {
+      const state = states[udid];
+      if (
+        !desiredHardwareKeyboardDevices.has(udid) &&
+        !issuedWsHardwareKeyboardConnects.has(udid) &&
+        !state?.connected &&
+        !state?.pending
+      ) {
+        continue;
+      }
+      if (issuedWsHardwareKeyboardConnects.has(udid)) {
+        viaWebSocket.add(udid);
+      }
+      if (getHardwareKeyboardRoute(udid) === 'webrtc') {
+        viaWebRTC.add(udid);
+      } else {
+        viaWebSocket.add(udid);
+      }
+      desiredHardwareKeyboardDevices.delete(udid);
+    }
+    for (const udid of viaWebRTC) {
+      getService(udid)?.sendHardwareKeyboardCommand('disconnect');
+    }
+    sendBatchWsHardwareKeyboardCommand([...viaWebSocket], 'disconnect');
+  };
+
+  createEffect(() => {
+    if (!currentIsOpen()) {
+      return;
+    }
+    const checked = checkedDevices();
+    const capable = new Map(
+      cachedDevices()
+        .filter(device => isHardwareKeyboardCapable(device.udid))
+        .map(device => [device.udid, device])
+    );
+    const tracked = new Set([
+      ...lastHardwareKeyboardRoute.keys(),
+      ...desiredHardwareKeyboardDevices,
+      ...issuedWsHardwareKeyboardConnects,
+      ...pendingWsHardwareKeyboardDisconnects,
+      ...hardwareKeyboardMigrations.keys(),
+      ...Object.keys(hardwareKeyboards()),
+    ]);
+    for (const udid of tracked) {
+      if (!capable.has(udid)) {
+        const migration = hardwareKeyboardMigrations.get(udid);
+        if (migration) {
+          migration.to = null;
+          confirmHardwareKeyboardMigration(udid, migration.from);
+        }
+        releaseActiveKeyboardRoutesForDevice(udid);
+        desiredHardwareKeyboardDevices.delete(udid);
+        issuedWsHardwareKeyboardConnects.delete(udid);
+        pendingWsHardwareKeyboardDisconnects.delete(udid);
+        removeHardwareKeyboardState(udid);
+        requestedWsHardwareKeyboardStatus.delete(udid);
+        lastHardwareKeyboardRoute.delete(udid);
+        hardwareKeyboardRouteOverrides.delete(udid);
+        continue;
+      }
+      if (!checked.has(udid)) {
+        let migration = hardwareKeyboardMigrations.get(udid);
+        if (migration) {
+          migration.to = null;
+          tryFinishHardwareKeyboardMigration(udid);
+        } else {
+          migration = beginHardwareKeyboardMigration(
+            udid,
+            lastHardwareKeyboardRoute.get(udid) ?? getHardwareKeyboardRoute(udid),
+            null
+          );
+        }
+        releaseActiveKeyboardRoutesForDevice(udid);
+        desiredHardwareKeyboardDevices.delete(udid);
+        if (
+          migration.from !== 'ws' &&
+          issuedWsHardwareKeyboardConnects.has(udid)
+        ) {
+          sendBatchWsHardwareKeyboardCommand([udid], 'disconnect');
+        }
+        removeHardwareKeyboardState(udid);
+        requestedWsHardwareKeyboardStatus.delete(udid);
+      }
+    }
+
+    for (const [udid] of capable) {
+      if (!checked.has(udid)) {
+        continue;
+      }
+
+      const route = getHardwareKeyboardRoute(udid);
+      const migration = hardwareKeyboardMigrations.get(udid);
+      if (migration) {
+        if (migration.to === null) {
+          migration.to = route;
+        }
+        tryFinishHardwareKeyboardMigration(udid);
+        continue;
+      }
+      const previousRoute = lastHardwareKeyboardRoute.get(udid);
+      if (previousRoute && previousRoute !== route) {
+        beginHardwareKeyboardMigration(udid, previousRoute, route);
+        continue;
+      }
+
+      if (route === 'ws') {
+        if (
+          previousRoute !== 'ws' ||
+          (!requestedWsHardwareKeyboardStatus.has(udid) && !desiredHardwareKeyboardDevices.has(udid))
+        ) {
+          sendBatchWsHardwareKeyboardCommand(
+            [udid],
+            desiredHardwareKeyboardDevices.has(udid) ? 'connect' : 'status'
+          );
+          requestedWsHardwareKeyboardStatus.add(udid);
+        }
+      } else {
+        requestedWsHardwareKeyboardStatus.delete(udid);
+        if (previousRoute !== route) {
+          getService(udid)?.sendHardwareKeyboardCommand(
+            desiredHardwareKeyboardDevices.has(udid) ? 'connect' : 'status'
+          );
+        }
+      }
+      lastHardwareKeyboardRoute.set(udid, route);
+    }
+  });
 
   const clearActiveTouchLock = () => {
     activeTouchDevice = null;
@@ -1138,12 +1682,50 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const wsService = currentWebSocketService();
     if (getConnectionState(device.udid).state !== 'disconnected' || !wsService) return;
 
+    hardwareKeyboardRouteOverrides.delete(device.udid);
+    const keyboardState = hardwareKeyboards()[device.udid];
+    if (
+      currentIsOpen() &&
+      checkedDevices().has(device.udid) &&
+      isHardwareKeyboardCapable(device.udid) &&
+      (
+        lastHardwareKeyboardRoute.get(device.udid) === 'ws' ||
+        keyboardState?.channel === 'ws' ||
+        issuedWsHardwareKeyboardConnects.has(device.udid)
+      )
+    ) {
+      beginHardwareKeyboardMigration(device.udid, 'ws', 'webrtc');
+    }
+
     setConnectionStates(device.udid, {
       ...getConnectionState(device.udid),
       state: 'connecting'
     });
 
     const httpPort = getDeviceHttpPort(device);
+
+    let inactiveHardwareKeyboardCleanupAttempted = false;
+    const handleWebRTCControlChannelClosed = () => {
+      if (serviceByUdid.get(device.udid) !== service) {
+        return;
+      }
+      resetTouchStateForDevice(device.udid);
+      const targetRoute =
+        currentIsOpen() &&
+        !isDisconnectingAll &&
+        checkedDevices().has(device.udid) &&
+        isHardwareKeyboardCapable(device.udid)
+          ? 'ws'
+          : null;
+      const shouldMigrateHardwareKeyboard =
+        hardwareKeyboardMigrations.has(device.udid) ||
+        lastHardwareKeyboardRoute.get(device.udid) === 'webrtc' ||
+        hardwareKeyboards()[device.udid]?.channel === 'webrtc';
+      clearDeviceRuntime(device.udid, service);
+      if (shouldMigrateHardwareKeyboard) {
+        beginHardwareKeyboardMigration(device.udid, 'webrtc', targetRoute, true);
+      }
+    };
 
     const service = new WebRTCService(
       wsService,
@@ -1160,13 +1742,11 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           scheduleResolutionRefresh();
         },
         onDisconnected: () => {
-          resetTouchStateForDevice(device.udid);
-          clearDeviceRuntime(device.udid, service);
+          handleWebRTCControlChannelClosed();
         },
         onError: (error) => {
           console.error(`[BatchRemote] Device ${device.udid} error:`, error);
-          resetTouchStateForDevice(device.udid);
-          clearDeviceRuntime(device.udid, service);
+          handleWebRTCControlChannelClosed();
         },
         onTrack: (stream) => {
           if (!currentIsOpen()) return;
@@ -1174,7 +1754,76 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
           setDeviceStream(device.udid, stream);
         },
         onClipboard: () => {},
-        onClipboardError: () => {}
+        onClipboardError: () => {},
+        onDataChannelOpen: () => {
+          if (serviceByUdid.get(device.udid) !== service) {
+            return;
+          }
+          openWebRTCDataChannels.add(device.udid);
+          const migration = hardwareKeyboardMigrations.get(device.udid);
+          if (migration) {
+            tryFinishHardwareKeyboardMigration(device.udid);
+            return;
+          }
+          if (!checkedDevices().has(device.udid) || !isHardwareKeyboardCapable(device.udid)) {
+            return;
+          }
+          service.sendHardwareKeyboardCommand(
+            desiredHardwareKeyboardDevices.has(device.udid) ? 'connect' : 'status'
+          );
+        },
+        onHardwareKeyboardState: (state) => {
+          const migration = hardwareKeyboardMigrations.get(device.udid);
+          if (state.action === 'disconnect' && migration?.from === 'webrtc') {
+            if (state.ok) {
+              confirmHardwareKeyboardMigration(device.udid, 'webrtc');
+            } else {
+              rollbackHardwareKeyboardMigration(device.udid, 'webrtc', state);
+              if (state.supported) {
+                console.error(`[BatchRemote] ${t('remote.hardware_keyboard_failed')}: ${state.message || ''}`);
+                showHardwareKeyboardError();
+              }
+            }
+            return;
+          }
+          const active = currentIsOpen() &&
+            checkedDevices().has(device.udid) &&
+            isHardwareKeyboardCapable(device.udid) &&
+            getHardwareKeyboardRoute(device.udid) === 'webrtc' &&
+            !migration;
+          if (!active) {
+            if (
+              state.connected &&
+              state.action !== 'disconnect' &&
+              (state.ok || state.action === 'connect') &&
+              !inactiveHardwareKeyboardCleanupAttempted
+            ) {
+              inactiveHardwareKeyboardCleanupAttempted = true;
+              service.sendHardwareKeyboardCommand('disconnect');
+            } else if (state.action === 'disconnect' && state.supported && !state.ok) {
+              console.error(`[BatchRemote] ${t('remote.hardware_keyboard_failed')}: ${state.message || ''}`);
+              showHardwareKeyboardError();
+            }
+            return;
+          }
+          if (state.action === 'connect' && !state.ok) {
+            desiredHardwareKeyboardDevices.delete(device.udid);
+          }
+          setHardwareKeyboards(current => ({
+            ...current,
+            [device.udid]: {
+              ...state,
+              owner: hardwareKeyboardOwner,
+              channel: 'webrtc',
+              pending: false,
+            },
+          }));
+          lastHardwareKeyboardRoute.set(device.udid, 'webrtc');
+          if (state.supported && !state.ok) {
+            console.error(`[BatchRemote] ${t('remote.hardware_keyboard_failed')}: ${state.message || ''}`);
+            showHardwareKeyboardError();
+          }
+        }
       },
       httpPort
     );
@@ -1194,21 +1843,48 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       await service.startStream(options);
     } catch (error) {
       console.error(`[BatchRemote] Failed to connect ${device.udid}:`, error);
-      clearDeviceRuntime(device.udid, service);
+      handleWebRTCControlChannelClosed();
     }
   };
 
   // 断开单个设备
   const disconnectDevice = async (udid: string) => {
     wheelBatcher.clear();
+    const targetRoute =
+      currentIsOpen() &&
+      !isDisconnectingAll &&
+      checkedDevices().has(udid) &&
+      isHardwareKeyboardCapable(udid)
+        ? 'ws'
+        : null;
     const service = getService(udid);
     if (!service) {
       resetTouchStateForDevice(udid);
       clearDeviceRuntime(udid);
+      const pendingMigration = hardwareKeyboardMigrations.get(udid);
+      if (pendingMigration?.from === 'webrtc') {
+        confirmHardwareKeyboardMigration(udid, 'webrtc');
+      } else if (
+        targetRoute === 'ws' &&
+        lastHardwareKeyboardRoute.get(udid) === 'webrtc'
+      ) {
+        beginHardwareKeyboardMigration(udid, 'webrtc', 'ws', true);
+      }
       return;
     }
 
     cleanupTouchState(udid);
+    releaseActiveKeyboardRoutesForDevice(udid);
+    const keyboardState = hardwareKeyboards()[udid];
+    let migration: HardwareKeyboardMigration | null = null;
+    if (
+      hardwareKeyboardMigrations.has(udid) ||
+      desiredHardwareKeyboardDevices.has(udid) ||
+      (keyboardState?.channel === 'webrtc' && (keyboardState.connected || keyboardState.pending))
+    ) {
+      migration = beginHardwareKeyboardMigration(udid, 'webrtc', targetRoute);
+      await waitForHardwareKeyboardDisconnect(migration);
+    }
 
     try {
       await service.stopStream();
@@ -1220,6 +1896,20 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
 
     clearDeviceRuntime(udid, service);
+    if (
+      migration &&
+      !migration.disconnected &&
+      hardwareKeyboardMigrations.get(udid) === migration
+    ) {
+      confirmHardwareKeyboardMigration(udid, 'webrtc');
+    }
+    if (
+      targetRoute === 'ws' &&
+      lastHardwareKeyboardRoute.get(udid) === 'webrtc' &&
+      !hardwareKeyboardMigrations.has(udid)
+    ) {
+      beginHardwareKeyboardMigration(udid, 'webrtc', 'ws', true);
+    }
   };
 
   // 断开所有设备
@@ -1233,11 +1923,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         .map(device => device.udid)
         .filter(udid => getService(udid) || getConnectionState(udid).state !== 'disconnected' || getConnectionState(udid).hasStream);
 
-      for (const udid of activeUdids) {
-        if (getService(udid) || getConnectionState(udid).hasStream) {
-          await disconnectDevice(udid);
-        }
-      }
+      await Promise.all(activeUdids.map(udid => disconnectDevice(udid)));
     } finally {
       isDisconnectingAll = false;
     }
@@ -1519,6 +2205,77 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const handleVolumeDown = () => sendKeyPressToCheckedDevices('volumedown', 'VOLUMEDOWN');
   const handleLockScreen = () => sendKeyPressToCheckedDevices('lock', 'LOCK');
 
+  const releaseActiveKeyboardRoutes = () => {
+    for (const route of activeKeyboardRoutes.values()) {
+      for (const udid of route.viaWebRTC) {
+        getService(udid)?.sendKeyCommand(route.deviceKey, 'up');
+      }
+      if (route.viaWebSocket.length > 0) {
+        void currentWebSocketService()?.keyUpMultiple(route.viaWebSocket, route.deviceKey);
+      }
+    }
+    activeKeyboardRoutes.clear();
+  };
+
+  const toggleHardwareKeyboard = () => {
+    const action = allSelectedHardwareKeyboardsConnected() ? 'disconnect' : 'connect';
+    releaseActiveKeyboardRoutes();
+
+    const viaWebRTC: string[] = [];
+    const viaWebSocket: string[] = [];
+    for (const { udid, state } of selectedHardwareKeyboardStates()) {
+      if (state.connected === (action === 'connect')) {
+        continue;
+      }
+      if (action === 'connect') {
+        desiredHardwareKeyboardDevices.add(udid);
+      } else {
+        desiredHardwareKeyboardDevices.delete(udid);
+      }
+      if (getHardwareKeyboardRoute(udid) === 'webrtc') {
+        viaWebRTC.push(udid);
+      } else {
+        viaWebSocket.push(udid);
+      }
+    }
+
+    setHardwareKeyboards(current => {
+      const next = { ...current };
+      for (const udid of [...viaWebRTC, ...viaWebSocket]) {
+        if (next[udid]) {
+          next[udid] = { ...next[udid], pending: true };
+        }
+      }
+      return next;
+    });
+    for (const udid of viaWebRTC) {
+      getService(udid)?.sendHardwareKeyboardCommand(action);
+    }
+    sendBatchWsHardwareKeyboardCommand(viaWebSocket, action);
+  };
+
+  const cleanupAllBatchHardwareKeyboards = () => {
+    releaseActiveKeyboardRoutes();
+    const targets = [...new Set([
+      ...desiredHardwareKeyboardDevices,
+      ...issuedWsHardwareKeyboardConnects,
+      ...hardwareKeyboardMigrations.keys(),
+      ...Object.keys(hardwareKeyboards()),
+    ])];
+    for (const migration of hardwareKeyboardMigrations.values()) {
+      migration.to = null;
+    }
+    disconnectBatchHardwareKeyboardTargets(targets);
+    for (const udid of hardwareKeyboardMigrations.keys()) {
+      tryFinishHardwareKeyboardMigration(udid);
+    }
+    desiredHardwareKeyboardDevices.clear();
+    requestedWsHardwareKeyboardStatus.clear();
+    lastHardwareKeyboardRoute.clear();
+    hardwareKeyboardRouteOverrides.clear();
+    setHardwareKeyboards({});
+  };
+
   const handlePaste = () => {
     setShowPasteModal(true);
   };
@@ -1560,6 +2317,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     wheelBatcher.clear();
     flushSettings();
     cleanupTouchState();
+    cleanupAllBatchHardwareKeyboards();
     disconnectAllDevices();
     props.onClose();
   };
@@ -1574,6 +2332,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     
     if (isOpen && devices.length > 0 && !hasInitialized) {
       hasInitialized = true;
+      pendingWsHardwareKeyboardDisconnects.clear();
       // 缓存设备列表（仅在初始化时设置一次）
       setCachedDevices([...devices]);
       setConnectionStates(reconcile(createConnectionStateMap(devices)));
@@ -1596,6 +2355,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       wheelBatcher.clear();
       flushSettings();
       cleanupTouchState();
+      cleanupAllBatchHardwareKeyboards();
       disconnectAllDevices();
       // 面板关闭时重置标记和缓存
       hasInitialized = false;
@@ -1657,6 +2417,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     setMobileSidebarOpen(false);
     // 确保发送 touch.up
     cleanupTouchState();
+    cleanupAllBatchHardwareKeyboards();
     disconnectAllDevices();
   });
 
@@ -1764,10 +2525,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     e.preventDefault();
 
     const checked = getCheckedDevicesList();
-    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
+    const route = activeKeyboardRoutes.get(e.code) ?? {
+      deviceKey,
+      ...splitDevicesByControlChannel(checked),
+    };
+    activeKeyboardRoutes.set(e.code, route);
 
     // 发送到已连接 WebRTC 的设备
-    for (const udid of viaWebRTC) {
+    for (const udid of route.viaWebRTC) {
       const service = getService(udid);
       if (service && getConnectionState(udid).state === 'connected') {
         service.sendKeyCommand(deviceKey, 'down');
@@ -1775,8 +2540,8 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
 
     // 通过 WebSocket 同步到未走 WebRTC 的设备
-    if (props.webSocketService && viaWebSocket.length > 0) {
-      props.webSocketService.keyDownMultiple(viaWebSocket, deviceKey);
+    if (props.webSocketService && route.viaWebSocket.length > 0) {
+      props.webSocketService.keyDownMultiple(route.viaWebSocket, deviceKey);
     }
   };
 
@@ -1790,18 +2555,139 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     e.preventDefault();
 
     const checked = getCheckedDevicesList();
-    const { viaWebRTC, viaWebSocket } = splitDevicesByControlChannel(checked);
-    for (const udid of viaWebRTC) {
+    const route = activeKeyboardRoutes.get(e.code) ?? {
+      deviceKey,
+      ...splitDevicesByControlChannel(checked),
+    };
+    activeKeyboardRoutes.delete(e.code);
+    for (const udid of route.viaWebRTC) {
       const service = getService(udid);
       if (service && getConnectionState(udid).state === 'connected') {
         service.sendKeyCommand(deviceKey, 'up');
       }
     }
 
-    if (props.webSocketService && viaWebSocket.length > 0) {
-      props.webSocketService.keyUpMultiple(viaWebSocket, deviceKey);
+    if (props.webSocketService && route.viaWebSocket.length > 0) {
+      props.webSocketService.keyUpMultiple(route.viaWebSocket, deviceKey);
     }
   };
+
+  onMount(() => {
+    const unsubscribe = currentWebSocketService()?.onMessage((message: any) => {
+      if (
+        message.type !== 'key/global-keyboard' ||
+        typeof message.udid !== 'string' ||
+        message.body?.owner !== hardwareKeyboardOwner ||
+        (message.body.action !== 'status' && message.body.action !== 'connect' && message.body.action !== 'disconnect') ||
+        typeof message.body.supported !== 'boolean' ||
+        typeof message.body.ok !== 'boolean' ||
+        typeof message.body.connected !== 'boolean'
+      ) {
+        return;
+      }
+
+      const migration = hardwareKeyboardMigrations.get(message.udid);
+      if (message.body.action === 'disconnect' && message.body.ok) {
+        issuedWsHardwareKeyboardConnects.delete(message.udid);
+      }
+      if (message.body.action === 'disconnect') {
+        pendingWsHardwareKeyboardDisconnects.delete(message.udid);
+      } else if (!migration) {
+        pendingWsHardwareKeyboardDisconnects.delete(message.udid);
+        if (!message.body.connected) {
+          issuedWsHardwareKeyboardConnects.delete(message.udid);
+          desiredHardwareKeyboardDevices.delete(message.udid);
+        }
+      }
+
+      if (message.body.action === 'disconnect' && migration?.from === 'ws') {
+        if (message.body.ok) {
+          confirmHardwareKeyboardMigration(message.udid, 'ws');
+        } else {
+          rollbackHardwareKeyboardMigration(message.udid, 'ws', message.body);
+          if (message.body.supported) {
+            console.error(`[BatchRemote] ${t('remote.hardware_keyboard_failed')}: ${message.body.message || ''}`);
+            showHardwareKeyboardError();
+          }
+        }
+        return;
+      }
+
+      const active = currentIsOpen() &&
+        checkedDevices().has(message.udid) &&
+        isHardwareKeyboardCapable(message.udid) &&
+        getHardwareKeyboardRoute(message.udid) === 'ws' &&
+        !migration;
+      if (
+        message.body.connected &&
+        !active &&
+        message.body.action !== 'disconnect' &&
+        (message.body.ok || issuedWsHardwareKeyboardConnects.has(message.udid))
+      ) {
+        sendBatchWsHardwareKeyboardCommand([message.udid], 'disconnect');
+        return;
+      }
+      if (!active) {
+        if (
+          message.body.action === 'disconnect' &&
+          message.body.supported &&
+          !message.body.ok
+        ) {
+          console.error(`[BatchRemote] ${t('remote.hardware_keyboard_failed')}: ${message.body.message || ''}`);
+          showHardwareKeyboardError();
+        }
+        return;
+      }
+      if (message.body.action === 'connect' && !message.body.ok) {
+        desiredHardwareKeyboardDevices.delete(message.udid);
+      }
+
+      if (
+        message.body.action === 'disconnect' &&
+        message.body.ok &&
+        hardwareKeyboardRouteOverrides.has(message.udid) &&
+        getService(message.udid) &&
+        getConnectionState(message.udid).state === 'connected'
+      ) {
+        setHardwareKeyboards(current => ({
+          ...current,
+          [message.udid]: {
+            action: message.body.action,
+            owner: message.body.owner,
+            supported: message.body.supported,
+            ok: message.body.ok,
+            connected: message.body.connected,
+            message: typeof message.body.message === 'string' ? message.body.message : undefined,
+            channel: 'ws',
+            pending: false,
+          },
+        }));
+        hardwareKeyboardRouteOverrides.delete(message.udid);
+        beginHardwareKeyboardMigration(message.udid, 'ws', 'webrtc', true);
+        return;
+      }
+
+      setHardwareKeyboards(current => ({
+        ...current,
+        [message.udid]: {
+          action: message.body.action,
+          owner: message.body.owner,
+          supported: message.body.supported,
+          ok: message.body.ok,
+          connected: message.body.connected,
+          message: typeof message.body.message === 'string' ? message.body.message : undefined,
+          channel: 'ws',
+          pending: false,
+        },
+      }));
+      if (message.body.supported && !message.body.ok) {
+        console.error(`[BatchRemote] ${t('remote.hardware_keyboard_failed')}: ${message.body.message || ''}`);
+        showHardwareKeyboardError();
+      }
+    });
+
+    onCleanup(() => unsubscribe?.());
+  });
 
   onMount(() => {
     syncViewportMobile();
@@ -1816,6 +2702,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     window.removeEventListener('resize', syncViewportMobile);
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
+    if (hardwareKeyboardErrorTimer !== undefined) {
+      clearTimeout(hardwareKeyboardErrorTimer);
+    }
   });
 
   const renderWheelSettingsContent = () => (
@@ -2162,6 +3051,22 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                 <button class={styles.toolButton} onClick={handleLockScreen} title={t('remote.lock')} disabled={checkedDevices().size === 0}>
                   <IconLock size={14} />
                 </button>
+                <Show when={selectedHardwareKeyboardTargetsResolved() && selectedHardwareKeyboardStates().length > 0}>
+                  <button
+                    class={`${styles.toolButton} ${allSelectedHardwareKeyboardsConnected() ? styles.hardwareKeyboardActive : ''}`}
+                    onClick={toggleHardwareKeyboard}
+                    title={allSelectedHardwareKeyboardsConnected() ? t('remote.disconnect_hardware_keyboard') : t('remote.connect_hardware_keyboard')}
+                    disabled={selectedHardwareKeyboardPending()}
+                  >
+                    <Show when={allSelectedHardwareKeyboardsConnected()} fallback={<IconLink size={14} />}>
+                      <IconLinkSlash size={14} />
+                    </Show>
+                    {allSelectedHardwareKeyboardsConnected() ? t('remote.disconnect_keyboard') : t('remote.connect_keyboard')}
+                  </button>
+                </Show>
+                <Show when={hardwareKeyboardError()}>
+                  <span class={styles.hardwareKeyboardError}>{hardwareKeyboardError()}</span>
+                </Show>
                 <button class={styles.toolButton} onClick={handlePaste} title={t('remote.paste')} disabled={checkedDevices().size === 0}>
                   <IconPaste size={14} /> {t('remote.paste')}
                 </button>

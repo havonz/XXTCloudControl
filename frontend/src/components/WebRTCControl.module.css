@@ -696,6 +696,18 @@
   transform: translateY(1px) scale(0.98);
 }
 
+.deviceButton:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  transform: none;
+}
+
+.hardwareKeyboardActive {
+  background: var(--primary);
+  color: var(--text-on-gradient);
+  border-color: var(--primary);
+}
+
 .btnPrimary {
   background: var(--panel-2);
   color: var(--text);

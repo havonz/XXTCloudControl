@@ -1,5 +1,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { WebSocketService, type Device } from '../WebSocketService';
+import {
+  WebSocketService,
+  supportsGlobalHardwareKeyboard,
+  type Device,
+} from '../WebSocketService';
 
 function setWindow(): void {
   Object.defineProperty(globalThis, 'window', {
@@ -292,5 +296,42 @@ describe('WebSocketService script message updates', () => {
     expect(secondBody).toMatchObject({ x: 11, y: 21, finger: 1 });
     expect(firstBody.touchTs).toBe(Date.now());
     expect(secondBody.touchTs).toBe(Date.now() + 1);
+  });
+
+  it('硬件键盘命令只发送 action 和 owner', async () => {
+    vi.useFakeTimers();
+
+    const service = new WebSocketService('ws://127.0.0.1:46980/api/ws', 'password');
+    service.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    socket.sent = [];
+
+    await service.sendGlobalHardwareKeyboardCommand(['device-1'], 'connect', 'owner-1');
+
+    const message = JSON.parse(socket.sent[0]);
+    expect(message.body).toMatchObject({
+      devices: ['device-1'],
+      type: 'key/global-keyboard',
+      body: {
+        action: 'connect',
+        owner: 'owner-1',
+      },
+    });
+    expect(Object.keys(message.body.body).sort()).toEqual(['action', 'owner']);
+  });
+
+  it('设备未明确声明 capability 时视为不支持', () => {
+    vi.useFakeTimers();
+    expect(supportsGlobalHardwareKeyboard({ udid: 'old-device' })).toBe(false);
+    expect(supportsGlobalHardwareKeyboard({
+      udid: 'new-device',
+      cloudControl: {
+        protocolVersion: 2,
+        features: {
+          globalHardwareKeyboard: true,
+        },
+      },
+    })).toBe(true);
   });
 });

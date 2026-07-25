@@ -75,4 +75,43 @@ describe('WebRTCService polling lifecycle', () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
+
+  it('hardware_keyboard_state 不要求设备端返回 supported 字段', () => {
+    vi.useFakeTimers();
+    const onHardwareKeyboardState = vi.fn();
+    const service = new WebRTCService(
+      createWebSocketService(),
+      'device-1',
+      'password',
+      { onHardwareKeyboardState }
+    );
+    const channel: any = {
+      readyState: 'open',
+      send: vi.fn(),
+      close: vi.fn(),
+      onopen: null,
+      onerror: null,
+      onmessage: null,
+    };
+    (service as any).dataChannel = channel;
+    (service as any).setupDataChannel();
+
+    channel.onmessage?.({
+      data: JSON.stringify({
+        type: 'hardware_keyboard_state',
+        action: 'status',
+        ok: true,
+        connected: false,
+      }),
+    });
+
+    expect(onHardwareKeyboardState).toHaveBeenCalledWith({
+      action: 'status',
+      supported: true,
+      ok: true,
+      connected: false,
+      message: undefined,
+    });
+    service.cleanup();
+  });
 });
