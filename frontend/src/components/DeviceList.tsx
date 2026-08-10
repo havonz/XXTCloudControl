@@ -52,10 +52,11 @@ import BrightnessModal from '../modals/domain/BrightnessModal';
 import VolumeModal from '../modals/domain/VolumeModal';
 import { DeviceControlService } from '../services/DeviceControlService';
 import { useI18n } from '../i18n';
+import type { GroupInfo } from '../types';
 
 interface DeviceListProps {
   devices: Device[];
-  onDeviceSelect: (devices: Device[]) => void;
+  onDeviceSelect: (devices: Device[], touchedDeviceIds: readonly string[]) => void;
   selectedDevices: Accessor<Device[]>;
   onRefresh: () => void;
   onStartScript: (scriptName: string) => void;
@@ -69,6 +70,8 @@ interface DeviceListProps {
   serverPort: string;
   getGroupedDevicesForLaunch?: (selectedDeviceIds: string[]) => Array<{ groupId: string; groupName: string; scriptPath: string | undefined; deviceIds: string[] }>; // 获取按分组分配的设备列表
   onOpenAddToGroupModal?: () => void; // 打开添加到分组弹窗
+  currentGroup?: GroupInfo | null;
+  onRemoveDevicesFromGroup?: (groupId: string, deviceIds: string[]) => Promise<boolean>;
   sidebar?: JSX.Element;
   isMobileMenuOpen?: boolean;
   onCloseMobileMenu?: () => void;
@@ -262,6 +265,31 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [contextMenuDevice, setContextMenuDevice] = createSignal<Device | null>(null);
   const [contextMenuPosition, setContextMenuPosition] = createSignal({ x: 0, y: 0 });
   const [lastSelectedUdid, setLastSelectedUdid] = createSignal<string | null>(null);
+  const [isRemovingDevicesFromGroup, setIsRemovingDevicesFromGroup] = createSignal(false);
+  const canRemoveSelectedFromCurrentGroup = createMemo(() => (
+    !!props.currentGroup
+    && !!props.onRemoveDevicesFromGroup
+    && props.selectedDevices().length > 0
+  ));
+  const contextMenuDeviceIsOnlySelectedDevice = createMemo(() => {
+    const device = contextMenuDevice();
+    const selectedDevices = props.selectedDevices();
+    return !!device && selectedDevices.length === 1 && selectedDevices[0].udid === device.udid;
+  });
+  const showSelectedDevicesContextSection = createMemo(() => {
+    const selectedDeviceCount = props.selectedDevices().length;
+    return !!contextMenuDevice()
+      && (selectedDeviceCount > 1 || (selectedDeviceCount === 1 && !contextMenuDeviceIsOnlySelectedDevice()));
+  });
+  const canRemoveContextMenuDeviceFromCurrentGroup = createMemo(() => {
+    const group = props.currentGroup;
+    const device = contextMenuDevice();
+    return !!group
+      && !!props.onRemoveDevicesFromGroup
+      && contextMenuDeviceIsOnlySelectedDevice()
+      && !!device
+      && group.deviceIds.includes(device.udid);
+  });
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   
   // Refs for click-outside detection
@@ -313,6 +341,45 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   
   const closeContextMenu = () => {
     setContextMenuDevice(null);
+  };
+
+  const removeDevicesFromCurrentGroup = async (candidateDeviceIds: string[]) => {
+    const group = props.currentGroup;
+    const removeDevices = props.onRemoveDevicesFromGroup;
+    if (!group || !removeDevices || isRemovingDevicesFromGroup()) return;
+
+    const groupDeviceIds = new Set(group.deviceIds);
+    const deviceIds = Array.from(new Set(candidateDeviceIds.filter((udid) => groupDeviceIds.has(udid))));
+    closeContextMenu();
+
+    if (deviceIds.length === 0) {
+      toast.showWarning(t('group.remove_current_no_members'));
+      return;
+    }
+
+    setIsRemovingDevicesFromGroup(true);
+    try {
+      const success = await removeDevices(group.id, deviceIds);
+      if (success) {
+        toast.showSuccess(t('group.remove_current_success', { name: group.name, count: deviceIds.length }));
+      } else {
+        toast.showError(t('group.remove_current_failed'));
+      }
+    } catch {
+      toast.showError(t('group.remove_current_failed'));
+    } finally {
+      setIsRemovingDevicesFromGroup(false);
+    }
+  };
+
+  const handleRemoveSelectedFromCurrentGroup = () => (
+    removeDevicesFromCurrentGroup(props.selectedDevices().map((device) => device.udid))
+  );
+
+  const handleRemoveContextMenuDeviceFromCurrentGroup = () => {
+    const device = contextMenuDevice();
+    if (!device) return;
+    return removeDevicesFromCurrentGroup([device.udid]);
   };
 
   const copyContextMenuDeviceValue = (
@@ -1051,7 +1118,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         range.forEach(d => currentSelectedUdids.add(d.udid));
         
         const newSelection = props.devices.filter(d => currentSelectedUdids.has(d.udid));
-        props.onDeviceSelect(newSelection);
+        props.onDeviceSelect(newSelection, range.map((item) => item.udid));
         setLastSelectedUdid(device.udid);
         return;
       }
@@ -1060,11 +1127,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     if (isSelected) {
       // 取消选择
       const newSelection = props.selectedDevices().filter(d => d.udid !== device.udid);
-      props.onDeviceSelect(newSelection);
+      props.onDeviceSelect(newSelection, [device.udid]);
     } else {
       // 添加到选择
       const newSelection = [...props.selectedDevices(), device];
-      props.onDeviceSelect(newSelection);
+      props.onDeviceSelect(newSelection, [device.udid]);
     }
     setLastSelectedUdid(device.udid);
   };
@@ -1073,20 +1140,21 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     const allDevices = filteredDevices();
     const selectedSet = selectedUdidSet();
     const allSelected = isAllSelected();
-    const allDeviceUdidSet = new Set(allDevices.map(device => device.udid));
+    const touchedDeviceIds = allDevices.map(device => device.udid);
+    const allDeviceUdidSet = new Set(touchedDeviceIds);
     
     if (allSelected) {
       // 取消全选
       const remainingDevices = props.selectedDevices().filter(device => 
         !allDeviceUdidSet.has(device.udid)
       );
-      props.onDeviceSelect(remainingDevices);
+      props.onDeviceSelect(remainingDevices, touchedDeviceIds);
     } else {
       // 全选
       const newDevices = allDevices.filter(device => 
         !selectedSet.has(device.udid)
       );
-      props.onDeviceSelect([...props.selectedDevices(), ...newDevices]);
+      props.onDeviceSelect([...props.selectedDevices(), ...newDevices], touchedDeviceIds);
     }
   };
 
@@ -1094,7 +1162,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     const allDevices = filteredDevices();
     const selectedSet = selectedUdidSet();
     const newSelection = allDevices.filter(d => !selectedSet.has(d.udid));
-    props.onDeviceSelect(newSelection);
+    props.onDeviceSelect(newSelection, allDevices.map((device) => device.udid));
   };
 
   const toggleColumn = (col: string) => {
@@ -2357,8 +2425,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           onClose={closeContextMenu}
         >
           <>
-            {/* 批量操作区域 - 仅当选中多个设备时显示 */}
-            <Show when={props.selectedDevices().length > 1}>
+            <Show when={showSelectedDevicesContextSection()}>
               <ContextMenuSection label={t('device_list.selected_devices_section', { count: props.selectedDevices().length })}>
                 <ContextMenuButton onClick={handleContextMenuCopySelectedUdids}>{t('device_list.copy_selected_udid')}</ContextMenuButton>
                 <ContextMenuButton onClick={handleContextMenuCopySelectedNames}>{t('device_list.copy_selected_name')}</ContextMenuButton>
@@ -2370,6 +2437,14 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     closeContextMenu();
                     props.onOpenAddToGroupModal?.();
                   }}>{t('device_list.add_to_group_count', { count: props.selectedDevices().length })}</ContextMenuButton>
+                </Show>
+                <Show when={canRemoveSelectedFromCurrentGroup()}>
+                  <ContextMenuButton
+                    onClick={handleRemoveSelectedFromCurrentGroup}
+                    disabled={isRemovingDevicesFromGroup()}
+                  >
+                    {t('group.remove_current')}
+                  </ContextMenuButton>
                 </Show>
               </ContextMenuSection>
               <ContextMenuDivider />
@@ -2384,11 +2459,19 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               <ContextMenuButton onClick={handleContextMenuCopyScriptSelect}>{t('device_list.copy_script')}</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuOpenFileBrowser}>{t('device_list.browse_files')}</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuOpenLogStream}>{t('device_list.view_live_logs')}</ContextMenuButton>
-              <Show when={props.onOpenAddToGroupModal && props.selectedDevices().length === 1}>
+              <Show when={props.onOpenAddToGroupModal && contextMenuDeviceIsOnlySelectedDevice()}>
                 <ContextMenuButton onClick={() => {
                   closeContextMenu();
                   props.onOpenAddToGroupModal?.();
                 }}>{t('group.add_to_group')}</ContextMenuButton>
+              </Show>
+              <Show when={canRemoveContextMenuDeviceFromCurrentGroup()}>
+                <ContextMenuButton
+                  onClick={handleRemoveContextMenuDeviceFromCurrentGroup}
+                  disabled={isRemovingDevicesFromGroup()}
+                >
+                  {t('group.remove_current')}
+                </ContextMenuButton>
               </Show>
             </ContextMenuSection>
           </>

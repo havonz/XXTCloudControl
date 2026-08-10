@@ -15,7 +15,6 @@ interface GroupListProps {
   deviceCount: number;
   allDevices?: Device[];
   onOpenNewGroupModal: () => void;
-  selectedDeviceCount: number;
   onDeviceSelectionChange?: (deviceIds: Set<string>) => void; // 当分组选中改变时同步设备选中
 }
 
@@ -76,15 +75,6 @@ const GroupList: Component<GroupListProps> = (props) => {
     if (await dialog.confirm(t('group.delete_confirm', { name: group.name }))) {
       await props.groupStore.deleteGroup(menu.groupId);
     }
-  };
-
-  const handleRemoveSelectedFromGroup = async () => {
-    const menu = contextMenu();
-    if (!menu) return;
-    closeContextMenu();
-    
-    // This would need access to selected device IDs - for now just show a placeholder
-    await dialog.alert(t('group.remove_select_first'));
   };
 
   const fetchSelectableScripts = async () => {
@@ -310,7 +300,6 @@ const GroupList: Component<GroupListProps> = (props) => {
           <ContextMenuButton onClick={handleRenameGroup}>{t('group.menu_rename')}</ContextMenuButton>
           <ContextMenuButton onClick={handleBindScript}>{t('group.menu_bind_script')}</ContextMenuButton>
           <ContextMenuButton onClick={handleOpenGroupConfig}>{t('group.menu_config')}</ContextMenuButton>
-          <ContextMenuButton onClick={handleRemoveSelectedFromGroup}>{t('group.menu_remove_selected')}</ContextMenuButton>
           <ContextMenuButton onClick={handleDeleteGroup} danger>{t('group.menu_delete')}</ContextMenuButton>
         </>
       </ContextMenu>

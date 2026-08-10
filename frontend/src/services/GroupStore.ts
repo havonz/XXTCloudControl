@@ -38,7 +38,7 @@ export interface GroupStoreState {
   setGroupSortLocked: (value: boolean) => void;
   
   // Actions
-  loadGroups: () => Promise<void>;
+  loadGroups: () => Promise<boolean>;
   loadGroupSettings: () => Promise<void>;
   createGroup: (name: string) => Promise<boolean>;
   renameGroup: (groupId: string, name: string) => Promise<boolean>;
@@ -65,6 +65,11 @@ export type GroupLaunchInfo = {
 };
 
 export function createGroupStore(): GroupStoreState {
+  let confirmedRemovalRevision = 0;
+  let nextGroupLoadRequest = 0;
+  let lastAppliedGroupLoadRequest = 0;
+  const activeGroupLoads = new Map<number, number>();
+  const confirmedRemovalRevisions = new Map<string, Map<string, number>>();
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
   const [checkedGroups, setCheckedGroups] = createSignal<Set<string>>(new Set(['__all__']));
   const [groupMultiSelect, setGroupMultiSelectVal] = createSignal(false); // Default: 不允许多选分组
@@ -209,14 +214,47 @@ export function createGroupStore(): GroupStoreState {
   };
 
   // Load groups from server
-  const loadGroups = async () => {
+  const loadGroups = async (): Promise<boolean> => {
+    const requestRevision = ++nextGroupLoadRequest;
+    const removalRevisionAtStart = confirmedRemovalRevision;
+    activeGroupLoads.set(requestRevision, removalRevisionAtStart);
+
     try {
       const data = await api('/api/groups');
-      if (data.groups && Array.isArray(data.groups)) {
-        setGroups(data.groups);
-      }
+      if (!Array.isArray(data.groups)) return false;
+
+      // 只拒绝已经被更新响应取代的结果；后发请求失败时，较早的有效响应仍可使用。
+      if (requestRevision < lastAppliedGroupLoadRequest) return false;
+
+      // 请求发出后确认的删除必须覆盖该请求携带的旧成员快照。
+      const loadedGroups = (data.groups as GroupInfo[]).map((group) => {
+        const groupRemovals = confirmedRemovalRevisions.get(group.id);
+        if (!groupRemovals) return group;
+
+        const deviceIds = (group.deviceIds || []).filter((deviceId) => (
+          (groupRemovals.get(deviceId) || 0) <= removalRevisionAtStart
+        ));
+        return deviceIds.length === (group.deviceIds?.length || 0) ? group : { ...group, deviceIds };
+      });
+
+      setGroups(loadedGroups);
+      lastAppliedGroupLoadRequest = requestRevision;
+      return true;
     } catch (error) {
       console.error('Failed to load groups:', error);
+      return false;
+    } finally {
+      activeGroupLoads.delete(requestRevision);
+      const activeStartRevisions = Array.from(activeGroupLoads.values());
+      const oldestActiveStartRevision = activeStartRevisions.length > 0
+        ? Math.min(...activeStartRevisions)
+        : Number.POSITIVE_INFINITY;
+      for (const [groupId, groupRemovals] of confirmedRemovalRevisions) {
+        for (const [deviceId, revision] of groupRemovals) {
+          if (oldestActiveStartRevision >= revision) groupRemovals.delete(deviceId);
+        }
+        if (groupRemovals.size === 0) confirmedRemovalRevisions.delete(groupId);
+      }
     }
   };
 
@@ -304,7 +342,26 @@ export function createGroupStore(): GroupStoreState {
         body: JSON.stringify({ deviceIds }),
       });
       if (data.success) {
-        await loadGroups();
+        const removalRevision = ++confirmedRemovalRevision;
+        const removedDeviceIds = new Set(deviceIds);
+        const hasOlderActiveLoad = Array.from(activeGroupLoads.values()).some((startRevision) => (
+          startRevision < removalRevision
+        ));
+        if (hasOlderActiveLoad) {
+          let groupRemovals = confirmedRemovalRevisions.get(groupId);
+          if (!groupRemovals) {
+            groupRemovals = new Map<string, number>();
+            confirmedRemovalRevisions.set(groupId, groupRemovals);
+          }
+          for (const deviceId of removedDeviceIds) {
+            groupRemovals.set(deviceId, removalRevision);
+          }
+        }
+        setGroups((currentGroups) => currentGroups.map((group) => (
+          group.id === groupId
+            ? { ...group, deviceIds: (group.deviceIds || []).filter((id) => !removedDeviceIds.has(id)) }
+            : group
+        )));
         return true;
       }
       return false;

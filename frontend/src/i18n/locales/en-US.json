@@ -140,11 +140,13 @@
     "menu_rename": "Rename Group",
     "menu_bind_script": "Bind Script",
     "menu_config": "Group Config",
-    "menu_remove_selected": "Remove Selected Devices from Group",
+    "remove_current": "Remove Devices from Current Group",
+    "remove_current_success": "Removed {count} device(s) from group \"{name}\"",
+    "remove_current_no_members": "Selected devices are not in the current group",
+    "remove_current_failed": "Failed to remove devices from the current group",
     "menu_delete": "Delete Group",
     "rename_prompt": "Rename group \"{name}\":",
     "delete_confirm": "Delete group \"{name}\"?",
-    "remove_select_first": "Select devices in the device list first, then use Remove from Group.",
     "bind_script_first": "Bind a script to this group first"
   },
   "device": {

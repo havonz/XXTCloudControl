@@ -4,6 +4,7 @@ import { useToast } from './components/ToastContext';
 import { WebSocketService, Device } from './services/WebSocketService';
 import { AuthService, LoginCredentials } from './services/AuthService';
 import { createGroupStore } from './services/GroupStore';
+import { createDeviceSelectionCoordinator } from './services/DeviceSelectionCoordinator';
 import { FileTransferService } from './services/FileTransferService';
 import LoginForm from './components/LoginForm';
 import DeviceList from './components/DeviceList';
@@ -76,6 +77,7 @@ const App: Component = () => {
   const [loginError, setLoginError] = createSignal('');
   const [devices, setDevices] = createSignal<Device[]>([]);
   const [selectedDevices, setSelectedDevices] = createSignal<Device[]>([]);
+  const deviceSelectionCoordinator = createDeviceSelectionCoordinator();
   const [isLoadingDevices, setIsLoadingDevices] = createSignal(false);
   
   // Server information for device binding
@@ -108,6 +110,14 @@ const App: Component = () => {
     const visible = groupStore.visibleDeviceIds();
     if (visible === null) return devices(); // Show all devices
     return devices().filter(d => visible.has(d.udid));
+  });
+
+  const currentGroup = createMemo(() => {
+    const groupIds = Array.from(groupStore.checkedGroups()).filter((groupId) => groupId !== '__all__');
+    if (groupIds.length !== 1) return null;
+
+    const [groupId] = groupIds;
+    return groupStore.groups().find((group) => group.id === groupId) || null;
   });
 
   const fileBrowserSelectedScript = createMemo(() => {
@@ -752,11 +762,25 @@ const App: Component = () => {
     }
   };
 
-  const handleDeviceSelect = (devices: Device[]) => {
-    setSelectedDevices(devices);
+  const applyDeviceSelection = (nextDevices: Device[]) => {
+    setSelectedDevices(nextDevices);
 
     // Show selection count in page title for debugging
-    document.title = t('app.document_title', { count: devices.length });
+    document.title = t('app.document_title', { count: nextDevices.length });
+  };
+
+  const handleDeviceSelect = (nextDevices: Device[], touchedDeviceIds: readonly string[]) => {
+    deviceSelectionCoordinator.recordManualSelection(touchedDeviceIds);
+    applyDeviceSelection(nextDevices);
+  };
+
+  const handleGroupDeviceSelectionChange = (deviceIds: Set<string>) => {
+    deviceSelectionCoordinator.recordGroupSelection();
+    applyDeviceSelection(devices().filter((device) => deviceIds.has(device.udid)));
+
+    if (window.innerWidth < 768) {
+      setIsMobileMenuOpen(false);
+    }
   };
 
   const handleRefreshDevices = () => {
@@ -1164,6 +1188,34 @@ const App: Component = () => {
     return await groupStore.addDevicesToGroup(groupId, deviceIds);
   };
 
+  const handleRemoveDevicesFromGroup = async (groupId: string, deviceIds: string[]): Promise<boolean> => {
+    if (deviceIds.length === 0) return false;
+
+    const pendingSelection = deviceSelectionCoordinator.beginGroupRemoval();
+    try {
+      const success = await groupStore.removeDevicesFromGroup(groupId, deviceIds);
+      if (!success) return false;
+
+      const removedDeviceIds = new Set(deviceIds);
+      const selectedByCurrentGroups = groupStore.getDevicesForCheckedGroups(
+        devices().map((device) => device.udid),
+      );
+      const currentSelection = selectedDevices();
+      const nextSelection = currentSelection.filter((device) => {
+        if (!removedDeviceIds.has(device.udid)) return true;
+        if (deviceSelectionCoordinator.shouldPreserveManualSelection(pendingSelection, device.udid)) return true;
+        return selectedByCurrentGroups.has(device.udid);
+      });
+
+      if (nextSelection.length !== currentSelection.length) {
+        applyDeviceSelection(nextSelection);
+      }
+      return true;
+    } finally {
+      deviceSelectionCoordinator.finishGroupRemoval(pendingSelection);
+    }
+  };
+
   // Handle navigation from bind page to login
   const handleNavigateToLogin = () => {
     setIsBindPage(false);
@@ -1305,6 +1357,8 @@ const App: Component = () => {
               serverPort={serverPort()}
               getGroupedDevicesForLaunch={groupStore.getGroupedDevicesForLaunch}
               onOpenAddToGroupModal={() => setShowAddToGroupModal(true)}
+              currentGroup={currentGroup()}
+              onRemoveDevicesFromGroup={handleRemoveDevicesFromGroup}
               isMobileMenuOpen={isMobileMenuOpen()}
               onCloseMobileMenu={() => setIsMobileMenuOpen(false)}
               sidebar={
@@ -1313,17 +1367,7 @@ const App: Component = () => {
                   deviceCount={devices().length}
                   allDevices={devices()}
                   onOpenNewGroupModal={() => setShowNewGroupModal(true)}
-                  selectedDeviceCount={selectedDevices().length}
-                  onDeviceSelectionChange={(deviceIds) => {
-                    // 当分组选中改变时，同步设备选中
-                    const allDevices = devices();
-                    const newSelection = allDevices.filter(d => deviceIds.has(d.udid));
-                    setSelectedDevices(newSelection);
-                    // On mobile, close sidebar after selection
-                    if (window.innerWidth < 768) {
-                      setIsMobileMenuOpen(false);
-                    }
-                  }}
+                  onDeviceSelectionChange={handleGroupDeviceSelectionChange}
                 />
               }
             />

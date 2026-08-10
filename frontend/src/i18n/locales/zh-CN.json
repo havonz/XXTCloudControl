@@ -140,11 +140,13 @@
     "menu_rename": "重命名分组",
     "menu_bind_script": "绑定脚本",
     "menu_config": "分组配置",
-    "menu_remove_selected": "从分组移除选中设备",
+    "remove_current": "从当前分组移除设备",
+    "remove_current_success": "已从分组“{name}”移除 {count} 台设备",
+    "remove_current_no_members": "选中设备不在当前分组中",
+    "remove_current_failed": "从当前分组移除设备失败",
     "menu_delete": "删除分组",
     "rename_prompt": "重命名分组 \"{name}\":",
     "delete_confirm": "确定要删除分组 \"{name}\" 吗？",
-    "remove_select_first": "请先在设备列表中选择要移除的设备，然后使用\"从分组移除\"功能",
     "bind_script_first": "请先为该分组绑定脚本"
   },
   "device": {
