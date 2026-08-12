@@ -12,6 +12,22 @@ export interface DeviceControlResult {
   detail?: any;
 }
 
+export interface DeviceInfoResult {
+  success: boolean;
+  data?: Record<string, any>;
+  error?: string;
+}
+
+export interface DeviceRenameItem {
+  udid: string;
+  name: string;
+}
+
+export interface DeviceRenameResult extends DeviceRenameItem {
+  success: boolean;
+  error?: string;
+}
+
 export class DeviceControlService {
   private httpClient: ControlHttpClient;
 
@@ -90,6 +106,106 @@ export class DeviceControlService {
     // Convert 0-100 to 0-1 and use 'level' as the key per device OpenAPI
     const level = Math.max(0, Math.min(100, volume)) / 100;
     return this.sendRequest(devices, 'POST', '/set_volume', undefined, { level });
+  }
+
+  async getDeviceInfo(udid: string): Promise<DeviceInfoResult> {
+    try {
+      const response = await this.httpClient.send({
+        devices: [udid],
+        method: 'GET',
+        path: '/deviceinfo',
+      });
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return {
+          success: false,
+          error: response.body?.message
+            || response.body?.error
+            || response.rawBody?.error
+            || `HTTP ${response.statusCode}`,
+        };
+      }
+
+      const body = response.body;
+      if (body?.code !== 0) {
+        return {
+          success: false,
+          error: body?.message || body?.error || '设备信息响应无效',
+        };
+      }
+      if (
+        body.data === null ||
+        typeof body.data !== 'object' ||
+        Array.isArray(body.data)
+      ) {
+        return {
+          success: false,
+          error: '设备信息响应无效',
+        };
+      }
+
+      return { success: true, data: body.data };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async renameDevices(items: DeviceRenameItem[]): Promise<DeviceRenameResult[]> {
+    const results = new Array<DeviceRenameResult>(items.length);
+    let nextIndex = 0;
+
+    const worker = async (): Promise<void> => {
+      while (nextIndex < items.length) {
+        const index = nextIndex++;
+        const item = items[index];
+
+        try {
+          const response = await this.httpClient.send({
+            devices: [item.udid],
+            method: 'POST',
+            path: '/set_device_name',
+            body: { name: item.name },
+          });
+
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            results[index] = {
+              ...item,
+              success: false,
+              error: response.body?.message
+                || response.body?.error
+                || response.rawBody?.error
+                || `HTTP ${response.statusCode}`,
+            };
+            continue;
+          }
+
+          if (response.body?.code !== 0) {
+            results[index] = {
+              ...item,
+              success: false,
+              error: response.body?.message || response.body?.error || '设备返回错误',
+            };
+            continue;
+          }
+
+          results[index] = { ...item, success: true };
+        } catch (error) {
+          results[index] = {
+            ...item,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(5, items.length) }, () => worker()),
+    );
+    return results;
   }
 
   /**

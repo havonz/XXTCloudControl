@@ -1093,6 +1093,25 @@ export class WebSocketService {
     }
   }
 
+  public updateDeviceName(udid: string, name: string): void {
+    if (!udid) return;
+
+    const existingIndex = this.getDeviceIndex(udid);
+    if (existingIndex < 0) return;
+
+    const device = this.devices[existingIndex];
+    if (device.system?.name === name) return;
+
+    this.devices[existingIndex] = {
+      ...device,
+      system: {
+        ...(device.system || {}),
+        name,
+      },
+    };
+    this.scheduleDeviceUpdate();
+  }
+
   private handleTransferProgress(body: any): void {
     const { percent, deviceSN } = body;
     if (deviceSN) {

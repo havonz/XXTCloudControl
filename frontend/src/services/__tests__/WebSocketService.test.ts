@@ -334,4 +334,42 @@ describe('WebSocketService script message updates', () => {
       },
     })).toBe(true);
   });
+
+  it('更新设备名称时保留其他字段和未修改设备引用', () => {
+    vi.useFakeTimers();
+
+    const service = new WebSocketService('ws://127.0.0.1:46980');
+    const system = { name: '旧名称', running: false, battery: 80 };
+    const script = { select: 'keep.lua', running: false };
+    const renamedDevice: Device = {
+      udid: 'device-1',
+      system,
+      script,
+      group: 'group-1',
+    };
+    const untouchedDevice: Device = {
+      udid: 'device-2',
+      system: { name: '保持名称' },
+    };
+    seedDevices(service, [renamedDevice, untouchedDevice]);
+    const updates = collectUpdates(service);
+
+    service.updateDeviceName('device-1', '新名称');
+    vi.runAllTimers();
+
+    const devices = service.getDevices();
+    expect(devices[0]).not.toBe(renamedDevice);
+    expect(devices[0].system).not.toBe(system);
+    expect(devices[0].system).toEqual({
+      name: '新名称',
+      running: false,
+      battery: 80,
+    });
+    expect(devices[0].script).toBe(script);
+    expect(devices[0].group).toBe('group-1');
+    expect(devices[1]).toBe(untouchedDevice);
+    expect(updates).toHaveLength(1);
+    expect(updates[0][0]).toBe(devices[0]);
+    expect(updates[0][1]).toBe(untouchedDevice);
+  });
 });

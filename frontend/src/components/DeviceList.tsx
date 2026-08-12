@@ -50,6 +50,12 @@ import { buildBatchSnapshotFeedback, type BatchScreenshotSaveResult } from '../u
 import ContextMenu, { ContextMenuButton, ContextMenuDivider, ContextMenuSection } from './ContextMenu';
 import BrightnessModal from '../modals/domain/BrightnessModal';
 import VolumeModal from '../modals/domain/VolumeModal';
+import BatchRenameModal, {
+  type BatchRenameSkippedItem,
+  type BatchRenameSubmitItem,
+  type BatchRenameTarget,
+  type DeviceTypeLoadResult,
+} from './BatchRenameModal';
 import { DeviceControlService } from '../services/DeviceControlService';
 import { useI18n } from '../i18n';
 import type { GroupInfo } from '../types';
@@ -200,6 +206,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [volumeValue, setVolumeValue] = createSignal(50);
   const [isSettingVolume, setIsSettingVolume] = createSignal(false);
   const [isBatchSnapshotting, setIsBatchSnapshotting] = createSignal(false);
+  const [showBatchRenameModal, setShowBatchRenameModal] = createSignal(false);
+  const [batchRenameTargets, setBatchRenameTargets] = createSignal<BatchRenameTarget[]>([]);
   
   // DeviceControlService instance (lazily created when needed)
   let deviceControlService: DeviceControlService | null = null;
@@ -1067,6 +1075,123 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
     return selectedCount;
   });
+
+  const handleOpenBatchRename = () => {
+    const selectedSet = selectedUdidSet();
+    const targets = filteredDevices().flatMap((device, position) => {
+      if (!selectedSet.has(device.udid)) {
+        return [];
+      }
+
+      return [{
+        udid: device.udid,
+        index1: position + 1,
+        ip: device.system?.ip || '',
+        devname: device.system?.name || '',
+        sysversion: device.system?.version || '',
+        zeversion: device.app?.version || '',
+      }];
+    });
+
+    closeContextMenu();
+    if (targets.length === 0) {
+      toast.showWarning(t('device_list.batch_rename.no_selected_devices'));
+      return;
+    }
+
+    setBatchRenameTargets(targets);
+    setShowBatchRenameModal(true);
+  };
+
+  const loadBatchRenameDeviceType = async (udid: string): Promise<DeviceTypeLoadResult> => {
+    const service = getDeviceControlService();
+    if (!service) {
+      return {
+        success: false,
+        error: t('device_list.batch_rename.service_unavailable'),
+      };
+    }
+
+    const result = await service.getDeviceInfo(udid);
+    const devtype = typeof result.data?.devtype === 'string'
+      ? result.data.devtype.trim()
+      : '';
+    if (!result.success || !devtype) {
+      return {
+        success: false,
+        error: result.error || t('device_list.batch_rename.device_type_missing'),
+      };
+    }
+
+    return { success: true, devtype };
+  };
+
+  const handleBatchRenameSubmit = async (
+    items: BatchRenameSubmitItem[],
+    skipped: BatchRenameSkippedItem[],
+  ): Promise<boolean> => {
+    skipped.forEach((item) => {
+      setDeviceMessage(item.udid, t('device_list.batch_rename.rename_failed', { msg: item.error }));
+    });
+
+    if (items.length === 0) {
+      toast.showWarning(t('device_list.batch_rename.no_executable_devices'));
+      return false;
+    }
+
+    const service = getDeviceControlService();
+    const webSocketService = props.webSocketService;
+    if (!service || !webSocketService) {
+      toast.showError(t('device_list.batch_rename.service_unavailable'));
+      return false;
+    }
+
+    items.forEach((item) => {
+      setDeviceMessage(item.udid, t('device_list.batch_rename.renaming'));
+    });
+
+    let results;
+    try {
+      results = await service.renameDevices(items);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      items.forEach((item) => {
+        setDeviceMessage(item.udid, t('device_list.batch_rename.rename_failed', { msg: message }));
+      });
+      await webSocketService.refreshDeviceStates();
+      toast.showError(t('device_list.batch_rename.all_failed', { count: items.length + skipped.length }));
+      return true;
+    }
+
+    let successCount = 0;
+    for (const result of results) {
+      if (result.success) {
+        successCount++;
+        webSocketService.updateDeviceName(result.udid, result.name);
+        setDeviceMessage(result.udid, t('device_list.batch_rename.rename_success'));
+      } else {
+        setDeviceMessage(result.udid, t('device_list.batch_rename.rename_failed', {
+          msg: result.error || t('common.unknown_error'),
+        }));
+      }
+    }
+
+    await webSocketService.refreshDeviceStates();
+
+    const failureCount = items.length - successCount + skipped.length;
+    if (failureCount === 0) {
+      toast.showSuccess(t('device_list.batch_rename.all_success', { count: successCount }));
+    } else if (successCount > 0) {
+      toast.showWarning(t('device_list.batch_rename.partial_success', {
+        success: successCount,
+        fail: failureCount,
+      }));
+    } else {
+      toast.showError(t('device_list.batch_rename.all_failed', { count: failureCount }));
+    }
+
+    return true;
+  };
 
   const isAllSelected = createMemo(() => {
     const allDevices = filteredDevices();
@@ -2417,6 +2542,14 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           }}
           webSocketService={props.webSocketService}
         />
+
+        <BatchRenameModal
+          open={showBatchRenameModal()}
+          targets={batchRenameTargets()}
+          onClose={() => setShowBatchRenameModal(false)}
+          loadDeviceType={loadBatchRenameDeviceType}
+          onSubmit={handleBatchRenameSubmit}
+        />
         
         {/* Device Context Menu */}
         <ContextMenu
@@ -2432,6 +2565,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 <ContextMenuButton onClick={handleContextMenuCopySelectedIps}>{t('device_list.copy_selected_ip')}</ContextMenuButton>
                 <ContextMenuButton onClick={handleContextMenuCopySelectedLastLogs}>{t('device_list.copy_selected_last_log')}</ContextMenuButton>
                 <ContextMenuButton onClick={handleContextMenuCopySelectedScriptSelects}>{t('device_list.copy_selected_script')}</ContextMenuButton>
+                <Show when={selectedCountInView() > 0}>
+                  <ContextMenuButton onClick={handleOpenBatchRename}>{t('device_list.batch_rename.menu')}</ContextMenuButton>
+                </Show>
                 <Show when={props.onOpenAddToGroupModal}>
                   <ContextMenuButton onClick={() => {
                     closeContextMenu();
@@ -2457,6 +2593,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               <ContextMenuButton onClick={handleContextMenuCopyIp}>{t('device_list.copy_ip')}</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuCopyLastLog}>{t('device_list.copy_last_log')}</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuCopyScriptSelect}>{t('device_list.copy_script')}</ContextMenuButton>
+              <Show when={!showSelectedDevicesContextSection() && contextMenuDeviceIsOnlySelectedDevice()}>
+                <ContextMenuButton onClick={handleOpenBatchRename}>{t('device_list.batch_rename.menu')}</ContextMenuButton>
+              </Show>
               <ContextMenuButton onClick={handleContextMenuOpenFileBrowser}>{t('device_list.browse_files')}</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuOpenLogStream}>{t('device_list.view_live_logs')}</ContextMenuButton>
               <Show when={props.onOpenAddToGroupModal && contextMenuDeviceIsOnlySelectedDevice()}>
