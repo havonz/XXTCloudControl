@@ -169,10 +169,10 @@ func TestSnapshotSaveBatchHandlerReturnsPerDeviceFailures(t *testing.T) {
 		got[item.UDID] = item
 	}
 
-	if got["device-online"].OK || got["device-online"].Error != "capture failed" {
+	if got["device-online"].OK || got["device-online"].Error != "截图失败" || got["device-online"].ErrorCode != "error.snapshot.failed" || got["device-online"].Detail != "capture failed" {
 		t.Fatalf("unexpected online result: %+v", got["device-online"])
 	}
-	if got["device-offline"].OK || got["device-offline"].Error != "device is offline" {
+	if got["device-offline"].OK || got["device-offline"].Error != "设备离线" || got["device-offline"].ErrorCode != "error.device.offline" || got["device-offline"].Detail != "" {
 		t.Fatalf("unexpected offline result: %+v", got["device-offline"])
 	}
 }

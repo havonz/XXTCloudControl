@@ -21,6 +21,8 @@ import { ScannedFile } from './utils/fileUpload';
 import { setApiBaseUrl, authFetch } from './services/httpAuth';
 import { debugLog } from './utils/debugLogger';
 import { useI18n } from './i18n';
+import { localizeApiError } from './utils/apiError';
+import { localizeUpdateError } from './utils/updateError';
 
 const VERSION_CACHE_KEY = 'xxt_server_version';
 
@@ -39,6 +41,9 @@ type UpdateBusyAction = '' | 'check' | 'download' | 'apply';
 interface UpdateState {
   stage: string;
   lastError?: string;
+  lastErrorCode?: string;
+  lastErrorParams?: Record<string, unknown>;
+  lastErrorDetail?: string;
   latestVersion?: string;
   latestPublishedAt?: string;
   hasUpdate?: boolean;
@@ -75,6 +80,8 @@ const App: Component = () => {
   const [isAuthenticated, setIsAuthenticated] = createSignal(false);
   const [isConnecting, setIsConnecting] = createSignal(false);
   const [loginError, setLoginError] = createSignal('');
+  const [loginErrorCode, setLoginErrorCode] = createSignal('');
+  const [showLoginTimeHint, setShowLoginTimeHint] = createSignal(false);
   const [devices, setDevices] = createSignal<Device[]>([]);
   const [selectedDevices, setSelectedDevices] = createSignal<Device[]>([]);
   const deviceSelectionCoordinator = createDeviceSelectionCoordinator();
@@ -104,6 +111,12 @@ const App: Component = () => {
   const groupStore = createGroupStore();
   const [showNewGroupModal, setShowNewGroupModal] = createSignal(false);
   const [showAddToGroupModal, setShowAddToGroupModal] = createSignal(false);
+
+  createEffect(() => {
+    if (isAuthenticated()) {
+      document.title = t('app.document_title', { count: selectedDevices().length });
+    }
+  });
   
   // Filter devices based on selected groups
   const filteredDevices = createMemo(() => {
@@ -269,6 +282,7 @@ const App: Component = () => {
     }
     return t('app.update.downloaded_bytes', { bytes: formatBytes(downloaded) });
   });
+  const updateError = createMemo(() => localizeUpdateError(updateStatus()?.state, t));
 
   const extractUpdateStatus = (data: unknown): UpdateStatusPayload | null => {
     if (!data || typeof data !== 'object') return null;
@@ -323,7 +337,7 @@ const App: Component = () => {
         return;
       }
       if (!response.ok && !silent) {
-        toast.showError(data?.error || t('app.update.status_failed'));
+        toast.showError(localizeApiError(data, t, t('app.update.status_failed')).message);
       }
     } catch {
       if (!silent) {
@@ -394,11 +408,12 @@ const App: Component = () => {
         return;
       }
       if (!response.ok) {
-        const message = typeof data?.error === 'string' ? data.error : t('app.update.operation_failed');
-        if (action === 'download' && /cancel/i.test(message)) {
+        const error = localizeApiError(data, t, t('app.update.operation_failed'));
+        const lastErrorCode = status?.state?.lastErrorCode;
+        if (action === 'download' && (error.code === 'error.update.download_canceled' || lastErrorCode === 'error.update.download_canceled')) {
           await loadUpdateStatus(true);
         } else {
-          toast.showError(message);
+          toast.showError(error.message);
         }
         return;
       }
@@ -455,7 +470,7 @@ const App: Component = () => {
         return;
       }
       if (!response.ok) {
-        toast.showError(data?.error || t('app.update.cancel_failed'));
+        toast.showError(localizeApiError(data, t, t('app.update.cancel_failed')).message);
         return;
       }
       toast.showInfo(t('app.update.cancel_requested'));
@@ -544,10 +559,12 @@ const App: Component = () => {
   const handleLogin = async (credentials: LoginCredentials) => {
     setIsConnecting(true);
     setLoginError('');
+    setLoginErrorCode('');
+    setShowLoginTimeHint(false);
     
     try {
       // 构建 WebSocket URL
-      const wsUrl = authService.getWebSocketUrl(credentials.server, credentials.port);
+      const wsUrl = authService.getWebSocketUrl(credentials.server, credentials.port, locale());
       
       const actualPassword = credentials.password;
       
@@ -555,7 +572,7 @@ const App: Component = () => {
       wsService = new WebSocketService(wsUrl, actualPassword);
       
       // 监听认证结果
-      wsService.onAuthResult((success, error) => {
+      wsService.onAuthResult((success, error, failure) => {
         setIsConnecting(false);
         
         if (success) {
@@ -563,6 +580,8 @@ const App: Component = () => {
           authService.setAuthenticated(true, { ...credentials, password: actualPassword });
           setIsAuthenticated(true);
           setLoginError('');
+          setLoginErrorCode('');
+          setShowLoginTimeHint(false);
           
           // 设置服务器信息用于设备绑定
           setServerHost(credentials.server.trim());
@@ -589,7 +608,9 @@ const App: Component = () => {
         } else {
           setIsAuthenticated(false);
           authService.setAuthenticated(false);
-          setLoginError(error || '登录失败');
+          setLoginError(error || t('login.failed'));
+          setLoginErrorCode(failure?.code || '');
+          setShowLoginTimeHint(failure?.kind === 'authentication');
           if (wsService) {
             wsService.disconnect();
             wsService = null;
@@ -694,7 +715,7 @@ const App: Component = () => {
         } else if (message.type === 'transfer/fetch/complete' || message.type === 'transfer/send/complete') {
           // Note: Device message update is now handled in WebSocketService.ts
 
-          const transferError = message.error || (message.body?.success === false ? (message.body.error || '传输失败') : '');
+          const transferError = message.error || (message.body?.success === false ? (message.body.error || t('websocket.transfer_failed')) : '');
           if (transferError) {
             console.error('❌ 大文件传输失败:', transferError);
             if (message.type === 'transfer/send/complete' && typeof message.body?.savePath === 'string') {
@@ -758,7 +779,9 @@ const App: Component = () => {
       
     } catch (error) {
       setIsConnecting(false);
-      setLoginError('连接失败: ' + (error as Error).message);
+      setLoginError(t('login.connection_failed', { msg: (error as Error).message }));
+      setLoginErrorCode('');
+      setShowLoginTimeHint(false);
     }
   };
 
@@ -1090,7 +1113,7 @@ const App: Component = () => {
         return { success: false, error: result.error };
       }
     } catch (err) {
-      const errorMessage = (err as Error).message || 'Unknown error';
+      const errorMessage = (err as Error).message || t('common.unknown_error');
       console.error(`❌ Pull file error:`, err);
       return { success: false, error: errorMessage };
     }
@@ -1230,7 +1253,8 @@ const App: Component = () => {
         <LoginForm 
           onLogin={handleLogin}
           isConnecting={isConnecting()}
-          error={loginError()}
+          error={loginErrorCode() ? t(loginErrorCode()) : loginError()}
+          showTimeHint={showLoginTimeHint()}
         />
       ) : (
         <div class={styles.appContainer}>
@@ -1248,7 +1272,7 @@ const App: Component = () => {
                   <span></span>
                 </div>
               </button>
-              <img src="/favicon-48.png" alt="Logo" class={styles.logo} />
+              <img src="/favicon-48.png" alt="" class={styles.logo} />
               <h1 class={styles.appTitle}>{t('app.title')}</h1>
               {serverVersion() && (
                 <div class={styles.versionUpdateEntry}>
@@ -1286,8 +1310,13 @@ const App: Component = () => {
                             <span class={styles.updateValue}>{formatUpdateStage(updateStatus()?.state?.stage)}</span>
                           </div>
                         </div>
-                        {updateStatus()?.state?.lastError && (
-                          <div class={styles.updateError}>{updateStatus()?.state?.lastError}</div>
+                        {updateError().message && (
+                          <div
+                            class={styles.updateError}
+                            title={updateError().detail}
+                          >
+                            {updateError().message}
+                          </div>
                         )}
                         {isDownloadingUpdate() && (
                           <div class={styles.updateProgress}>

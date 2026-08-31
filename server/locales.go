@@ -2,138 +2,81 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
 )
 
-const defaultLocale = "zh-CN"
+const (
+	defaultLocale        = "zh-CN"
+	fallbackLocale       = "en-US"
+	supportedLocaleCount = 11
+)
 
-var supportedLocales = []string{"zh-CN", "en-US"}
+var supportedLocales = []string{
+	"zh-CN",
+	"en-US",
+	"zh-TW",
+	"ja-JP",
+	"ko-KR",
+	"vi-VN",
+	"es-ES",
+	"pt-BR",
+	"ru-RU",
+	"fr-FR",
+	"de-DE",
+}
 
 var localeAliases = map[string]string{
 	"zh":      "zh-CN",
 	"zh-cn":   "zh-CN",
 	"zh-hans": "zh-CN",
+	"zh-chs":  "zh-CN",
 	"zh-sg":   "zh-CN",
 	"cn":      "zh-CN",
+	"zh-tw":   "zh-TW",
+	"zh-hant": "zh-TW",
+	"zh-cht":  "zh-TW",
+	"zh-hk":   "zh-TW",
+	"zh-mo":   "zh-TW",
+	"tw":      "zh-TW",
 	"en":      "en-US",
 	"en-us":   "en-US",
 	"en-gb":   "en-US",
+	"ja":      "ja-JP",
+	"jp":      "ja-JP",
+	"ko":      "ko-KR",
+	"kr":      "ko-KR",
+	"vi":      "vi-VN",
+	"vn":      "vi-VN",
+	"es":      "es-ES",
+	"pt":      "pt-BR",
+	"pt-br":   "pt-BR",
+	"br":      "pt-BR",
+	"ru":      "ru-RU",
+	"fr":      "fr-FR",
+	"de":      "de-DE",
 }
 
-var translations = map[string]map[string]string{
-	"zh-CN": {
-		"unauthorized":                                          "未授权",
-		"invalid request":                                       "无效请求",
-		"Invalid request body":                                  "无效请求体",
-		"Group name cannot be empty":                            "分组名称不能为空",
-		"Group not found":                                       "分组不存在",
-		"Failed to save groups":                                 "保存分组失败",
-		"Order cannot be empty":                                 "排序列表不能为空",
-		"Order must include all groups":                         "排序列表必须包含所有分组",
-		"Order contains duplicate group IDs":                    "排序列表包含重复分组 ID",
-		"Order contains unknown group ID":                       "排序列表包含未知分组 ID",
-		"script is required":                                    "脚本不能为空",
-		"Failed to save config":                                 "保存配置失败",
-		"failed to build config":                                "生成配置失败",
-		"host parameter is required":                            "缺少 host 参数",
-		"invalid port":                                          "端口无效",
-		"updater not initialized":                               "更新服务未初始化",
-		"download cancel requested":                             "已请求停止下载",
-		"update apply started, server will restart shortly":     "正在应用更新，服务将短暂重启",
-		"deviceIds is required":                                 "deviceIds 不能为空",
-		"failed to read scripts directory":                      "读取脚本目录失败",
-		"devices are required":                                  "设备列表不能为空",
-		"script name is required":                               "脚本名称不能为空",
-		"script not found":                                      "脚本不存在",
-		"name is required":                                      "名称不能为空",
-		"main.json not found":                                   "main.json 不存在",
-		"failed to parse main.json":                             "解析 main.json 失败",
-		"failed to marshal json":                                "生成 JSON 失败",
-		"failed to save file":                                   "保存文件失败",
-		"path is not a directory":                               "路径不是目录",
-		"failed to create directory":                            "创建目录失败",
-		"no file uploaded":                                      "未上传文件",
-		"failed to resolve base path":                           "解析基础路径失败",
-		"failed to resolve file path":                           "解析文件路径失败",
-		"failed to resolve target path":                         "解析目标路径失败",
-		"invalid file path":                                     "文件路径无效",
-		"invalid path":                                          "路径无效",
-		"invalid path format":                                   "路径格式无效",
-		"failed to create file":                                 "创建文件失败",
-		"path is required":                                      "路径不能为空",
-		"category and path are required":                        "category 和 path 不能为空",
-		"file not found":                                        "文件不存在",
-		"file or directory not found":                           "文件或目录不存在",
-		"cannot download a directory":                           "不能下载目录",
-		"cannot delete root category directory":                 "不能删除根目录",
-		"failed to delete":                                      "删除失败",
-		"type must be 'file' or 'dir'":                          "type 必须是 'file' 或 'dir'",
-		"failed to create parent directory":                     "创建父目录失败",
-		"file or directory already exists":                      "文件或目录已存在",
-		"failed to write file content":                          "写入文件内容失败",
-		"failed to write file":                                  "写入文件失败",
-		"failed to open":                                        "打开失败",
-		"oldName and newName are required":                      "oldName 和 newName 不能为空",
-		"failed to rename":                                      "重命名失败",
-		"cannot read a directory":                               "不能读取目录",
-		"file too large (max 5MB)":                              "文件过大（最大 5MB）",
-		"failed to read file":                                   "读取文件失败",
-		"cannot write to a directory":                           "不能写入目录",
-		"only allowed from local machine":                       "仅允许本机操作",
-		"no items to copy":                                      "没有要复制的项目",
-		"no items to move":                                      "没有要移动的项目",
-		"type must be 'download' or 'upload'":                   "type 必须是 'download' 或 'upload'",
-		"deviceSN is required":                                  "deviceSN 不能为空",
-		"cannot transfer a directory":                           "不能传输目录",
-		"targetPath is required for download":                   "下载时 targetPath 不能为空",
-		"token is required":                                     "token 不能为空",
-		"token not found or expired":                            "token 不存在或已过期",
-		"token expired":                                         "token 已过期",
-		"token is not for download":                             "token 不是下载 token",
-		"token is not for upload":                               "token 不是上传 token",
-		"failed to open file":                                   "打开文件失败",
-		"failed to stat file":                                   "读取文件状态失败",
-		"deviceSN, category, path, and targetPath are required": "deviceSN、category、path 和 targetPath 不能为空",
-		"cannot push a directory":                               "不能推送目录",
-		"device not connected":                                  "设备未连接",
-		"failed to send file to device":                         "发送文件到设备失败",
-		"deviceSN, sourcePath, category, and path are required": "deviceSN、sourcePath、category 和 path 不能为空",
-		"empty screenshot payload":                              "截图内容为空",
-		"device is offline":                                     "设备离线",
-		"request timeout":                                       "请求超时",
-		"invalid script name":                                   "脚本名称无效",
-		"failed to read script directory":                       "读取脚本目录失败",
-		"failed to read script file":                            "读取脚本文件失败",
-		"script root is not a directory":                        "脚本根路径不是目录",
-		"script config field cannot be empty":                   "脚本配置项不能为空",
-		"script config field format is invalid":                 "脚本配置项格式不正确",
-		"script config regex is invalid":                        "脚本配置正则无效",
-		"item path is required":                                 "项目路径不能为空",
-		"item path must be relative":                            "项目路径必须是相对路径",
-		"item path is invalid":                                  "项目路径无效",
-		"item path traversal detected":                          "项目路径不能包含越级访问",
-		"invalid category":                                      "类别无效",
-		"path traversal detected":                               "路径不能包含越级访问",
-		"invalid name":                                          "名称无效",
-		"name cannot contain path separators":                   "名称不能包含路径分隔符",
-		"failed to resolve source path":                         "解析源路径失败",
-		"source path traversal detected":                        "源路径不能包含越级访问",
-		"failed to resolve destination path":                    "解析目标路径失败",
-		"failed to create destination directory":                "创建目标目录失败",
-		"failed to resolve source base path":                    "解析源基础路径失败",
-		"failed to resolve destination base path":               "解析目标基础路径失败",
-		"destination path traversal detected":                   "目标路径不能包含越级访问",
-		"not found":                                             "不存在",
-		"already exists at destination":                         "目标位置已存在",
-		"failed to remove source symlink":                       "删除源符号链接失败",
-		"failed to remove source directory":                     "删除源目录失败",
-		"failed to remove source file":                          "删除源文件失败",
-	},
-	"en-US": {
-		"update.apply_started": "Update apply started. The server will restart shortly.",
-	},
+type messageSpec struct {
+	Code   string
+	Params map[string]any
+	Detail string
+}
+
+var translations = buildTranslations()
+
+func buildTranslations() map[string]map[string]string {
+	result := make(map[string]map[string]string, len(supportedLocales))
+	for index, locale := range supportedLocales {
+		messages := make(map[string]string, len(translationCatalog))
+		for code, values := range translationCatalog {
+			messages[code] = values[index]
+		}
+		result[locale] = messages
+	}
+	return result
 }
 
 func NormalizeLocale(input string) string {
@@ -141,13 +84,20 @@ func NormalizeLocale(input string) string {
 	if normalized == "" {
 		return ""
 	}
-	if locale, ok := localeAliases[normalized]; ok {
-		return locale
-	}
-	for _, locale := range supportedLocales {
-		if strings.ToLower(locale) == normalized {
+	for candidate := normalized; candidate != ""; {
+		if locale, ok := localeAliases[candidate]; ok {
 			return locale
 		}
+		for _, locale := range supportedLocales {
+			if strings.EqualFold(locale, candidate) {
+				return locale
+			}
+		}
+		separator := strings.LastIndexByte(candidate, '-')
+		if separator < 0 {
+			break
+		}
+		candidate = candidate[:separator]
 	}
 	return ""
 }
@@ -170,15 +120,21 @@ func ParsePreferredLocale(localeQuery, acceptLanguage string) string {
 			continue
 		}
 		q := 1.0
+		validQuality := true
 		for _, param := range fields[1:] {
 			param = strings.TrimSpace(param)
-			if strings.HasPrefix(param, "q=") {
-				if parsed, err := strconv.ParseFloat(strings.TrimPrefix(param, "q="), 64); err == nil {
-					q = parsed
-				}
+			name, value, hasValue := strings.Cut(param, "=")
+			if !hasValue || !strings.EqualFold(strings.TrimSpace(name), "q") {
+				continue
 			}
+			parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+			if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed < 0 || parsed > 1 {
+				validQuality = false
+				break
+			}
+			q = parsed
 		}
-		if q <= 0 {
+		if !validQuality || q <= 0 {
 			continue
 		}
 		candidates = append(candidates, candidate{locale: locale, q: q, order: i})
@@ -212,56 +168,283 @@ func (t Translator) Locale() string {
 }
 
 func (t Translator) TR(key string) string {
-	if value := translations[t.locale][key]; value != "" {
-		return value
-	}
-	if value := translations[defaultLocale][key]; value != "" && t.locale == defaultLocale {
-		return value
-	}
-	if translated := t.translateDynamic(key); translated != "" {
-		return translated
-	}
-	return key
-}
-
-func (t Translator) translateDynamic(message string) string {
-	if t.locale != defaultLocale {
-		return ""
-	}
-	prefixes := []string{
-		"invalid category: ",
-		"script root is not a directory: ",
-		"failed to open: ",
-		"failed to remove source symlink: ",
-		"failed to remove source directory: ",
-		"failed to remove source file: ",
-		"script config field cannot be empty: ",
-		"script config field format is invalid: ",
-		"script config regex is invalid: ",
-	}
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(message, prefix) {
-			key := strings.TrimSuffix(prefix, ": ")
-			if value := translations[defaultLocale][key]; value != "" {
-				return value + ": " + strings.TrimPrefix(message, prefix)
-			}
-		}
-	}
-	if strings.HasPrefix(message, "device ") && strings.HasSuffix(message, " not connected") {
-		device := strings.TrimSuffix(strings.TrimPrefix(message, "device "), " not connected")
-		return "设备 " + device + " 未连接"
-	}
-	return ""
+	return t.translateSpec(resolveMessageSpec(key))
 }
 
 func (t Translator) TRf(key string, args ...any) string {
-	return fmt.Sprintf(t.TR(key), args...)
+	spec := resolveMessageSpec(key)
+	text := t.translateSpec(spec)
+	if spec.Detail != "" {
+		text += ": " + spec.Detail
+	}
+	return fmt.Sprintf(text, args...)
 }
 
 func (t Translator) TRV(key string, vars map[string]any) string {
-	text := t.TR(key)
-	for name, value := range vars {
-		text = strings.ReplaceAll(text, "{"+name+"}", fmt.Sprint(value))
+	spec := resolveMessageSpec(key)
+	if len(vars) > 0 {
+		params := cloneMessageParams(spec.Params)
+		if params == nil {
+			params = make(map[string]any, len(vars))
+		}
+		for name, value := range vars {
+			params[name] = value
+		}
+		spec.Params = params
 	}
-	return text
+	return t.translateSpec(spec)
+}
+
+func (t Translator) translateSpec(spec messageSpec) string {
+	code := spec.Code
+	if code == "" {
+		return ""
+	}
+	text := translations[t.locale][code]
+	if text == "" {
+		text = translations[fallbackLocale][code]
+	}
+	if text == "" {
+		text = code
+	}
+	return interpolateMessage(text, spec.Params)
+}
+
+func interpolateMessage(text string, vars map[string]any) string {
+	if len(vars) == 0 {
+		return text
+	}
+	replacements := make([]string, 0, len(vars)*2)
+	for name, value := range vars {
+		replacements = append(replacements, "{"+name+"}", fmt.Sprint(value))
+	}
+	return strings.NewReplacer(replacements...).Replace(text)
+}
+
+func cloneMessageParams(params map[string]any) map[string]any {
+	if len(params) == 0 {
+		return nil
+	}
+	cloned := make(map[string]any, len(params))
+	for name, value := range params {
+		cloned[name] = value
+	}
+	return cloned
+}
+
+func resolveMessageSpec(input string) messageSpec {
+	message := strings.TrimSpace(input)
+	if message == "" {
+		return messageSpec{}
+	}
+	if _, ok := translationCatalog[message]; ok {
+		return messageSpec{Code: message}
+	}
+	if code, ok := legacyMessageCodes[message]; ok {
+		return messageSpec{Code: code}
+	}
+
+	type prefixRule struct {
+		prefix string
+		code   string
+		param  string
+		detail bool
+	}
+	prefixRules := []prefixRule{
+		{prefix: "invalid category: ", code: "error.category.invalid_value", param: "category"},
+		{prefix: "script root is not a directory: ", code: "error.script.root_not_directory", param: "path"},
+		{prefix: "failed to open: ", code: "error.entry.open_failed", param: "detail", detail: true},
+		{prefix: "failed to remove source symlink: ", code: "error.source_symlink_remove_failed", param: "detail", detail: true},
+		{prefix: "failed to remove source directory: ", code: "error.source_directory_remove_failed", param: "detail", detail: true},
+		{prefix: "failed to remove source file: ", code: "error.source_file_remove_failed", param: "detail", detail: true},
+		{prefix: "script config field cannot be empty: ", code: "error.script.config_empty", param: "caption"},
+		{prefix: "script config field format is invalid: ", code: "error.script.config_format_invalid", param: "caption"},
+		{prefix: "script config regex is invalid: ", code: "error.script.config_regex_invalid", param: "caption"},
+		{prefix: "LanControl script package contains unsupported file: ", code: "error.archive.unsupported_file", param: "file"},
+		{prefix: "LanControl script package contains duplicate file: ", code: "error.archive.duplicate_file", param: "file"},
+		{prefix: "LanControl script package file is too large: ", code: "error.archive.entry_too_large", param: "file"},
+		{prefix: "LanControl script package contains invalid path: ", code: "error.archive.invalid_path", param: "path"},
+	}
+	for _, rule := range prefixRules {
+		if !strings.HasPrefix(message, rule.prefix) {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(message, rule.prefix))
+		spec := messageSpec{Code: rule.code}
+		if rule.detail {
+			spec.Detail = value
+		} else {
+			spec.Params = map[string]any{rule.param: value}
+		}
+		return spec
+	}
+
+	if strings.HasPrefix(message, "device ") && strings.HasSuffix(message, " not connected") {
+		device := strings.TrimSuffix(strings.TrimPrefix(message, "device "), " not connected")
+		return messageSpec{Code: "error.device.named_not_connected", Params: map[string]any{"device": device}}
+	}
+	if strings.HasPrefix(message, "script \"") && strings.HasSuffix(message, "\" already exists") {
+		name := strings.TrimSuffix(strings.TrimPrefix(message, "script \""), "\" already exists")
+		return messageSpec{Code: "error.archive.script_exists", Params: map[string]any{"name": name}}
+	}
+	if strings.HasPrefix(message, "LanControl script package requires controller version ") {
+		if spec, ok := parseArchiveVersionMessage(message); ok {
+			return spec
+		}
+	}
+	return messageSpec{Code: message}
+}
+
+func parseArchiveVersionMessage(message string) (messageSpec, bool) {
+	prefix := "LanControl script package requires controller version "
+	remainder := strings.TrimPrefix(message, prefix)
+	parts := strings.SplitN(remainder, " (current ", 2)
+	if len(parts) != 2 {
+		return messageSpec{}, false
+	}
+	current := strings.TrimSuffix(parts[1], ")")
+	if required, ok := strings.CutSuffix(parts[0], " or later"); ok {
+		return messageSpec{Code: "error.archive.controller_too_old", Params: map[string]any{"required": required, "current": current}}, true
+	}
+	if required, ok := strings.CutSuffix(parts[0], " or earlier"); ok {
+		return messageSpec{Code: "error.archive.controller_too_new", Params: map[string]any{"required": required, "current": current}}, true
+	}
+	return messageSpec{}, false
+}
+
+var legacyMessageCodes = map[string]string{
+	"unauthorized":                                                  "error.unauthorized",
+	"invalid request":                                               "error.invalid_request",
+	"Invalid request body":                                          "error.invalid_request_body",
+	"Group name cannot be empty":                                    "error.group.name_required",
+	"Group not found":                                               "error.group.not_found",
+	"Failed to save groups":                                         "error.group.save_failed",
+	"Order cannot be empty":                                         "error.group.order_required",
+	"Order must include all groups":                                 "error.group.order_incomplete",
+	"Order contains duplicate group IDs":                            "error.group.order_duplicate",
+	"Order contains unknown group ID":                               "error.group.order_unknown",
+	"script is required":                                            "error.script.required",
+	"Failed to save config":                                         "error.config.save_failed",
+	"failed to build config":                                        "error.config.build_failed",
+	"host parameter is required":                                    "error.host.required",
+	"invalid host":                                                  "error.host.invalid",
+	"invalid port":                                                  "error.port.invalid",
+	"updater not initialized":                                       "error.update.not_initialized",
+	"download cancel requested":                                     "message.update.download_cancel_requested",
+	"update apply started, server will restart shortly":             "message.update.apply_started",
+	"deviceIds is required":                                         "error.device_ids.required",
+	"failed to read scripts directory":                              "error.scripts.read_directory_failed",
+	"devices are required":                                          "error.devices.required",
+	"script name is required":                                       "error.script.name_required",
+	"script not found":                                              "error.script.not_found",
+	"name is required":                                              "error.name.required",
+	"main.json not found":                                           "error.script.main_json_not_found",
+	"failed to parse main.json":                                     "error.script.main_json_parse_failed",
+	"failed to marshal json":                                        "error.json.marshal_failed",
+	"failed to save file":                                           "error.file.save_failed",
+	"path is not a directory":                                       "error.path.not_directory",
+	"failed to create directory":                                    "error.directory.create_failed",
+	"no file uploaded":                                              "error.file.upload_missing",
+	"failed to resolve base path":                                   "error.path.resolve_base_failed",
+	"failed to resolve file path":                                   "error.path.resolve_file_failed",
+	"failed to resolve target path":                                 "error.path.resolve_target_failed",
+	"invalid file path":                                             "error.file.path_invalid",
+	"invalid path":                                                  "error.path.invalid",
+	"invalid path format":                                           "error.path.format_invalid",
+	"failed to create file":                                         "error.file.create_failed",
+	"path is required":                                              "error.path.required",
+	"category and path are required":                                "error.category_path.required",
+	"file not found":                                                "error.file.not_found",
+	"file or directory not found":                                   "error.entry.not_found",
+	"cannot download a directory":                                   "error.directory.download_forbidden",
+	"cannot delete root category directory":                         "error.directory.delete_root_forbidden",
+	"failed to delete":                                              "error.entry.delete_failed",
+	"type must be 'file' or 'dir'":                                  "error.entry.type_invalid",
+	"failed to create parent directory":                             "error.directory.parent_create_failed",
+	"file or directory already exists":                              "error.entry.already_exists",
+	"failed to write file content":                                  "error.file.write_content_failed",
+	"failed to write file":                                          "error.file.write_failed",
+	"failed to open":                                                "error.entry.open_failed",
+	"oldName and newName are required":                              "error.rename.names_required",
+	"failed to rename":                                              "error.entry.rename_failed",
+	"cannot read a directory":                                       "error.directory.read_forbidden",
+	"file too large (max 5MB)":                                      "error.file.too_large_5mb",
+	"failed to read file":                                           "error.file.read_failed",
+	"cannot write to a directory":                                   "error.directory.write_forbidden",
+	"only allowed from local machine":                               "error.local_only",
+	"no items to copy":                                              "error.batch.copy_empty",
+	"no items to move":                                              "error.batch.move_empty",
+	"type must be 'download' or 'upload'":                           "error.transfer.type_invalid",
+	"deviceSN is required":                                          "error.device_sn.required",
+	"cannot transfer a directory":                                   "error.directory.transfer_forbidden",
+	"targetPath is required for download":                           "error.transfer.target_path_required",
+	"token is required":                                             "error.token.required",
+	"token not found or expired":                                    "error.token.not_found_or_expired",
+	"token expired":                                                 "error.token.expired",
+	"token is not for download":                                     "error.token.not_download",
+	"token is not for upload":                                       "error.token.not_upload",
+	"failed to open file":                                           "error.file.open_failed",
+	"failed to stat file":                                           "error.file.stat_failed",
+	"deviceSN, category, path, and targetPath are required":         "error.transfer.push_fields_required",
+	"cannot push a directory":                                       "error.directory.push_forbidden",
+	"device not connected":                                          "error.device.not_connected",
+	"failed to send file to device":                                 "error.transfer.send_device_failed",
+	"deviceSN, sourcePath, category, and path are required":         "error.transfer.pull_fields_required",
+	"empty screenshot payload":                                      "error.snapshot.empty_payload",
+	"device is offline":                                             "error.device.offline",
+	"request timeout":                                               "error.request.timeout",
+	"invalid script name":                                           "error.script.name_invalid",
+	"failed to read script directory":                               "error.script.read_directory_failed",
+	"failed to read script file":                                    "error.script.read_file_failed",
+	"script root is not a directory":                                "error.script.root_not_directory",
+	"script config field cannot be empty":                           "error.script.config_empty",
+	"script config field format is invalid":                         "error.script.config_format_invalid",
+	"script config regex is invalid":                                "error.script.config_regex_invalid",
+	"item path is required":                                         "error.item.path_required",
+	"item path must be relative":                                    "error.item.path_relative",
+	"item path is invalid":                                          "error.item.path_invalid",
+	"item path traversal detected":                                  "error.item.path_traversal",
+	"invalid category":                                              "error.category.invalid",
+	"path traversal detected":                                       "error.path.traversal",
+	"invalid name":                                                  "error.name.invalid",
+	"name cannot contain path separators":                           "error.name.path_separator",
+	"failed to resolve source path":                                 "error.path.resolve_source_failed",
+	"source path traversal detected":                                "error.path.source_traversal",
+	"failed to resolve destination path":                            "error.path.resolve_destination_failed",
+	"failed to create destination directory":                        "error.directory.destination_create_failed",
+	"failed to resolve source base path":                            "error.path.resolve_source_base_failed",
+	"failed to resolve destination base path":                       "error.path.resolve_destination_base_failed",
+	"destination path traversal detected":                           "error.path.destination_traversal",
+	"not found":                                                     "error.not_found",
+	"already exists at destination":                                 "error.destination.exists",
+	"failed to remove source symlink":                               "error.source_symlink_remove_failed",
+	"failed to remove source directory":                             "error.source_directory_remove_failed",
+	"failed to remove source file":                                  "error.source_file_remove_failed",
+	"invalid response body size":                                    "error.response.invalid_body_size",
+	"response body too large":                                       "error.response.body_too_large",
+	"response chunk too large":                                      "error.response.chunk_too_large",
+	"response chunk count invalid":                                  "error.response.chunk_count_invalid",
+	"request failed":                                                "error.request.failed",
+	"LanControl script package must be a file":                      "error.archive.must_be_file",
+	"unsupported LanControl script package extension":               "error.archive.extension_unsupported",
+	"LanControl script package file is required":                    "error.archive.file_required",
+	"LanControl script package is too large":                        "error.archive.too_large",
+	"invalid install name":                                          "error.archive.install_name_invalid",
+	"invalid LanControl script package":                             "error.archive.invalid",
+	"LanControl script package must not contain symlinks":           "error.archive.symlink_forbidden",
+	"LanControl script package contains too many files":             "error.archive.too_many_files",
+	"LanControl script package metadata is invalid":                 "error.archive.metadata_invalid",
+	"LanControl script package format is unsupported":               "error.archive.format_unsupported",
+	"LanControl script package version is unsupported":              "error.archive.version_unsupported",
+	"LanControl script package runtime file is missing":             "error.archive.runtime_missing",
+	"LanControl script package controller version range is invalid": "error.archive.controller_range_invalid",
+	"device not found":                                              "error.debug.device_not_found",
+	"device cloud control client does not support debug tunnel":     "error.debug.unsupported",
+	"failed to create request id":                                   "error.debug.request_id_failed",
+	"failed to request device tunnel":                               "error.debug.request_failed",
+	"update is disabled":                                            "error.update.disabled",
+	"download already in progress":                                  "error.update.download_in_progress",
+	"no update available":                                           "error.update.no_update_available",
+	"no active download":                                            "error.update.no_active_download",
+	"no downloaded update to apply":                                 "error.update.no_downloaded_update",
 }

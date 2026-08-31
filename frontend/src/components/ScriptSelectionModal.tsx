@@ -5,6 +5,7 @@ import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
 import { authFetch } from '../services/httpAuth';
 import { useI18n } from '../i18n';
+import { localizeApiError } from '../utils/apiError';
 import styles from './ScriptSelectionModal.module.css';
 
 interface ScriptEntry {
@@ -40,8 +41,8 @@ export function ScriptSelectionModal(props: ScriptSelectionModalProps) {
       const response = await authFetch(`${props.serverBaseUrl}/api/scripts/selectable`);
       const data = await response.json();
       
-      if (data.error) {
-        setError(data.error);
+      if (!response.ok || data.errorCode || data.error) {
+        setError(localizeApiError(data, t, t('modal.script_load_failed', { msg: t('common.unknown_error') })).message);
         setScripts([]);
       } else {
         setScripts(data.scripts || []);

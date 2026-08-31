@@ -387,6 +387,23 @@ func TestReconcileStateOnStartupClearsAppliedDownloadArtifacts(t *testing.T) {
 	}
 }
 
+func TestMigrateUpdaterStateErrorKeepsLegacyTextAsDetail(t *testing.T) {
+	state := UpdaterState{
+		Stage:       updateStageFailed,
+		LastError:   "legacy network error",
+		LatestAsset: UpdateAsset{Name: "package.zip"},
+	}
+
+	migrateUpdaterStateError(&state)
+
+	if state.LastError != "" || state.LastErrorDetail != "legacy network error" {
+		t.Fatalf("legacy text was not preserved: %+v", state)
+	}
+	if state.LastErrorCode != "error.update.check_failed" {
+		t.Fatalf("unexpected migrated code: %q", state.LastErrorCode)
+	}
+}
+
 func TestReconcileStateOnStartupRestoresDownloadedStateAfterInterruptedApply(t *testing.T) {
 	stagingDir := t.TempDir()
 	sourceBinary := filepath.Join(stagingDir, "xxtcloudserver-linux-amd64")
@@ -415,8 +432,8 @@ func TestReconcileStateOnStartupRestoresDownloadedStateAfterInterruptedApply(t *
 	if u.state.Stage != updateStageDownloaded {
 		t.Fatalf("unexpected stage: %s", u.state.Stage)
 	}
-	if u.state.LastError == "" {
-		t.Fatalf("expected retry guidance error message")
+	if u.state.LastErrorCode != "error.update.previous_apply_retry" || u.state.LastErrorDetail != "" {
+		t.Fatalf("unexpected structured error: code=%q detail=%q", u.state.LastErrorCode, u.state.LastErrorDetail)
 	}
 	if u.state.StagingDir != stagingDir {
 		t.Fatalf("staging dir should be preserved, got %q", u.state.StagingDir)
@@ -447,8 +464,8 @@ func TestReconcileStateOnStartupMarksInterruptedApplyFailedWhenArtifactsMissing(
 	if u.state.Stage != updateStageFailed {
 		t.Fatalf("unexpected stage: %s", u.state.Stage)
 	}
-	if u.state.LastError == "" {
-		t.Fatalf("expected failure message")
+	if u.state.LastErrorCode != "error.update.previous_apply_redownload" || u.state.LastErrorDetail != "" {
+		t.Fatalf("unexpected structured error: code=%q detail=%q", u.state.LastErrorCode, u.state.LastErrorDetail)
 	}
 	if u.state.StagingDir != "" {
 		t.Fatalf("staging dir should be cleared, got %q", u.state.StagingDir)
@@ -458,6 +475,30 @@ func TestReconcileStateOnStartupMarksInterruptedApplyFailedWhenArtifactsMissing(
 	}
 	if u.state.SourceFrontendDir != "" {
 		t.Fatalf("source frontend dir should be cleared, got %q", u.state.SourceFrontendDir)
+	}
+}
+
+func TestWriteUpdaterStatePersistsSemanticErrorOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	state := UpdaterState{
+		Stage:           updateStageFailed,
+		LastError:       "下载更新失败",
+		LastErrorCode:   "error.update.download_failed",
+		LastErrorDetail: "connection reset by peer",
+	}
+	if err := writeUpdaterStateFile(path, state); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if bytes.Contains(data, []byte(`"lastError"`)) || bytes.Contains(data, []byte("下载更新失败")) {
+		t.Fatalf("translated lastError must not be persisted: %s", data)
+	}
+	if !bytes.Contains(data, []byte(`"lastErrorCode": "error.update.download_failed"`)) ||
+		!bytes.Contains(data, []byte(`"lastErrorDetail": "connection reset by peer"`)) {
+		t.Fatalf("semantic updater error was not persisted: %s", data)
 	}
 }
 

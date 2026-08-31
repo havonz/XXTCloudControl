@@ -107,7 +107,7 @@ describe('DeviceControlService control/http requests', () => {
 
     await expect(request).resolves.toEqual({
       success: false,
-      error: 'Request timeout',
+      error: 'Request timed out',
     });
 
     service.destroy();
@@ -124,7 +124,7 @@ describe('DeviceControlService control/http requests', () => {
 
     await expect(request).resolves.toEqual({
       success: false,
-      error: 'WebSocket连接已断开',
+      error: 'WebSocket disconnected',
     });
     expect(vi.getTimerCount()).toBe(0);
 
@@ -190,7 +190,7 @@ describe('DeviceControlService control/http requests', () => {
 
     await expect(invalidDataRequest).resolves.toEqual({
       success: false,
-      error: '设备信息响应无效',
+      error: 'Invalid device information response',
     });
 
     service.destroy();
@@ -321,7 +321,7 @@ describe('DeviceControlService control/http requests', () => {
         udid: 'device-timeout',
         name: '超时设备',
         success: false,
-        error: 'Request timeout',
+        error: 'Request timed out',
       },
       { udid: 'device-success', name: '成功设备', success: true },
     ]);
@@ -347,13 +347,13 @@ describe('DeviceControlService control/http requests', () => {
         udid: 'device-1',
         name: '设备一',
         success: false,
-        error: 'WebSocket连接已断开',
+        error: 'WebSocket disconnected',
       },
       {
         udid: 'device-2',
         name: '设备二',
         success: false,
-        error: 'WebSocket连接已断开',
+        error: 'WebSocket disconnected',
       },
     ]);
     expect(vi.getTimerCount()).toBe(0);

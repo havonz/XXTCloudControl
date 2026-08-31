@@ -819,6 +819,20 @@ type serverFilesBatchItem struct {
 
 type serverFilesBatchOperation func(serverFilesBatchItem) error
 
+type serverFilesBatchFailure struct {
+	item string
+	raw  string
+	spec messageSpec
+}
+
+type serverFilesBatchErrorItem struct {
+	Item        string         `json:"item"`
+	Error       string         `json:"error"`
+	ErrorCode   string         `json:"errorCode"`
+	ErrorParams map[string]any `json:"errorParams,omitempty"`
+	Detail      string         `json:"detail,omitempty"`
+}
+
 func resolveServerFilesBatchContext(c *gin.Context, action string) (serverFilesBatchContext, bool) {
 	var req serverFilesBatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -917,34 +931,58 @@ func prepareServerFilesBatchItem(ctx serverFilesBatchContext, item string) (serv
 	return serverFilesBatchItem{sourcePath: sourcePath, destinationPath: destinationPath}, nil
 }
 
-func runServerFilesBatch(ctx serverFilesBatchContext, operate serverFilesBatchOperation) (int, []string) {
+func runServerFilesBatch(ctx serverFilesBatchContext, operate serverFilesBatchOperation) (int, []serverFilesBatchFailure) {
 	successCount := 0
-	var errors []string
+	var failures []serverFilesBatchFailure
 
 	for _, item := range ctx.request.Items {
 		batchItem, err := prepareServerFilesBatchItem(ctx, item)
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", item, err))
+			failures = append(failures, buildServerFilesBatchFailure(item, err))
 			continue
 		}
 
 		if err := operate(batchItem); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", item, err))
+			failures = append(failures, buildServerFilesBatchFailure(item, err))
 			continue
 		}
 
 		successCount++
 	}
 
-	return successCount, errors
+	return successCount, failures
 }
 
-func respondServerFilesBatch(c *gin.Context, totalCount, successCount int, errors []string) {
+func buildServerFilesBatchFailure(item string, err error) serverFilesBatchFailure {
+	raw := err.Error()
+	spec := resolveMessageSpec(raw)
+	if _, known := translationCatalog[spec.Code]; !known {
+		spec = messageSpec{Code: "error.request.failed", Detail: raw}
+	}
+	return serverFilesBatchFailure{item: item, raw: raw, spec: spec}
+}
+
+func respondServerFilesBatch(c *gin.Context, totalCount, successCount int, failures []serverFilesBatchFailure) {
+	translator := requestTranslator(c)
+	var errors []string
+	errorItems := make([]serverFilesBatchErrorItem, 0, len(failures))
+	for _, failure := range failures {
+		errors = append(errors, fmt.Sprintf("%s: %s", failure.item, failure.raw))
+		errorItems = append(errorItems, serverFilesBatchErrorItem{
+			Item:        failure.item,
+			Error:       translator.translateSpec(failure.spec),
+			ErrorCode:   failure.spec.Code,
+			ErrorParams: failure.spec.Params,
+			Detail:      failure.spec.Detail,
+		})
+	}
+	c.Header("Content-Language", translator.Locale())
 	c.JSON(http.StatusOK, gin.H{
 		"success":      successCount == totalCount,
 		"successCount": successCount,
 		"totalCount":   totalCount,
 		"errors":       errors,
+		"errorItems":   errorItems,
 	})
 }
 
@@ -1000,11 +1038,11 @@ func serverFilesBatchCopyHandler(c *gin.Context) {
 		return
 	}
 
-	successCount, errors := runServerFilesBatch(ctx, copyServerFilesBatchItem)
+	successCount, failures := runServerFilesBatch(ctx, copyServerFilesBatchItem)
 
 	debugLogf("📋 Batch copy: %d/%d items copied from %s/%s to %s/%s", successCount, len(ctx.request.Items), ctx.srcCategory, ctx.request.SrcPath, ctx.dstCategory, ctx.request.DstPath)
 
-	respondServerFilesBatch(c, len(ctx.request.Items), successCount, errors)
+	respondServerFilesBatch(c, len(ctx.request.Items), successCount, failures)
 }
 
 // serverFilesBatchMoveHandler handles POST /api/server-files/batch-move
@@ -1014,9 +1052,9 @@ func serverFilesBatchMoveHandler(c *gin.Context) {
 		return
 	}
 
-	successCount, errors := runServerFilesBatch(ctx, moveServerFilesBatchItem)
+	successCount, failures := runServerFilesBatch(ctx, moveServerFilesBatchItem)
 
 	debugLogf("✂️ Batch move: %d/%d items moved from %s/%s to %s/%s", successCount, len(ctx.request.Items), ctx.srcCategory, ctx.request.SrcPath, ctx.dstCategory, ctx.request.DstPath)
 
-	respondServerFilesBatch(c, len(ctx.request.Items), successCount, errors)
+	respondServerFilesBatch(c, len(ctx.request.Items), successCount, failures)
 }

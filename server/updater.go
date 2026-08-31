@@ -60,24 +60,41 @@ type UpdateManifest struct {
 
 // UpdaterState is persisted in data/updater/state.json.
 type UpdaterState struct {
-	Stage              string      `json:"stage"`
-	LastError          string      `json:"lastError,omitempty"`
-	LastCheckedAt      int64       `json:"lastCheckedAt,omitempty"`
-	ManifestURL        string      `json:"manifestUrl,omitempty"`
-	LatestVersion      string      `json:"latestVersion,omitempty"`
-	LatestPublishedAt  string      `json:"latestPublishedAt,omitempty"`
-	HasUpdate          bool        `json:"hasUpdate"`
-	Ignored            bool        `json:"ignored"`
-	LatestAsset        UpdateAsset `json:"latestAsset,omitempty"`
-	DownloadTotalBytes int64       `json:"downloadTotalBytes,omitempty"`
-	DownloadedBytes    int64       `json:"downloadedBytes,omitempty"`
-	DownloadedVersion  string      `json:"downloadedVersion,omitempty"`
-	DownloadedAsset    string      `json:"downloadedAsset,omitempty"`
-	DownloadedFile     string      `json:"downloadedFile,omitempty"`
-	StagingDir         string      `json:"stagingDir,omitempty"`
-	SourceBinary       string      `json:"sourceBinary,omitempty"`
-	SourceFrontendDir  string      `json:"sourceFrontendDir,omitempty"`
-	AppliedVersion     string      `json:"appliedVersion,omitempty"`
+	Stage              string         `json:"stage"`
+	LastError          string         `json:"lastError,omitempty"`
+	LastErrorCode      string         `json:"lastErrorCode,omitempty"`
+	LastErrorParams    map[string]any `json:"lastErrorParams,omitempty"`
+	LastErrorDetail    string         `json:"lastErrorDetail,omitempty"`
+	LastCheckedAt      int64          `json:"lastCheckedAt,omitempty"`
+	ManifestURL        string         `json:"manifestUrl,omitempty"`
+	LatestVersion      string         `json:"latestVersion,omitempty"`
+	LatestPublishedAt  string         `json:"latestPublishedAt,omitempty"`
+	HasUpdate          bool           `json:"hasUpdate"`
+	Ignored            bool           `json:"ignored"`
+	LatestAsset        UpdateAsset    `json:"latestAsset,omitempty"`
+	DownloadTotalBytes int64          `json:"downloadTotalBytes,omitempty"`
+	DownloadedBytes    int64          `json:"downloadedBytes,omitempty"`
+	DownloadedVersion  string         `json:"downloadedVersion,omitempty"`
+	DownloadedAsset    string         `json:"downloadedAsset,omitempty"`
+	DownloadedFile     string         `json:"downloadedFile,omitempty"`
+	StagingDir         string         `json:"stagingDir,omitempty"`
+	SourceBinary       string         `json:"sourceBinary,omitempty"`
+	SourceFrontendDir  string         `json:"sourceFrontendDir,omitempty"`
+	AppliedVersion     string         `json:"appliedVersion,omitempty"`
+}
+
+func clearUpdaterStateError(state *UpdaterState) {
+	state.LastError = ""
+	state.LastErrorCode = ""
+	state.LastErrorParams = nil
+	state.LastErrorDetail = ""
+}
+
+func setUpdaterStateError(state *UpdaterState, code string, params map[string]any, detail string) {
+	state.LastErrorCode = code
+	state.LastErrorParams = cloneMessageParams(params)
+	state.LastErrorDetail = strings.TrimSpace(detail)
+	state.LastError = ""
 }
 
 // UpdateStatusResponse is returned by updater APIs.
@@ -235,8 +252,25 @@ func (u *UpdaterService) loadState() error {
 	if state.Stage == "" {
 		state.Stage = updateStageIdle
 	}
+	migrateUpdaterStateError(&state)
 	u.state = state
 	return nil
+}
+
+func migrateUpdaterStateError(state *UpdaterState) {
+	if state.LastErrorCode != "" || strings.TrimSpace(state.LastError) == "" {
+		return
+	}
+	state.LastErrorDetail = state.LastError
+	switch {
+	case state.Stage == updateStageApplying || state.DownloadedVersion != "" || state.StagingDir != "":
+		state.LastErrorCode = "error.update.apply_failed"
+	case state.Stage == updateStageDownloading || state.DownloadedAsset != "" || state.DownloadedFile != "":
+		state.LastErrorCode = "error.update.download_failed"
+	default:
+		state.LastErrorCode = "error.update.check_failed"
+	}
+	state.LastError = ""
 }
 
 func (u *UpdaterService) saveState() error {
@@ -257,7 +291,7 @@ func (u *UpdaterService) reconcileStateOnStartup() {
 	if u.state.Stage == updateStageApplying {
 		if u.state.DownloadedVersion == Version {
 			u.state.Stage = updateStageIdle
-			u.state.LastError = ""
+			clearUpdaterStateError(&u.state)
 			u.state.HasUpdate = false
 			u.state.Ignored = false
 			u.state.DownloadTotalBytes = 0
@@ -273,13 +307,13 @@ func (u *UpdaterService) reconcileStateOnStartup() {
 			// "applying" is a transient state. If the old version boots again with
 			// intact staged files, the previous apply was interrupted and can be retried.
 			u.state.Stage = updateStageDownloaded
-			if strings.TrimSpace(u.state.LastError) == "" {
-				u.state.LastError = "上次应用更新未完成，请重试应用更新"
+			if u.state.LastErrorCode == "" {
+				setUpdaterStateError(&u.state, "error.update.previous_apply_retry", nil, "")
 			}
 		} else {
 			u.state.Stage = updateStageFailed
-			if strings.TrimSpace(u.state.LastError) == "" {
-				u.state.LastError = "上次应用更新未完成，请重新下载后再试"
+			if u.state.LastErrorCode == "" {
+				setUpdaterStateError(&u.state, "error.update.previous_apply_redownload", nil, "")
 			}
 			u.state.StagingDir = ""
 			u.state.SourceBinary = ""
@@ -374,6 +408,8 @@ func writeUpdaterStateFile(path string, state UpdaterState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
+	// 持久化语义码和底层详情，避免将某一种语言的展示文本写回状态文件。
+	state.LastError = ""
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
@@ -384,6 +420,8 @@ func writeUpdaterStateFile(path string, state UpdaterState) error {
 func (u *UpdaterService) Status() UpdateStatusResponse {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
+	state := u.state
+	state.LastErrorParams = cloneMessageParams(u.state.LastErrorParams)
 	return UpdateStatusResponse{
 		CurrentVersion: Version,
 		BuildTime:      BuildTime,
@@ -391,7 +429,7 @@ func (u *UpdaterService) Status() UpdateStatusResponse {
 		PlatformOS:     runtime.GOOS,
 		PlatformArch:   runtime.GOARCH,
 		Config:         serverConfig.Update,
-		State:          u.state,
+		State:          state,
 	}
 }
 
@@ -403,7 +441,7 @@ func (u *UpdaterService) Check(ctx context.Context) (UpdateStatusResponse, error
 	manifestURLs := resolveManifestURLs(serverConfig.Update.Source)
 	u.mu.Lock()
 	u.state.Stage = updateStageChecking
-	u.state.LastError = ""
+	clearUpdaterStateError(&u.state)
 	u.state.DownloadTotalBytes = 0
 	u.state.DownloadedBytes = 0
 	u.state.ManifestURL = ""
@@ -418,7 +456,7 @@ func (u *UpdaterService) Check(ctx context.Context) (UpdateStatusResponse, error
 	if err != nil {
 		u.mu.Lock()
 		u.state.Stage = updateStageFailed
-		u.state.LastError = err.Error()
+		setUpdaterStateError(&u.state, "error.update.check_failed", nil, err.Error())
 		u.state.LastCheckedAt = nowUnix
 		_ = u.saveStateLocked()
 		u.mu.Unlock()
@@ -431,7 +469,7 @@ func (u *UpdaterService) Check(ctx context.Context) (UpdateStatusResponse, error
 
 	u.mu.Lock()
 	u.state.LastCheckedAt = nowUnix
-	u.state.LastError = ""
+	clearUpdaterStateError(&u.state)
 	u.state.ManifestURL = candidate.manifestURL
 	u.state.LatestVersion = candidate.manifest.Version
 	u.state.LatestPublishedAt = candidate.manifest.PublishedAt
@@ -481,7 +519,7 @@ func (u *UpdaterService) Download() (UpdateStatusResponse, error) {
 	asset := u.state.LatestAsset
 	version := u.state.LatestVersion
 	u.state.Stage = updateStageDownloading
-	u.state.LastError = ""
+	clearUpdaterStateError(&u.state)
 	u.state.DownloadTotalBytes = 0
 	u.state.DownloadedBytes = 0
 	if err := u.saveStateLocked(); err != nil {
@@ -560,7 +598,7 @@ func (u *UpdaterService) runDownloadJob(jobID uint64, ctx context.Context, cance
 
 	u.mu.Lock()
 	u.state.Stage = updateStageDownloaded
-	u.state.LastError = ""
+	clearUpdaterStateError(&u.state)
 	u.state.DownloadTotalBytes = u.state.DownloadedBytes
 	u.state.DownloadedVersion = version
 	u.state.DownloadedAsset = asset.Name
@@ -570,7 +608,7 @@ func (u *UpdaterService) runDownloadJob(jobID uint64, ctx context.Context, cance
 	u.state.SourceFrontendDir = sourceFrontend
 	if err := u.saveStateLocked(); err != nil {
 		u.state.Stage = updateStageFailed
-		u.state.LastError = err.Error()
+		setUpdaterStateError(&u.state, "error.update.download_failed", nil, err.Error())
 		_ = u.saveStateLocked()
 	}
 	u.mu.Unlock()
@@ -606,7 +644,11 @@ func (u *UpdaterService) updateDownloadProgress(downloadedBytes int64, totalByte
 func (u *UpdaterService) markDownloadError(message string) (UpdateStatusResponse, error) {
 	u.mu.Lock()
 	u.state.Stage = updateStageFailed
-	u.state.LastError = message
+	if message == "download canceled" {
+		setUpdaterStateError(&u.state, "error.update.download_canceled", nil, "")
+	} else {
+		setUpdaterStateError(&u.state, "error.update.download_failed", nil, message)
+	}
 	_ = u.saveStateLocked()
 	u.mu.Unlock()
 	return u.Status(), errors.New(message)
@@ -638,7 +680,7 @@ func (u *UpdaterService) Apply() (UpdateStatusResponse, error) {
 		TargetVersion:     u.state.DownloadedVersion,
 	}
 	u.state.Stage = updateStageApplying
-	u.state.LastError = ""
+	clearUpdaterStateError(&u.state)
 	if err := u.saveStateLocked(); err != nil {
 		u.mu.Unlock()
 		return u.Status(), err
@@ -690,9 +732,13 @@ func (u *UpdaterService) Apply() (UpdateStatusResponse, error) {
 }
 
 func (u *UpdaterService) markApplyError(err error) (UpdateStatusResponse, error) {
+	return u.markApplyErrorWithCode(err, "error.update.apply_failed")
+}
+
+func (u *UpdaterService) markApplyErrorWithCode(err error, code string) (UpdateStatusResponse, error) {
 	u.mu.Lock()
 	u.state.Stage = updateStageFailed
-	u.state.LastError = err.Error()
+	setUpdaterStateError(&u.state, code, nil, err.Error())
 	_ = u.saveStateLocked()
 	u.mu.Unlock()
 	return u.Status(), err
@@ -708,7 +754,8 @@ func (u *UpdaterService) applyInDocker(job updateWorkerJob) {
 	}
 	if err := applyUpdateReplacement(job); err != nil {
 		if isPermissionOrReadonlyError(err) {
-			err = fmt.Errorf("docker 文件系统不可写，请拉取新镜像并重建容器完成更新: %w", err)
+			_, _ = u.markApplyErrorWithCode(err, "error.update.docker_readonly")
+			return
 		}
 		_, _ = u.markApplyError(err)
 		return

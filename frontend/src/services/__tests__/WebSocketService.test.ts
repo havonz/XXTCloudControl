@@ -4,6 +4,8 @@ import {
   supportsGlobalHardwareKeyboard,
   type Device,
 } from '../WebSocketService';
+import { translate } from '../../i18n';
+import { resolveDeviceSystemMessage } from '../../utils/deviceMessage';
 
 function setWindow(): void {
   Object.defineProperty(globalThis, 'window', {
@@ -206,6 +208,52 @@ describe('WebSocketService script message updates', () => {
     expect(updates[0][0].script?.select).toBe('new.lua');
   });
 
+  it('设备语义消息只接收一次也能随界面语言重新翻译', () => {
+    vi.useFakeTimers();
+
+    const service = new WebSocketService('ws://127.0.0.1:46980');
+    seedDevices(service, [{ udid: 'device-message', system: {} }]);
+
+    (service as any).handleMessage({
+      type: 'device/message',
+      body: {
+        udid: 'device-message',
+        message: '上传脚本（3 个小文件，2 个大文件）',
+        messageCode: 'device.script.upload_summary',
+        messageParams: { small: 3, large: 2 },
+      },
+    });
+    vi.runAllTimers();
+
+    const device = (service as any).devices[0] as Device;
+    expect(device.system).toMatchObject({
+      messageCode: 'device.script.upload_summary',
+      messageParams: { small: 3, large: 2 },
+    });
+    expect(resolveDeviceSystemMessage(device.system, (key, vars) => translate('zh-CN', key, vars)))
+      .toBe('上传脚本（3 个小文件，2 个大文件）');
+    expect(resolveDeviceSystemMessage(device.system, (key, vars) => translate('en-US', key, vars)))
+      .toBe('Upload script (3 small files, 2 large files)');
+  });
+
+  it('传输进度保存消息键和参数，不预先翻译', () => {
+    vi.useFakeTimers();
+
+    const service = new WebSocketService('ws://127.0.0.1:46980');
+    seedDevices(service, [{ udid: 'device-transfer', system: { message: 'old' } }]);
+
+    (service as any).handleMessage({
+      type: 'transfer/progress',
+      body: { deviceSN: 'device-transfer', percent: 42.4 },
+    });
+    vi.runAllTimers();
+
+    expect((service as any).devices[0].system).toEqual({
+      messageCode: 'websocket.transfer_progress',
+      messageParams: { percent: '42' },
+    });
+  });
+
   it('认证成功后清理认证超时定时器', () => {
     vi.useFakeTimers();
 
@@ -250,6 +298,34 @@ describe('WebSocketService script message updates', () => {
     expect(authResults).toEqual([]);
   });
 
+  it('认证失败会返回结构化失败类型和稳定错误码', () => {
+    vi.useFakeTimers();
+
+    const authResults: Array<{
+      success: boolean;
+      error?: string;
+      failure?: { kind: string; code: string };
+    }> = [];
+    const service = new WebSocketService('ws://127.0.0.1:46980/api/ws', 'password');
+    service.onAuthResult((success, error, failure) => {
+      authResults.push({ success, error, failure });
+    });
+
+    service.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    socket.close(1006, 'rejected');
+
+    expect(authResults).toEqual([{
+      success: false,
+      error: 'Authentication failed. Log in again.',
+      failure: {
+        kind: 'authentication',
+        code: 'websocket.auth_failed_login_again',
+      },
+    }]);
+  });
+
   it('WebSocket 断线时立即 reject pending request', async () => {
     vi.useFakeTimers();
 
@@ -269,7 +345,7 @@ describe('WebSocketService script message updates', () => {
     (service as any).shouldReconnect = false;
     socket.close(1006, 'lost');
 
-    await expect(request).rejects.toThrow('WebSocket连接已断开');
+    await expect(request).rejects.toThrow('WebSocket disconnected');
     expect((service as any).pendingRequestsById.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
   });

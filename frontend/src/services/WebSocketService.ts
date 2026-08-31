@@ -4,6 +4,17 @@ import type { RemoteWheelSettings } from '../utils/remoteWheel';
 import { getCurrentLocale, translate } from '../i18n';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+export type AuthFailureKind = 'authentication' | 'connection';
+export type AuthFailureCode =
+  | 'websocket.auth_failed_login_again'
+  | 'websocket.password_rejected'
+  | 'websocket.connection_failed'
+  | 'websocket.auth_timeout';
+
+export interface AuthFailure {
+  kind: AuthFailureKind;
+  code: AuthFailureCode;
+}
 
 export interface ScriptStartState {
   active: boolean;
@@ -16,6 +27,13 @@ export interface Device {
   system?: any;
   scriptStart?: ScriptStartState;
   [key: string]: any;
+}
+
+export interface DeviceMessageUpdate {
+  message?: string;
+  messageCode?: string;
+  messageParams?: Record<string, unknown>;
+  messageDetail?: string;
 }
 
 export type HardwareKeyboardAction = 'status' | 'connect' | 'disconnect';
@@ -41,8 +59,8 @@ type RemoteWheelCommandPayload = RemoteWheelSettings & {
 type DeviceLogWatcher = (chunk: string) => void;
 type LastLogUpdateCallback = (udid: string, lastLine: string) => void;
 
-function serviceText(key: string): string {
-  return translate(getCurrentLocale(), key);
+function serviceText(key: string, vars?: Record<string, unknown>): string {
+  return translate(getCurrentLocale(), key, vars);
 }
 
 // Pending request for requestId-based matching
@@ -82,7 +100,7 @@ export class WebSocketService {
   private statusCallbacks: ((status: ConnectionStatus) => void)[] = [];
   private messageCallbacks: ((message: any) => void)[] = [];
   private deviceCallbacks: ((devices: Device[]) => void)[] = [];
-  private authCallbacks: ((success: boolean, error?: string) => void)[] = [];
+  private authCallbacks: ((success: boolean, error?: string, failure?: AuthFailure) => void)[] = [];
   
   // Pending requests by requestId for precise request-response matching
   private pendingRequestsById: Map<string, PendingRequest> = new Map();
@@ -145,7 +163,7 @@ export class WebSocketService {
       this.ws.onclose = (event) => {
 
         this.notifyStatusChange('disconnected');
-        this.rejectPendingRequests(new Error('WebSocket连接已断开'));
+        this.rejectPendingRequests(new Error(serviceText('websocket.disconnected')));
         
         // 如果在认证期间被关闭，认为是密码错误或连接被拒绝
         if (this.isAuthenticating) {
@@ -156,9 +174,15 @@ export class WebSocketService {
           if (this.isInitialLogin && !this.hasReceivedDeviceList) {
 
             this.clearStoredPasswordAndReturnToLogin();
-            this.notifyAuthResult(false, serviceText('websocket.auth_failed_login_again'));
+            this.notifyAuthResult(false, serviceText('websocket.auth_failed_login_again'), {
+              kind: 'authentication',
+              code: 'websocket.auth_failed_login_again',
+            });
           } else {
-            this.notifyAuthResult(false, serviceText('websocket.password_rejected'));
+            this.notifyAuthResult(false, serviceText('websocket.password_rejected'), {
+              kind: 'authentication',
+              code: 'websocket.password_rejected',
+            });
           }
           return;
         }
@@ -175,23 +199,29 @@ export class WebSocketService {
       this.ws.onerror = (error) => {
         console.error('WebSocket 错误:', error);
         this.notifyStatusChange('disconnected');
-        this.rejectPendingRequests(new Error('WebSocket连接错误'));
+        this.rejectPendingRequests(new Error(serviceText('websocket.connection_error')));
         
         if (this.isAuthenticating) {
           this.clearAuthTimeout();
           this.isAuthenticating = false;
-          this.notifyAuthResult(false, serviceText('websocket.connection_failed'));
+          this.notifyAuthResult(false, serviceText('websocket.connection_failed'), {
+            kind: 'connection',
+            code: 'websocket.connection_failed',
+          });
         }
       };
 
     } catch (error) {
       console.error('WebSocket 连接失败:', error);
       this.notifyStatusChange('disconnected');
-      this.rejectPendingRequests(new Error('WebSocket连接失败'));
+      this.rejectPendingRequests(new Error(serviceText('websocket.connection_failed')));
       if (this.isAuthenticating) {
         this.clearAuthTimeout();
         this.isAuthenticating = false;
-        this.notifyAuthResult(false, serviceText('websocket.connection_failed'));
+        this.notifyAuthResult(false, serviceText('websocket.connection_failed'), {
+          kind: 'connection',
+          code: 'websocket.connection_failed',
+        });
       }
       this.scheduleReconnect();
     }
@@ -206,7 +236,7 @@ export class WebSocketService {
     this.authAttemptToken++;
     this.clearAuthTimeout();
     this.isAuthenticating = false;
-    this.rejectPendingRequests(new Error('WebSocket已断开连接'));
+    this.rejectPendingRequests(new Error(serviceText('websocket.disconnected')));
     if (this.ws) {
       this.ws.close(1000, 'User disconnected');
       this.ws = null;
@@ -235,7 +265,10 @@ export class WebSocketService {
 
       if (this.isAuthenticating && !this.hasReceivedDeviceList) {
         this.isAuthenticating = false;
-        this.notifyAuthResult(false, serviceText('websocket.auth_timeout'));
+        this.notifyAuthResult(false, serviceText('websocket.auth_timeout'), {
+          kind: 'authentication',
+          code: 'websocket.auth_timeout',
+        });
         this.disconnect();
       }
     }, 5000);
@@ -393,7 +426,7 @@ export class WebSocketService {
     timeoutMs: number = 10000
   ): Promise<any> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.password) {
-      throw new Error('WebSocket未连接或未认证');
+      throw new Error(serviceText('websocket.not_connected'));
     }
 
     return new Promise((resolve, reject) => {
@@ -409,14 +442,14 @@ export class WebSocketService {
 
       const requestId = message.body?.requestId;
       if (!requestId) {
-        reject(new Error('未能生成 requestId'));
+        reject(new Error(serviceText('websocket.request_id_failed')));
         return;
       }
 
       // 设置超时
       const timeout = setTimeout(() => {
         this.pendingRequestsById.delete(requestId);
-        reject(new Error(`命令超时: ${commandType}`));
+        reject(new Error(serviceText('websocket.command_timeout', { command: commandType })));
       }, timeoutMs);
 
       // 注册 pending request
@@ -431,7 +464,7 @@ export class WebSocketService {
       if (!this.send(message)) {
         clearTimeout(timeout);
         this.pendingRequestsById.delete(requestId);
-        reject(new Error('发送消息失败'));
+        reject(new Error(serviceText('websocket.send_failed')));
       }
     });
   }
@@ -766,7 +799,14 @@ export class WebSocketService {
 
     // 处理设备状态消息 (来自服务端的广播)
     if (message.type === 'device/message' && message.body?.udid) {
-      this.updateDeviceMessage(message.body.udid, message.body.message);
+      this.updateDeviceMessage(message.body.udid, {
+        message: typeof message.body.message === 'string' ? message.body.message : undefined,
+        messageCode: typeof message.body.messageCode === 'string' ? message.body.messageCode : undefined,
+        messageParams: message.body.messageParams && typeof message.body.messageParams === 'object'
+          ? message.body.messageParams
+          : undefined,
+        messageDetail: typeof message.body.detail === 'string' ? message.body.detail : undefined,
+      });
       return;
     }
 
@@ -913,6 +953,18 @@ export class WebSocketService {
     if (preserveTransientSystemFields && existingDevice?.system) {
       if (existingDevice.system.message !== undefined && nextSystem?.message === undefined) {
         nextSystem = { ...(nextSystem || {}), message: existingDevice.system.message };
+      }
+
+      if (existingDevice.system.messageCode !== undefined && nextSystem?.messageCode === undefined) {
+        nextSystem = { ...(nextSystem || {}), messageCode: existingDevice.system.messageCode };
+      }
+
+      if (existingDevice.system.messageParams !== undefined && nextSystem?.messageParams === undefined) {
+        nextSystem = { ...(nextSystem || {}), messageParams: existingDevice.system.messageParams };
+      }
+
+      if (existingDevice.system.messageDetail !== undefined && nextSystem?.messageDetail === undefined) {
+        nextSystem = { ...(nextSystem || {}), messageDetail: existingDevice.system.messageDetail };
       }
 
       if (existingDevice.system.log !== undefined && nextSystem?.log === undefined) {
@@ -1073,17 +1125,39 @@ export class WebSocketService {
     }
   }
 
-  public updateDeviceMessage(udid: string, msg: string): void {
+  public updateDeviceMessage(udid: string, update: string | DeviceMessageUpdate): void {
     if (!udid) return;
 
     const existingIndex = this.getDeviceIndex(udid);
     if (existingIndex >= 0) {
       const device = this.devices[existingIndex];
       const system = { ...(device.system || {}) };
-      if (system.message === msg) {
+      const next = typeof update === 'string' ? { message: update } : update;
+      const message = typeof next.message === 'string' ? next.message : undefined;
+      const messageCode = typeof next.messageCode === 'string' ? next.messageCode : undefined;
+      const messageParams = next.messageParams && typeof next.messageParams === 'object'
+        ? next.messageParams
+        : undefined;
+      const messageDetail = typeof next.messageDetail === 'string' ? next.messageDetail : undefined;
+
+      if (
+        system.message === message
+        && system.messageCode === messageCode
+        && JSON.stringify(system.messageParams) === JSON.stringify(messageParams)
+        && system.messageDetail === messageDetail
+      ) {
         return;
       }
-      system.message = msg;
+
+      if (message === undefined) delete system.message;
+      else system.message = message;
+      if (messageCode === undefined) delete system.messageCode;
+      else system.messageCode = messageCode;
+      if (messageParams === undefined) delete system.messageParams;
+      else system.messageParams = messageParams;
+      if (messageDetail === undefined) delete system.messageDetail;
+      else system.messageDetail = messageDetail;
+
       this.devices[existingIndex] = {
         ...device,
         system,
@@ -1114,8 +1188,11 @@ export class WebSocketService {
 
   private handleTransferProgress(body: any): void {
     const { percent, deviceSN } = body;
-    if (deviceSN) {
-      this.updateDeviceMessage(deviceSN, `传输中 ${percent.toFixed(0)}%`);
+    if (deviceSN && typeof percent === 'number') {
+      this.updateDeviceMessage(deviceSN, {
+        messageCode: 'websocket.transfer_progress',
+        messageParams: { percent: percent.toFixed(0) },
+      });
     }
   }
 
@@ -1123,9 +1200,9 @@ export class WebSocketService {
     const deviceSN = message.body?.deviceSN || message.udid;
     if (deviceSN) {
       if (message.error) {
-        this.updateDeviceMessage(deviceSN, '传输失败');
+        this.updateDeviceMessage(deviceSN, { messageCode: 'websocket.transfer_failed' });
       } else {
-        this.updateDeviceMessage(deviceSN, '传输完成');
+        this.updateDeviceMessage(deviceSN, { messageCode: 'websocket.transfer_completed' });
       }
     }
   }
@@ -1213,7 +1290,7 @@ export class WebSocketService {
     }
   }
 
-  onAuthResult(callback: (success: boolean, error?: string) => void): void {
+  onAuthResult(callback: (success: boolean, error?: string, failure?: AuthFailure) => void): void {
     this.authCallbacks.push(callback);
   }
 
@@ -1413,8 +1490,8 @@ export class WebSocketService {
     return lastLine === '' ? null : lastLine;
   }
 
-  private notifyAuthResult(success: boolean, error?: string): void {
-    this.authCallbacks.forEach(callback => callback(success, error));
+  private notifyAuthResult(success: boolean, error?: string, failure?: AuthFailure): void {
+    this.authCallbacks.forEach(callback => callback(success, error, failure));
   }
 
   getConnectionStatus(): ConnectionStatus {

@@ -5,6 +5,8 @@
 
 import type { WebSocketService } from './WebSocketService';
 import { ControlHttpClient } from './ControlHttpClient';
+import { getCurrentLocale, translate } from '../i18n';
+import { localizeApiError } from '../utils/apiError';
 
 export interface DeviceControlResult {
   success: boolean;
@@ -65,7 +67,11 @@ export class DeviceControlService {
 
       return {
         success: false,
-        error: response.body?.error || `HTTP ${response.statusCode}`,
+        error: localizeApiError(
+          response.body,
+          (key, vars) => translate(getCurrentLocale(), key, vars),
+          `HTTP ${response.statusCode}`,
+        ).message,
         detail: response.body,
       };
     } catch (error) {
@@ -117,12 +123,16 @@ export class DeviceControlService {
       });
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        const payload = response.body && typeof response.body === 'object'
+          ? response.body
+          : response.rawBody;
         return {
           success: false,
-          error: response.body?.message
-            || response.body?.error
-            || response.rawBody?.error
-            || `HTTP ${response.statusCode}`,
+          error: localizeApiError(
+            payload,
+            (key, vars) => translate(getCurrentLocale(), key, vars),
+            response.body?.message || response.rawBody?.error || `HTTP ${response.statusCode}`,
+          ).message,
         };
       }
 
@@ -130,7 +140,7 @@ export class DeviceControlService {
       if (body?.code !== 0) {
         return {
           success: false,
-          error: body?.message || body?.error || '设备信息响应无效',
+          error: body?.message || body?.error || translate(getCurrentLocale(), 'device_control.invalid_device_info'),
         };
       }
       if (
@@ -140,7 +150,7 @@ export class DeviceControlService {
       ) {
         return {
           success: false,
-          error: '设备信息响应无效',
+          error: translate(getCurrentLocale(), 'device_control.invalid_device_info'),
         };
       }
 
@@ -171,13 +181,17 @@ export class DeviceControlService {
           });
 
           if (response.statusCode < 200 || response.statusCode >= 300) {
+            const payload = response.body && typeof response.body === 'object'
+              ? response.body
+              : response.rawBody;
             results[index] = {
               ...item,
               success: false,
-              error: response.body?.message
-                || response.body?.error
-                || response.rawBody?.error
-                || `HTTP ${response.statusCode}`,
+              error: localizeApiError(
+                payload,
+                (key, vars) => translate(getCurrentLocale(), key, vars),
+                response.body?.message || response.rawBody?.error || `HTTP ${response.statusCode}`,
+              ).message,
             };
             continue;
           }
@@ -186,7 +200,7 @@ export class DeviceControlService {
             results[index] = {
               ...item,
               success: false,
-              error: response.body?.message || response.body?.error || '设备返回错误',
+              error: response.body?.message || response.body?.error || translate(getCurrentLocale(), 'device_control.device_error'),
             };
             continue;
           }

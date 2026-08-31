@@ -1,3 +1,5 @@
+import { getCurrentLocale, translate } from '../i18n';
+
 export interface LoginCredentials {
   server: string;
   port: string;
@@ -369,13 +371,14 @@ export class AuthService {
   /**
    * 获取 WebSocket URL
    */
-  getWebSocketUrl(server: string, port: string): string {
+  getWebSocketUrl(server: string, port: string, locale?: string): string {
     const schemeHint = this.getSchemeHint(server);
     const wsScheme = schemeHint
       ? (schemeHint === 'https' ? 'wss' : 'ws')
       : (this.getDefaultHttpScheme() === 'https' ? 'wss' : 'ws');
     const host = this.stripProtocolAndPath(server);
-    return `${wsScheme}://${host}:${port}/api/ws`;
+    const localeQuery = locale ? `?locale=${encodeURIComponent(locale)}` : '';
+    return `${wsScheme}://${host}:${port}/api/ws${localeQuery}`;
   }
 
   /**
@@ -399,20 +402,20 @@ export class AuthService {
    */
   validateCredentials(credentials: LoginCredentials): { valid: boolean; error?: string; errorKey?: string } {
     if (!credentials.server.trim()) {
-      return { valid: false, error: '请输入服务器地址', errorKey: 'login.server_required' };
+      return { valid: false, error: translate(getCurrentLocale(), 'login.server_required'), errorKey: 'login.server_required' };
     }
     
     if (!credentials.port.trim()) {
-      return { valid: false, error: '请输入端口号', errorKey: 'login.port_required' };
+      return { valid: false, error: translate(getCurrentLocale(), 'login.port_required'), errorKey: 'login.port_required' };
     }
     
     const portNum = parseInt(credentials.port);
     if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-      return { valid: false, error: '端口号必须是 1-65535 之间的数字', errorKey: 'login.port_invalid' };
+      return { valid: false, error: translate(getCurrentLocale(), 'login.port_invalid'), errorKey: 'login.port_invalid' };
     }
     
     if (!credentials.password.trim()) {
-      return { valid: false, error: '请输入密码', errorKey: 'login.password_required' };
+      return { valid: false, error: translate(getCurrentLocale(), 'login.password_required'), errorKey: 'login.password_required' };
     }
     
     return { valid: true };

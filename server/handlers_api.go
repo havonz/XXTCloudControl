@@ -226,6 +226,22 @@ func buildContentDispositionFilename(name string) string {
 	return fmt.Sprintf("attachment; filename=%s; filename*=UTF-8''%s", quoted, encoded)
 }
 
+func buildBindScriptFilename(host string) string {
+	filenameHost := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	var sanitized strings.Builder
+	for _, char := range filenameHost {
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '.' || char == '-' {
+			sanitized.WriteRune(char)
+		} else {
+			sanitized.WriteByte('_')
+		}
+	}
+	if sanitized.Len() == 0 {
+		sanitized.WriteString("server")
+	}
+	return "XXTCloudControl-bind-" + sanitized.String() + ".lua"
+}
+
 // sanitizeBindHost validates and normalizes the bind host string.
 func sanitizeBindHost(host string) (string, error) {
 	host = strings.TrimSpace(host)
@@ -376,56 +392,85 @@ func downloadBindScriptHandler(c *gin.Context) {
 		wsProto = "wss"
 	}
 
+	translator := requestTranslator(c)
 	quotedHost := strconv.Quote(host)
-	luaScript := fmt.Sprintf(`local cloud_host = %s;local cloud_port = %d;local ws_proto = "%s";`, quotedHost, port, wsProto)
-
-	luaScript += `
+	luaScript := fmt.Sprintf(`local cloud_host = %s
+local cloud_port = %d
+local ws_proto = %s
+local text = {
+	version_unsupported = %s,
+	unbind_prompt = %s,
+	unbind_title = %s,
+	cancel = %s,
+	unbind_confirm = %s,
+	unbound_success = %s,
+	bind_prompt = %s,
+	bind_title = %s,
+	bind_confirm = %s,
+	bound_success = %s,
+}
 
 if sys.xtversion():compare_version("1.3.8-20260122000000") < 0 then
-	sys.alert('该脚本仅支持 XXT 1.3.8-20260122000000 或更高版本')
+	sys.alert(text.version_unsupported)
 	return
 end
 
 local conf = json.decode(file.reads(XXT_CONF_FILE_NAME) or "")
-conf = type(conf) == 'table' and conf or {}
+conf = type(conf) == "table" and conf or {}
 conf.open_cloud_control = conf.open_cloud_control or {}
 
 local address = ws_proto .. "://" .. cloud_host .. ":" .. cloud_port .. "/api/ws"
-
 local xxt_port = tonumber(type(sys.port) == "function" and sys.port() or 46952) or 46952
 
 if conf.open_cloud_control.enable then
-	if sys.alert("当前设备已被以下云控控制\nThis device is currently controlled by:\n\n"..tostring(conf.open_cloud_control.address).."\n\n你是否需要解除设备被控状态？\nDo you want to unbind from this cloud control?", 30, "是否解除被控 / Unbind?", "取消 / Cancel", "解除被控 / Unbind") == 1 then
-		local c, h, r = http.put('http://127.0.0.1:'..xxt_port..'/api/config', 5, {}, json.encode{
+	local prompt = text.unbind_prompt:gsub("{address}", function() return tostring(conf.open_cloud_control.address) end)
+	if sys.alert(prompt, 30, text.unbind_title, text.cancel, text.unbind_confirm) == 1 then
+		local c = http.put("http://127.0.0.1:"..xxt_port.."/api/config", 5, {}, json.encode{
 			cloud = {
 				enable = false,
 				address = address,
 			}
 		})
 		if c < 300 then
-			sys.alert("已从云控解除被控状态\nSuccessfully unbound from cloud control.", 10)
+			sys.alert(text.unbound_success, 10)
 		end
 	end
 else
-	if sys.alert("你确认要将设备加入到以下云控并被其控制？\nAre you sure you want to bind this device to the following cloud control?\n\n"..address.."\n\n⚠️你必须确定该云控是可信的，否则设备将被恶意控制！\n⚠️ Make sure this cloud control is trusted, or your device may be maliciously controlled!", 30, "是否加入 / Bind?", "取消 / Cancel", "加入并被控 / Bind") == 1 then
-		local c, h, r = http.put('http://127.0.0.1:'..xxt_port..'/api/config', 5, {}, json.encode{
+	local prompt = text.bind_prompt:gsub("{address}", function() return address end)
+	if sys.alert(prompt, 30, text.bind_title, text.cancel, text.bind_confirm) == 1 then
+		local c = http.put("http://127.0.0.1:"..xxt_port.."/api/config", 5, {}, json.encode{
 			cloud = {
 				enable = true,
 				address = address,
 			}
 		})
 		if c < 300 then
-			sys.alert("已设置绑定到云控\nSuccessfully bound to cloud control.", 10)
+			sys.alert(text.bound_success, 10)
 		end
 	end
 end
 
 os.exit()
-`
+`,
+		quotedHost,
+		port,
+		strconv.Quote(wsProto),
+		strconv.Quote(translator.TRV("bind.version_unsupported", map[string]any{"version": "1.3.8-20260122000000"})),
+		strconv.Quote(translator.TR("bind.unbind_prompt")),
+		strconv.Quote(translator.TR("bind.unbind_title")),
+		strconv.Quote(translator.TR("bind.cancel")),
+		strconv.Quote(translator.TR("bind.unbind_confirm")),
+		strconv.Quote(translator.TR("bind.unbound_success")),
+		strconv.Quote(translator.TR("bind.bind_prompt")),
+		strconv.Quote(translator.TR("bind.bind_title")),
+		strconv.Quote(translator.TR("bind.bind_confirm")),
+		strconv.Quote(translator.TR("bind.bound_success")),
+	)
 
 	c.Header("Content-Type", "text/lua")
-	c.Header("Content-Disposition", buildContentDispositionFilename("加入或退出云控["+host+"].lua"))
+	c.Header("Content-Disposition", buildContentDispositionFilename(buildBindScriptFilename(host)))
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Content-Language", translator.Locale())
 
 	c.String(http.StatusOK, luaScript)
 }
@@ -521,7 +566,7 @@ func setAppSettingsHandler(c *gin.Context) {
 	if err := saveAppSettingsLocked(); err != nil {
 		appSettings = backupSettings
 		appSettingsMu.Unlock()
-		jsonError(c, http.StatusInternalServerError, err.Error())
+		jsonErrorWithDetail(c, http.StatusInternalServerError, "error.app_settings.save_failed", err.Error())
 		return
 	}
 	appSettingsMu.Unlock()

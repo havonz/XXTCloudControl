@@ -31,10 +31,14 @@ type snapshotSaveBatchRequest struct {
 }
 
 type snapshotSaveBatchResult struct {
-	UDID  string `json:"udid"`
-	OK    bool   `json:"ok"`
-	Path  string `json:"path,omitempty"`
-	Error string `json:"error,omitempty"`
+	UDID        string         `json:"udid"`
+	OK          bool           `json:"ok"`
+	Path        string         `json:"path,omitempty"`
+	Error       string         `json:"error,omitempty"`
+	ErrorCode   string         `json:"errorCode,omitempty"`
+	ErrorParams map[string]any `json:"errorParams,omitempty"`
+	Detail      string         `json:"detail,omitempty"`
+	errorSpec   messageSpec
 }
 
 type internalHTTPBinResponse struct {
@@ -94,6 +98,17 @@ func snapshotSaveBatchHandler(c *gin.Context) {
 	}
 
 	wg.Wait()
+	translator := requestTranslator(c)
+	for index := range results {
+		if results[index].OK || results[index].errorSpec.Code == "" {
+			continue
+		}
+		results[index].Error = translator.translateSpec(results[index].errorSpec)
+		results[index].ErrorCode = results[index].errorSpec.Code
+		results[index].ErrorParams = results[index].errorSpec.Params
+		results[index].Detail = results[index].errorSpec.Detail
+	}
+	c.Header("Content-Language", translator.Locale())
 	c.JSON(http.StatusOK, gin.H{
 		"ok":      true,
 		"results": results,
@@ -104,27 +119,27 @@ func saveSingleDeviceSnapshot(udid string, now time.Time) snapshotSaveBatchResul
 	conn, deviceName, deviceIP, ok := resolveConnectedSnapshotTarget(udid)
 	if !ok || conn == nil {
 		return snapshotSaveBatchResult{
-			UDID:  udid,
-			OK:    false,
-			Error: "device is offline",
+			UDID:      udid,
+			OK:        false,
+			errorSpec: messageSpec{Code: "error.device.offline"},
 		}
 	}
 
 	data, err := captureDeviceScreenshot(udid, batchSnapshotRequestTimeout)
 	if err != nil {
 		return snapshotSaveBatchResult{
-			UDID:  udid,
-			OK:    false,
-			Error: err.Error(),
+			UDID:      udid,
+			OK:        false,
+			errorSpec: snapshotErrorSpec(err),
 		}
 	}
 
 	path, err := persistDeviceScreenshot(deviceName, deviceIP, data, now)
 	if err != nil {
 		return snapshotSaveBatchResult{
-			UDID:  udid,
-			OK:    false,
-			Error: err.Error(),
+			UDID:      udid,
+			OK:        false,
+			errorSpec: snapshotErrorSpec(err),
 		}
 	}
 
@@ -133,6 +148,15 @@ func saveSingleDeviceSnapshot(udid string, now time.Time) snapshotSaveBatchResul
 		OK:   true,
 		Path: path,
 	}
+}
+
+func snapshotErrorSpec(err error) messageSpec {
+	raw := strings.TrimSpace(err.Error())
+	spec := resolveMessageSpec(raw)
+	if _, known := translationCatalog[spec.Code]; known {
+		return spec
+	}
+	return messageSpec{Code: "error.snapshot.failed", Detail: raw}
 }
 
 func resolveConnectedSnapshotTarget(udid string) (*SafeConn, string, string, bool) {

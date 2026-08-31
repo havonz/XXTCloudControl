@@ -34,11 +34,11 @@ func cloudDeviceDebugTunnelHandler(c *gin.Context) {
 	}
 	mu.RUnlock()
 	if deviceConn == nil {
-		c.String(http.StatusNotFound, "device not found")
+		jsonError(c, http.StatusNotFound, "error.debug.device_not_found")
 		return
 	}
 	if !supportsDebugTunnel {
-		c.String(http.StatusPreconditionFailed, "device cloud control client does not support debug tunnel")
+		jsonError(c, http.StatusPreconditionFailed, "error.debug.unsupported")
 		return
 	}
 
@@ -51,7 +51,7 @@ func cloudDeviceDebugTunnelHandler(c *gin.Context) {
 
 	requestID, err := newDebugTunnelRequestID()
 	if err != nil {
-		_ = controllerConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"debug-tunnel/close","body":{"error":"failed to create request id"}}`))
+		sendDebugTunnelError(controllerConn, requestTranslator(c), "error.debug.request_id_failed", err.Error())
 		return
 	}
 
@@ -77,7 +77,7 @@ func cloudDeviceDebugTunnelHandler(c *gin.Context) {
 		return
 	}
 	if err := writeTextMessage(deviceConn, openMsg); err != nil {
-		_ = controllerConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"debug-tunnel/close","body":{"error":"failed to request device tunnel"}}`))
+		sendDebugTunnelError(controllerConn, requestTranslator(c), "error.debug.request_failed", err.Error())
 		return
 	}
 
@@ -101,5 +101,19 @@ func cloudDeviceDebugTunnelHandler(c *gin.Context) {
 			continue
 		}
 		sendBinaryMessageAsync(deviceConn, payload)
+	}
+}
+
+func sendDebugTunnelError(conn *SafeConn, translator Translator, code string, detail string) {
+	body := map[string]any{
+		"error":     translator.TR(code),
+		"errorCode": code,
+	}
+	if detail != "" {
+		body["detail"] = detail
+	}
+	payload, err := json.Marshal(Message{Type: "debug-tunnel/close", Body: body})
+	if err == nil {
+		_ = conn.WriteMessage(websocket.TextMessage, payload)
 	}
 }

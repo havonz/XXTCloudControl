@@ -62,10 +62,11 @@ func performJSONHandlerRequest(t *testing.T, method, target string, payload any,
 }
 
 type serverFilesBatchTestResponse struct {
-	Success      bool     `json:"success"`
-	SuccessCount int      `json:"successCount"`
-	TotalCount   int      `json:"totalCount"`
-	Errors       []string `json:"errors"`
+	Success      bool                        `json:"success"`
+	SuccessCount int                         `json:"successCount"`
+	TotalCount   int                         `json:"totalCount"`
+	Errors       []string                    `json:"errors"`
+	ErrorItems   []serverFilesBatchErrorItem `json:"errorItems"`
 }
 
 func decodeServerFilesBatchTestResponse(t *testing.T, w *httptest.ResponseRecorder) serverFilesBatchTestResponse {
@@ -678,6 +679,9 @@ func TestServerFilesBatchCopyHandler_RejectsTraversalItem(t *testing.T) {
 		t.Fatalf("expected traversal errors")
 	}
 	requireBatchErrorContains(t, resp.Errors, "traversal")
+	if len(resp.ErrorItems) != 1 || resp.ErrorItems[0].ErrorCode != "error.item.path_traversal" || resp.ErrorItems[0].Item != "../scripts2/leak.txt" {
+		t.Fatalf("unexpected structured errors: %+v", resp.ErrorItems)
+	}
 
 	dstPath := filepath.Join(dataDir, "files", "scripts2", "leak.txt")
 	if _, err := os.Stat(dstPath); !os.IsNotExist(err) {

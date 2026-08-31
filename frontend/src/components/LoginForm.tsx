@@ -13,6 +13,7 @@ interface LoginFormProps {
   onLogin: (credentials: LoginCredentials) => void;
   isConnecting: boolean;
   error?: string;
+  showTimeHint?: boolean;
 }
 
 const isValidPort = (port: string): boolean => {
@@ -477,7 +478,7 @@ const LoginForm: Component<LoginFormProps> = (props) => {
           {(validationError() || props.error) && (
             <div class={styles.errorMessage}>
               <div>{validationError() || props.error}</div>
-              {props.error && (props.error.includes('认证') || props.error.includes('密码') || props.error.includes('拒绝')) && (
+              {props.error && props.showTimeHint && (
                 <div class={styles.errorHint}>
                   {t('login.time_hint')}
                 </div>

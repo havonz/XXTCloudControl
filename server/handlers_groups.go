@@ -50,7 +50,7 @@ func groupsCreateHandler(c *gin.Context) {
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
+		jsonErrorWithDetail(c, http.StatusInternalServerError, "error.group.save_failed", err.Error())
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -95,7 +95,7 @@ func groupsUpdateHandler(c *gin.Context) {
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
+		jsonErrorWithDetail(c, http.StatusInternalServerError, "error.group.save_failed", err.Error())
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -130,7 +130,7 @@ func groupsDeleteHandler(c *gin.Context) {
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
+		jsonErrorWithDetail(c, http.StatusInternalServerError, "error.group.save_failed", err.Error())
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -188,7 +188,7 @@ func groupsReorderHandler(c *gin.Context) {
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
+		jsonErrorWithDetail(c, http.StatusInternalServerError, "error.group.save_failed", err.Error())
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -236,7 +236,7 @@ func groupsAddDevicesHandler(c *gin.Context) {
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
+		jsonErrorWithDetail(c, http.StatusInternalServerError, "error.group.save_failed", err.Error())
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -285,7 +285,7 @@ func groupsRemoveDevicesHandler(c *gin.Context) {
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
+		jsonErrorWithDetail(c, http.StatusInternalServerError, "error.group.save_failed", err.Error())
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -325,7 +325,7 @@ func groupsBindScriptHandler(c *gin.Context) {
 	if err := saveGroupsSnapshot(deviceGroups); err != nil {
 		deviceGroups = backupGroups
 		deviceGroupsMu.Unlock()
-		jsonError(c, http.StatusInternalServerError, "Failed to save groups")
+		jsonErrorWithDetail(c, http.StatusInternalServerError, "error.group.save_failed", err.Error())
 		return
 	}
 	deviceGroupsMu.Unlock()
@@ -379,7 +379,7 @@ func groupsSetScriptConfigHandler(c *gin.Context) {
 	if err := saveGroupScriptConfigsLocked(); err != nil {
 		groupScriptConfigs = backupConfigs
 		groupScriptConfigsMu.Unlock()
-		jsonError(c, http.StatusInternalServerError, "Failed to save config")
+		jsonErrorWithDetail(c, http.StatusInternalServerError, "error.config.save_failed", err.Error())
 		return
 	}
 	groupScriptConfigsMu.Unlock()
@@ -409,7 +409,7 @@ func groupsDeleteScriptConfigHandler(c *gin.Context) {
 	if err := saveGroupScriptConfigsLocked(); err != nil {
 		groupScriptConfigs = backupConfigs
 		groupScriptConfigsMu.Unlock()
-		jsonError(c, http.StatusInternalServerError, "Failed to save config")
+		jsonErrorWithDetail(c, http.StatusInternalServerError, "error.config.save_failed", err.Error())
 		return
 	}
 	groupScriptConfigsMu.Unlock()

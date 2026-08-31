@@ -37,6 +37,7 @@ import { scanEntries, ScannedFile } from '../utils/fileUpload';
 import type { Device } from '../services/WebSocketService';
 import ContextMenu, { ContextMenuButton, ContextMenuDivider } from './ContextMenu';
 import { useI18n } from '../i18n';
+import { localizeApiError, localizeApiErrorItems } from '../utils/apiError';
 
 export interface ServerFileItem {
   name: string;
@@ -73,6 +74,9 @@ const LANCONTROL_ARCHIVE_EXT = '.xxtlca';
 export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const dialog = useDialog();
   const { t } = useI18n();
+  const apiErrorMessage = (payload: unknown, fallback: string) => (
+    localizeApiError(payload, t, fallback).message
+  );
   const [currentCategory, setCurrentCategory] = createSignal<'scripts' | 'files' | 'reports'>('scripts');
   const [currentPath, setCurrentPath] = createSignal('');
   const [files, setFiles] = createSignal<ServerFileItem[]>([]);
@@ -213,8 +217,8 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
       if (requestId !== loadFilesRequestId) return;
       
-      if (data.error) {
-        setError(data.error);
+      if (!response.ok || data.errorCode || data.error) {
+        setError(apiErrorMessage(data, t('files.load_failed', { msg: t('common.unknown_error') })));
         setFiles([]);
       } else {
         setFiles(data.files || []);
@@ -440,16 +444,20 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       
       const data = await response.json();
       
-      if (data.error) {
+      if (!response.ok || data.errorCode || data.error) {
         await dialog.alert(t('files.copy_move_failed', {
           mode: cb.mode === 'copy' ? t('common.copy') : t('common.move'),
-          msg: data.error
+          msg: apiErrorMessage(data, t('common.unknown_error'))
         }));
-      } else if (data.errors && data.errors.length > 0) {
+      } else if (data.errorItems?.length > 0 || data.errors?.length > 0) {
         await dialog.alert(t('files.partial_failed', {
           success: data.successCount,
           total: data.totalCount,
-          errors: data.errors.join('\n')
+          errors: localizeApiErrorItems(
+            data,
+            t,
+            t('common.unknown_error'),
+          ).join('\n')
         }));
       }
       
@@ -511,7 +519,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const params = new URLSearchParams({ category: source.category, path: source.path });
       const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/inspect?${params}`, { method: 'POST' });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.error) throw new Error(data.error || t('archive.inspect_failed'));
+      if (!response.ok || data.errorCode || data.error) throw new Error(apiErrorMessage(data, t('archive.inspect_failed')));
       return data;
     }
     const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/inspect`, {
@@ -519,7 +527,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       body: buildLanControlArchiveFormData(source)
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.error) throw new Error(data.error || t('archive.inspect_failed'));
+    if (!response.ok || data.errorCode || data.error) throw new Error(apiErrorMessage(data, t('archive.inspect_failed')));
     return data;
   };
 
@@ -535,7 +543,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       });
       const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/install?${params}`, { method: 'POST' });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.error) throw new Error(data.error || t('archive.install_failed'));
+      if (!response.ok || data.errorCode || data.error) throw new Error(apiErrorMessage(data, t('archive.install_failed')));
       return data;
     }
     const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/install`, {
@@ -543,7 +551,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       body: buildLanControlArchiveFormData(source, { installName, overwrite })
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.error) throw new Error(data.error || t('archive.install_failed'));
+    if (!response.ok || data.errorCode || data.error) throw new Error(apiErrorMessage(data, t('archive.install_failed')));
     return data;
   };
 
@@ -551,7 +559,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     const params = new URLSearchParams({ category: source.category, path: source.path });
     const response = await authFetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.error) throw new Error(data.error || t('archive.delete_package_failed'));
+    if (!response.ok || data.errorCode || data.error) throw new Error(apiErrorMessage(data, t('archive.delete_package_failed')));
   };
 
   const closeLanControlArchiveDialog = (installed: boolean) => {
@@ -682,7 +690,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const params = new URLSearchParams({ category: currentCategory(), path: filePath });
       const response = await authFetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
       const data = await response.json();
-      if (data.error) await dialog.alert(t('files.delete_failed', { msg: data.error }));
+      if (!response.ok || data.errorCode || data.error) {
+        await dialog.alert(t('files.delete_failed', { msg: apiErrorMessage(data, t('common.unknown_error')) }));
+      }
       else loadFiles();
     } catch (err) {
       await dialog.alert(t('files.delete_failed', { msg: (err as Error).message }));
@@ -835,7 +845,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         body: JSON.stringify({ category: currentCategory(), path: currentPath(), name: name.trim(), type })
       });
       const data = await response.json();
-      if (data.error) await dialog.alert(t('files.create_failed', { msg: data.error }));
+      if (!response.ok || data.errorCode || data.error) {
+        await dialog.alert(t('files.create_failed', { msg: apiErrorMessage(data, t('common.unknown_error')) }));
+      }
       else loadFiles();
     } catch (err) {
       await dialog.alert(t('files.create_failed', { msg: (err as Error).message }));
@@ -854,7 +866,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         body: JSON.stringify({ category: currentCategory(), path: currentPath(), oldName: file.name, newName: newName.trim() })
       });
       const data = await response.json();
-      if (data.error) await dialog.alert(t('files.rename_failed', { msg: data.error }));
+      if (!response.ok || data.errorCode || data.error) {
+        await dialog.alert(t('files.rename_failed', { msg: apiErrorMessage(data, t('common.unknown_error')) }));
+      }
       else loadFiles();
     } catch (err) {
       await dialog.alert(t('files.rename_failed', { msg: (err as Error).message }));
@@ -868,7 +882,10 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const params = new URLSearchParams({ category: currentCategory(), path: filePath });
       const response = await authFetch(`${props.serverBaseUrl}/api/server-files/read?${params}`);
       const data = await response.json();
-      if (data.error) { await dialog.alert(t('files.read_failed', { msg: data.error })); return; }
+      if (!response.ok || data.errorCode || data.error) {
+        await dialog.alert(t('files.read_failed', { msg: apiErrorMessage(data, t('common.unknown_error')) }));
+        return;
+      }
       setEditorFileName(file.name);
       setEditorContent(data.content);
       setShowEditorModal(true);
@@ -887,7 +904,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         body: JSON.stringify({ category: currentCategory(), path: filePath, content: editorContent() })
       });
       const data = await response.json();
-      if (data.error) await dialog.alert(t('files.save_failed', { msg: data.error }));
+      if (!response.ok || data.errorCode || data.error) {
+        await dialog.alert(t('files.save_failed', { msg: apiErrorMessage(data, t('common.unknown_error')) }));
+      }
       else setShowEditorModal(false);
     } catch (err) {
       await dialog.alert(t('files.save_failed', { msg: (err as Error).message }));
@@ -933,7 +952,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         body: JSON.stringify({ category: currentCategory(), path: currentPath() })
       });
       const data = await response.json();
-      if (data.error) await dialog.alert(t('files.open_failed', { msg: data.error }));
+      if (!response.ok || data.errorCode || data.error) {
+        await dialog.alert(t('files.open_failed', { msg: apiErrorMessage(data, t('common.unknown_error')) }));
+      }
     } catch (err) {
       await dialog.alert(t('files.open_failed', { msg: (err as Error).message }));
     }
@@ -973,7 +994,12 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         formData.append('path', targetPath);
         const response = await authFetch(`${props.serverBaseUrl}/api/server-files/upload`, { method: 'POST', body: formData });
         const data = await response.json();
-        if (data.error) await dialog.alert(t('files.upload_item_failed', { name: relativePath, msg: data.error }));
+        if (!response.ok || data.errorCode || data.error) {
+          await dialog.alert(t('files.upload_item_failed', {
+            name: relativePath,
+            msg: apiErrorMessage(data, t('common.unknown_error')),
+          }));
+        }
       }
       loadFiles();
     } catch (err) {

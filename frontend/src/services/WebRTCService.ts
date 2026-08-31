@@ -7,6 +7,7 @@ import type { WebSocketService } from './WebSocketService';
 import { ControlHttpClient } from './ControlHttpClient';
 import { debugLog, debugWarn } from '../utils/debugLogger';
 import type { RemoteWheelSettings } from '../utils/remoteWheel';
+import { getCurrentLocale, translate } from '../i18n';
 
 export interface WebRTCStartOptions {
   resolution?: number; // 0.25 - 1.0, default 0.6
@@ -579,7 +580,7 @@ export class WebRTCService {
           this.handleClipboardChunk(data);
         } else if (data.type === 'clipboard_error') {
           // 剪贴板错误
-          this.events.onClipboardError?.(data.error || '未知错误');
+          this.events.onClipboardError?.(data.error || translate(getCurrentLocale(), 'common.unknown_error'));
         } else if (
           data.type === 'hardware_keyboard_state' &&
           (data.action === 'status' || data.action === 'connect' || data.action === 'disconnect') &&

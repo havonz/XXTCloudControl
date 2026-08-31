@@ -2,6 +2,8 @@ import { createSignal, createMemo, Show, createEffect, onMount } from 'solid-js'
 import QRCode from 'qrcode';
 import { AuthService } from '../services/AuthService';
 import { useI18n } from '../i18n';
+import { getBindingScriptDownloadUrl, getBindingScriptFileName } from '../utils/deviceBinding';
+import LanguageSelect from './LanguageSelect';
 import styles from './BindPage.module.css';
 
 interface BindPageProps {
@@ -14,7 +16,7 @@ interface BindPageProps {
  */
 const BindPage = (props: BindPageProps) => {
   const authService = AuthService.getInstance();
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   
   // QR code data URL state
   const [qrCodeDataUrl, setQrCodeDataUrl] = createSignal('');
@@ -45,28 +47,23 @@ const BindPage = (props: BindPageProps) => {
     return computedStyles.getPropertyValue(fallbackVar).trim();
   };
 
-  // Generate QR code content (XXT download URL)
-  const qrCodeContent = createMemo(() => {
-    const host = hostOnly();
-    const port = serverPort();
-    if (!host || !port) return '';
-    
-    const fileName = `加入或退出云控[${host}].lua`;
-    const encodedFileName = encodeURIComponent(fileName);
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const downloadUrl = encodeURIComponent(`${baseUrl()}/api/download-bind-script?host=${host}&port=${port}&proto=${proto}`);
-    
-    return `xxt://download/?path=${encodedFileName}&url=${downloadUrl}`;
-  });
-
   // Generate direct download URL
   const downloadUrl = createMemo(() => {
     const host = hostOnly();
     const port = serverPort();
     if (!host || !port) return '';
-    
+
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${baseUrl()}/api/download-bind-script?host=${host}&port=${port}&proto=${proto}`;
+    return getBindingScriptDownloadUrl(baseUrl(), host, port, proto, locale());
+  });
+
+  // Generate QR code content (XXT download URL)
+  const qrCodeContent = createMemo(() => {
+    const host = hostOnly();
+    const url = downloadUrl();
+    if (!host || !url) return '';
+
+    return `xxt://download/?path=${encodeURIComponent(getBindingScriptFileName(host))}&url=${encodeURIComponent(url)}`;
   });
 
   // Generate QR code when content is ready
@@ -116,8 +113,11 @@ const BindPage = (props: BindPageProps) => {
     <div class={styles.container}>
       <div class={styles.card}>
         <div class={styles.header}>
-          <img src="/favicon-48.png" alt="Logo" class={styles.logo} />
-          <h1 class={styles.title}>{t('bind.title')}</h1>
+          <div class={styles.brand}>
+            <img src="/favicon-48.png" alt="" class={styles.logo} />
+            <h1 class={styles.title}>{t('bind.title')}</h1>
+          </div>
+          <LanguageSelect compact />
         </div>
         
         <div class={styles.body}>

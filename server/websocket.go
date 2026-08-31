@@ -598,47 +598,48 @@ func removeLogSubscriberFromAllLocked(conn *SafeConn) []string {
 	return emptied
 }
 
-// getReadableCommandName returns a human-readable name for typical device commands
-func getReadableCommandName(cmdType string) string {
+// getDeviceCommandMessageCode returns the language-neutral status code for a
+// command that is surfaced in the controller UI.
+func getDeviceCommandMessageCode(cmdType string) string {
 	switch cmdType {
 	case "script/run":
-		return "运行脚本"
+		return "device.command.script_run"
 	case "script/stop":
-		return "停止脚本"
+		return "device.command.script_stop"
 	case "device/reboot":
-		return "重启设备"
+		return "device.command.reboot"
 	case "device/respring":
-		return "注销桌面"
+		return "device.command.respring"
 	case "device/home":
-		return "主屏幕"
+		return "device.command.home"
 	case "device/lock":
-		return "锁定屏幕"
+		return "device.command.lock"
 	case "device/unlock":
-		return "解锁屏幕"
+		return "device.command.unlock"
 	case "device/volume/up":
-		return "增加音量"
+		return "device.command.volume_up"
 	case "device/volume/down":
-		return "减少音量"
+		return "device.command.volume_down"
 	case "pasteboard/write":
-		return "写入剪贴板"
+		return "device.command.clipboard_write"
 	case "pasteboard/read":
-		return "读取剪贴板"
+		return "device.command.clipboard_read"
 	case "file/put":
-		return "上传文件"
+		return "device.command.file_upload"
 	case "file/delete":
-		return "删除文件"
+		return "device.command.file_delete"
 	case "file/get":
-		return "下载文件"
+		return "device.command.file_download"
 	case "transfer/fetch":
-		return "拉取大文件"
+		return "device.command.large_file_fetch"
 	case "app/install":
-		return "安装应用"
+		return "device.command.app_install"
 	case "app/uninstall":
-		return "卸载应用"
+		return "device.command.app_uninstall"
 	case "app/open":
-		return "打开应用"
+		return "device.command.app_open"
 	case "app/close":
-		return "关闭应用"
+		return "device.command.app_close"
 	}
 	return ""
 }
@@ -895,12 +896,12 @@ func handleMessage(conn *SafeConn, data Message) error {
 			return err
 		}
 
-		readableName := getReadableCommandName(cmdBody.Type)
+		messageCode := getDeviceCommandMessageCode(cmdBody.Type)
 
 		for _, udid := range cmdBody.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
-				if readableName != "" {
-					broadcastDeviceMessage(udid, readableName)
+				if messageCode != "" {
+					broadcastDeviceMessage(udid, messageCode, nil)
 				}
 				if cmdBody.Type == "key/global-keyboard" {
 					// 该低频命令会改变租约状态，必须先完成本次写入再处理后续命令或断线清理。
@@ -943,15 +944,15 @@ func handleMessage(conn *SafeConn, data Message) error {
 				return err
 			}
 			commandPayloads = append(commandPayloads, payload)
-			commandNames = append(commandNames, getReadableCommandName(cmd.Type))
+			commandNames = append(commandNames, getDeviceCommandMessageCode(cmd.Type))
 		}
 
 		for _, udid := range cmdsBody.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
 				for i, payload := range commandPayloads {
-					readableName := commandNames[i]
-					if readableName != "" {
-						broadcastDeviceMessage(udid, readableName)
+					messageCode := commandNames[i]
+					if messageCode != "" {
+						broadcastDeviceMessage(udid, messageCode, nil)
 					}
 					writeTextMessageAsync(deviceConn, payload)
 				}

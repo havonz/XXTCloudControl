@@ -1,5 +1,7 @@
 # XXTCloudControl
 
+简体中文 | [繁體中文](docs/i18n/README.zh-TW.md) | [English](docs/i18n/README.en-US.md) | [日本語](docs/i18n/README.ja-JP.md) | [한국어](docs/i18n/README.ko-KR.md) | [Tiếng Việt](docs/i18n/README.vi-VN.md) | [Español](docs/i18n/README.es-ES.md) | [Português (Brasil)](docs/i18n/README.pt-BR.md) | [Русский](docs/i18n/README.ru-RU.md) | [Français](docs/i18n/README.fr-FR.md) | [Deutsch](docs/i18n/README.de-DE.md)
+
 用于 XXTouch 1.3.8-20260122000000+ 的云控服务端（WebSocket + 静态前端）与管理面板。  
 设备端协议实现源码位于设备端 `/var/mobile/Media/1ferver/bin/open-cloud-control-client.lua`。  
 
@@ -21,7 +23,9 @@
 - `server/` - 后端 WebSocket/HTTP 服务（入口 `server/main.go`）
 - `frontend/` - 管理面板（SolidJS），源码在 `frontend/src/`，构建产物在 `frontend/dist/`
 - `device-client/` - Lua WebSocket 客户端库
-- `XXT 云控设置.lua` - 设备端配置脚本（写入云控地址）
+- `XXT 云控设置.lua` - 原有简体中文设备端配置脚本（写入云控地址）
+- `device-scripts/settings/` - 11 种语言的独立设备端配置脚本
+- `docs/i18n/` - README 的完整多语言译本
 - `build.sh` - 构建并打包多平台服务端 + 前端
 - `build/` - 构建产物目录
 - `server/data/` - 运行时数据目录（默认 `data_dir=./data`，取决于启动目录）
@@ -393,7 +397,7 @@ server {
 
 ## 设备绑定方式
 
-1. 运行脚本 `XXT 云控设置.lua`，填写 `ws://<host>:46980/api/ws`（TLS 或反向代理场景使用 `wss://`）。
+1. 运行根目录原有的简体中文脚本 `XXT 云控设置.lua`，或从 `device-scripts/settings/` 选择对应语言的独立脚本，填写 `ws://<host>:46980/api/ws`（TLS 或反向代理场景使用 `wss://`）。
 2. 或下载自动生成的绑定脚本：
    `http://<host>:46980/api/download-bind-script?host=<host>&port=46980`  
    可追加 `proto=https` 强制生成 `wss://` 地址；反向代理场景也可由 `X-Forwarded-Proto` 自动识别。
@@ -410,6 +414,8 @@ server {
    ```
 
 关闭云控：将 `enable` 置为 `false`。
+
+`device-scripts/settings/` 提供 `zh-CN`、`zh-TW`、`en-US`、`ja-JP`、`ko-KR`、`vi-VN`、`es-ES`、`pt-BR`、`ru-RU`、`fr-FR`、`de-DE` 共 11 个 locale 的脚本；每个文件均可独立运行，不依赖其他语言文件。
 
 ## WebSocket 约定
 

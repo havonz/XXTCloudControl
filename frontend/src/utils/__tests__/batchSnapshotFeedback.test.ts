@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildBatchSnapshotFeedback } from '../batchSnapshotFeedback';
+import { translate } from '../../i18n';
 
 describe('buildBatchSnapshotFeedback', () => {
   it('全部成功时返回 success 汇总和保存消息', () => {
@@ -53,5 +54,60 @@ describe('buildBatchSnapshotFeedback', () => {
       a: '截图失败: device is offline',
       b: '截图失败: 未返回结果',
     });
+  });
+
+  it('优先使用结构化错误并附加 detail，按当前语言渲染', () => {
+    const feedback = buildBatchSnapshotFeedback(
+      ['a'],
+      [{
+        udid: 'a',
+        ok: false,
+        error: 'Device is offline',
+        errorCode: 'error.device.offline',
+        errorParams: {},
+        detail: 'connection lost',
+      }],
+      (key) => key === 'error.device.offline' ? '设备离线' : key,
+    );
+
+    expect(feedback.perDeviceMessages.a).toBe('设备离线: connection lost');
+    expect(feedback.perDeviceMessageDescriptors.a).toEqual({
+      code: 'error.device.offline',
+      params: {},
+      fallback: 'Device is offline',
+      detail: 'connection lost',
+    });
+  });
+
+  it('结构化错误没有本地翻译时回退旧 error 字符串', () => {
+    const feedback = buildBatchSnapshotFeedback(
+      ['a'],
+      [{
+        udid: 'a',
+        ok: false,
+        error: 'legacy device error',
+        errorCode: 'error.from_newer_server',
+        detail: 'request id: 7',
+      }],
+      key => key,
+    );
+
+    expect(feedback.perDeviceMessages.a).toBe('legacy device error: request id: 7');
+    expect(feedback.perDeviceMessageDescriptors.a).toEqual({
+      code: 'error.from_newer_server',
+      params: undefined,
+      fallback: 'legacy device error',
+      detail: 'request id: 7',
+    });
+  });
+
+  it('使用实际词典按当前语言渲染结构化错误', () => {
+    const feedback = buildBatchSnapshotFeedback(
+      ['a'],
+      [{ udid: 'a', ok: false, error: 'Device is offline', errorCode: 'error.device.offline' }],
+      (key, params) => translate('zh-CN', key, params),
+    );
+
+    expect(feedback.perDeviceMessages.a).toBe('设备离线');
   });
 });

@@ -38,14 +38,14 @@ func runUpdateWorker(jobPath string) error {
 	}
 	updateStateByWorker(job.StateFile, func(state *UpdaterState) {
 		state.Stage = updateStageApplying
-		state.LastError = ""
+		clearUpdaterStateError(state)
 	})
 
 	if !waitForProcessExit(job.ParentPID, 30*time.Second) {
 		err := fmt.Errorf("timed out waiting parent process (%d) to exit", job.ParentPID)
 		updateStateByWorker(job.StateFile, func(state *UpdaterState) {
 			state.Stage = updateStageFailed
-			state.LastError = err.Error()
+			setUpdaterStateError(state, "error.update.apply_failed", nil, err.Error())
 		})
 		return err
 	}
@@ -61,7 +61,7 @@ func runUpdateWorker(jobPath string) error {
 	if replaceErr != nil {
 		updateStateByWorker(job.StateFile, func(state *UpdaterState) {
 			state.Stage = updateStageFailed
-			state.LastError = replaceErr.Error()
+			setUpdaterStateError(state, "error.update.apply_failed", nil, replaceErr.Error())
 		})
 		return replaceErr
 	}
@@ -70,14 +70,14 @@ func runUpdateWorker(jobPath string) error {
 		rollbackFromBackup(job)
 		updateStateByWorker(job.StateFile, func(state *UpdaterState) {
 			state.Stage = updateStageFailed
-			state.LastError = err.Error()
+			setUpdaterStateError(state, "error.update.apply_failed", nil, err.Error())
 		})
 		return err
 	}
 
 	updateStateByWorker(job.StateFile, func(state *UpdaterState) {
 		state.Stage = updateStageIdle
-		state.LastError = ""
+		clearUpdaterStateError(state)
 		state.HasUpdate = false
 		state.Ignored = false
 		state.DownloadTotalBytes = 0

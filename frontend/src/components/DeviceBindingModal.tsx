@@ -4,6 +4,7 @@ import { AuthService } from '../services/AuthService';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark } from '../icons';
 import { useI18n } from '../i18n';
+import { getBindingScriptDownloadUrl, getBindingScriptFileName } from '../utils/deviceBinding';
 import styles from './DeviceBindingModal.module.css';
 
 interface DeviceBindingModalProps {
@@ -15,7 +16,7 @@ interface DeviceBindingModalProps {
 
 const DeviceBindingModal = (props: DeviceBindingModalProps) => {
   const authService = AuthService.getInstance();
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const backdropClose = createBackdropClose(() => handleClose());
 
   // 二维码数据URL状态
@@ -31,26 +32,21 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
     return styles.getPropertyValue(fallbackVar).trim();
   };
 
-  // 生成二维码内容
-  const qrCodeContent = createMemo(() => {
-    const host = hostOnly();
-    const port = props.serverPort;
-    const fileName = `加入或退出云控[${host}].lua`;
-    const encodedFileName = encodeURIComponent(fileName);
-    // Pass proto param so backend generates correct ws/wss protocol
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const downloadUrl = encodeURIComponent(`${baseUrl()}/api/download-bind-script?host=${host}&port=${port}&proto=${proto}`);
-    
-    return `xxt://download/?path=${encodedFileName}&url=${downloadUrl}`;
-  });
-
   // 生成下载链接
   const downloadUrl = createMemo(() => {
     const host = hostOnly();
     const port = props.serverPort;
-    // Pass proto param so backend generates correct ws/wss protocol
+    if (!host || !port) return '';
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${baseUrl()}/api/download-bind-script?host=${host}&port=${port}&proto=${proto}`;
+    return getBindingScriptDownloadUrl(baseUrl(), host, port, proto, locale());
+  });
+
+  // 生成二维码内容
+  const qrCodeContent = createMemo(() => {
+    const host = hostOnly();
+    const url = downloadUrl();
+    if (!host || !url) return '';
+    return `xxt://download/?path=${encodeURIComponent(getBindingScriptFileName(host))}&url=${encodeURIComponent(url)}`;
   });
 
   // 使用前端库生成二维码
@@ -74,7 +70,8 @@ const DeviceBindingModal = (props: DeviceBindingModalProps) => {
   });
 
   const handleDownload = () => {
-    window.open(downloadUrl(), '_blank');
+    const url = downloadUrl();
+    if (url) window.open(url, '_blank');
   };
 
   const handleClose = () => {

@@ -1436,8 +1436,9 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   // 获取按键名称（用于显示）
   const getKeyDisplayName = (key: string): string => {
     const displayMap: Record<string, string> = {
-      'space': '空格', 'return': '回车', 'escape': 'ESC', 'backspace': '退格',
-      'delete': '删除', 'tab': 'Tab', 'up': '↑', 'down': '↓', 'left': '←', 'right': '→'
+      'space': t('remote.key_space'), 'return': t('remote.key_return'), 'escape': 'ESC',
+      'backspace': t('remote.key_backspace'), 'delete': t('remote.key_delete'), 'tab': 'Tab',
+      'up': '↑', 'down': '↓', 'left': '←', 'right': '→'
     };
     return displayMap[key] || (key.length === 1 ? key.toUpperCase() : key);
   };

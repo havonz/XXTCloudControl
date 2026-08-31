@@ -2,7 +2,7 @@ import { Component, For, createMemo } from 'solid-js';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { Portal } from 'solid-js/web';
 import { IconGlobe } from '../icons';
-import { Locale, supportedLocales, useI18n } from '../i18n';
+import { Locale, localeOptions, useI18n } from '../i18n';
 import styles from './LanguageSelect.module.css';
 
 interface LanguageSelectProps {
@@ -13,20 +13,21 @@ interface LanguageSelectProps {
 const LanguageSelect: Component<LanguageSelectProps> = (props) => {
   const { locale, setLocale, t } = useI18n();
   const isCompact = createMemo(() => props.compact || props.variant === 'login');
-  const items = createMemo(() => supportedLocales.map(value => ({
-    value,
-    label: value === 'en-US' ? t('ui.language_en') : t('ui.language_zh'),
-  })));
-  const collection = createMemo(() => createListCollection({ items: items() }));
-  const currentLabel = createMemo(() => items().find(item => item.value === locale())?.label || locale());
-  const currentShortLabel = createMemo(() => locale() === 'en-US' ? 'EN' : '中');
+  const items = localeOptions.map(option => ({
+    value: option.value,
+    label: option.nativeLabel,
+    shortLabel: option.shortLabel,
+  }));
+  const collection = createMemo(() => createListCollection({ items }));
+  const currentLabel = createMemo(() => items.find(item => item.value === locale())?.label || locale());
+  const currentShortLabel = createMemo(() => items.find(item => item.value === locale())?.shortLabel || locale());
   const triggerClass = createMemo(() => [
     'cbx-select',
     styles.trigger,
     isCompact() ? styles.compactTrigger : styles.regularTrigger,
     props.variant === 'login' ? styles.loginTrigger : '',
   ].filter(Boolean).join(' '));
-  const panelWidth = createMemo(() => isCompact() ? '128px' : 'var(--reference-width)');
+  const panelWidth = 'min(240px, calc(100vw - 16px))';
 
   return (
     <Select.Root
@@ -49,10 +50,10 @@ const LanguageSelect: Component<LanguageSelectProps> = (props) => {
         </Select.Trigger>
       </Select.Control>
       <Portal>
-        <Select.Positioner style={{ 'z-index': 10200, width: panelWidth() }}>
-          <Select.Content class="cbx-panel" style={{ width: panelWidth() }}>
+        <Select.Positioner style={{ 'z-index': 10200, width: panelWidth }}>
+          <Select.Content class="cbx-panel" style={{ width: panelWidth }}>
             <Select.ItemGroup>
-              <For each={items()}>{(item) => (
+              <For each={items}>{(item) => (
                 <Select.Item item={item} class="cbx-item">
                   <div class="cbx-item-content">
                     <Select.ItemIndicator>✓</Select.ItemIndicator>

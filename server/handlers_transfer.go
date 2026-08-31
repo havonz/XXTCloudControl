@@ -821,19 +821,77 @@ func broadcastTransferProgress(progress TransferProgress) {
 	}
 }
 
-// broadcastDeviceMessage sends a status message for a device to all connected controllers
-func broadcastDeviceMessage(udid string, message string) {
+var deviceMessageChineseTemplates = map[string]string{
+	"device.command.script_run":                   "运行脚本",
+	"device.command.script_stop":                  "停止脚本",
+	"device.command.reboot":                       "重启设备",
+	"device.command.respring":                     "注销桌面",
+	"device.command.home":                         "主屏幕",
+	"device.command.lock":                         "锁定屏幕",
+	"device.command.unlock":                       "解锁屏幕",
+	"device.command.volume_up":                    "增加音量",
+	"device.command.volume_down":                  "减少音量",
+	"device.command.clipboard_write":              "写入剪贴板",
+	"device.command.clipboard_read":               "读取剪贴板",
+	"device.command.file_upload":                  "上传文件",
+	"device.command.file_delete":                  "删除文件",
+	"device.command.file_download":                "下载文件",
+	"device.command.large_file_fetch":             "拉取大文件",
+	"device.command.app_install":                  "安装应用",
+	"device.command.app_uninstall":                "卸载应用",
+	"device.command.app_open":                     "打开应用",
+	"device.command.app_close":                    "关闭应用",
+	"device.script.start_transfer_timeout":        "脚本启动失败：大文件传输超时",
+	"device.script.started":                       "脚本已启动",
+	"device.script.start_device_offline":          "脚本启动失败：设备已离线",
+	"device.script.start_send_failed":             "脚本启动失败：发送启动命令失败",
+	"device.script.start_transfer_failed":         "脚本启动已取消：大文件传输失败",
+	"device.script.large_transfer_complete":       "大文件传输完成，启动脚本…",
+	"device.script.upload_summary":                "上传脚本（{small} 个小文件，{large} 个大文件）",
+	"device.script.send_summary":                  "发送脚本（{small} 个小文件，{large} 个大文件）",
+	"device.script.upload_large_file":             "上传大文件 {name}",
+	"device.script.verify_failed":                 "校验失败 {name}",
+	"device.script.uploaded":                      "脚本已上传",
+	"device.script.start_previous_pending":        "脚本启动已取消：上一次脚本启动尚未完成，请稍后重试",
+	"device.script.start_not_connected":           "脚本启动失败：设备未连接",
+	"device.script.start_transfer_prepare_failed": "脚本启动已取消：大文件传输准备失败",
+	"device.script.waiting_for_transfers":         "等待大文件传输完成后启动脚本（{count}）",
+	"device.script.starting":                      "启动脚本…",
+	"device.script.start_canceled":                "脚本启动已取消：已取消本次启动流程",
+	"device.transfer.send_file":                   "发送文件 {name}",
+	"device.transfer.download_file":               "下载文件 {name}",
+}
+
+// broadcastDeviceMessage keeps the legacy Chinese message while adding a
+// language-neutral code that each controller can translate independently.
+func broadcastDeviceMessage(udid string, messageCode string, messageParams map[string]any) {
+	broadcastDeviceMessageWithDetail(udid, messageCode, messageParams, "")
+}
+
+func broadcastDeviceMessageWithDetail(udid string, messageCode string, messageParams map[string]any, detail string) {
 	controllerList := snapshotControllerConns()
 	if len(controllerList) == 0 {
 		return
 	}
 
+	message := interpolateMessage(deviceMessageChineseTemplates[messageCode], messageParams)
+	if message == "" {
+		message = messageCode
+	}
+	body := map[string]any{
+		"udid":        udid,
+		"message":     message,
+		"messageCode": messageCode,
+	}
+	if len(messageParams) > 0 {
+		body["messageParams"] = messageParams
+	}
+	if strings.TrimSpace(detail) != "" {
+		body["detail"] = detail
+	}
 	msg := Message{
 		Type: "device/message",
-		Body: map[string]string{
-			"udid":    udid,
-			"message": message,
-		},
+		Body: body,
 	}
 
 	data, err := json.Marshal(msg)
@@ -983,7 +1041,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		}
 
 		// Broadcast status to frontend
-		broadcastDeviceMessage(req.DeviceSN, fmt.Sprintf("发送文件 %s", filepath.Base(req.Path)))
+		broadcastDeviceMessage(req.DeviceSN, "device.transfer.send_file", map[string]any{"name": filepath.Base(req.Path)})
 
 		debugLogf("📤 Push file (small): %s → device %s:%s (%d bytes)", req.Path, req.DeviceSN, req.TargetPath, fileSize)
 
@@ -1027,7 +1085,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 
 	// Send command to device
 	// Broadcast status to frontend
-	broadcastDeviceMessage(req.DeviceSN, fmt.Sprintf("下载文件 %s", filepath.Base(req.Path)))
+	broadcastDeviceMessage(req.DeviceSN, "device.transfer.download_file", map[string]any{"name": filepath.Base(req.Path)})
 
 	if err := sendFileDownloadCommand(req.DeviceSN, downloadURL, req.TargetPath, md5Hash, info.Size(), timeout); err != nil {
 		// Cleanup token on failure

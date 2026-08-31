@@ -50,7 +50,7 @@
   },
   "app": {
     "title": "XXT 云控",
-    "document_title": "XXT 云控制器 ({count} selected)",
+    "document_title": "XXT 云控制器（已选择 {count} 台）",
     "mobile_menu": "切换菜单",
     "server_disabled_update": "服务端已禁用自更新",
     "update": {
@@ -106,6 +106,8 @@
     "port_required": "请输入端口号",
     "port_invalid": "端口号必须是 1-65535 之间的数字",
     "password_required": "请输入密码",
+    "failed": "登录失败",
+    "connection_failed": "连接失败: {msg}",
     "time_hint": "提示：如果密码正确，请尝试校准本地时间与服务器时间同步。",
     "server_version": "服务器版本: {version}",
     "server_time": "服务器时间: {time}"
@@ -156,7 +158,51 @@
     "status_running": "运行中",
     "status_paused": "已暂停",
     "status_stopped": "已停止",
-    "status_unknown": "未知"
+    "status_unknown": "未知",
+    "command": {
+      "script_run": "运行脚本",
+      "script_stop": "停止脚本",
+      "reboot": "重启设备",
+      "respring": "注销桌面",
+      "home": "主屏幕",
+      "lock": "锁定屏幕",
+      "unlock": "解锁屏幕",
+      "volume_up": "增加音量",
+      "volume_down": "减少音量",
+      "clipboard_write": "写入剪贴板",
+      "clipboard_read": "读取剪贴板",
+      "file_upload": "上传文件",
+      "file_delete": "删除文件",
+      "file_download": "下载文件",
+      "large_file_fetch": "拉取大文件",
+      "app_install": "安装应用",
+      "app_uninstall": "卸载应用",
+      "app_open": "打开应用",
+      "app_close": "关闭应用"
+    },
+    "script": {
+      "start_transfer_timeout": "脚本启动失败：大文件传输超时",
+      "started": "脚本已启动",
+      "start_device_offline": "脚本启动失败：设备已离线",
+      "start_send_failed": "脚本启动失败：发送启动命令失败",
+      "start_transfer_failed": "脚本启动已取消：大文件传输失败",
+      "large_transfer_complete": "大文件传输完成，启动脚本…",
+      "upload_summary": "上传脚本（{small} 个小文件，{large} 个大文件）",
+      "send_summary": "发送脚本（{small} 个小文件，{large} 个大文件）",
+      "upload_large_file": "上传大文件 {name}",
+      "verify_failed": "校验失败 {name}",
+      "uploaded": "脚本已上传",
+      "start_previous_pending": "脚本启动已取消：上一次脚本启动尚未完成，请稍后重试",
+      "start_not_connected": "脚本启动失败：设备未连接",
+      "start_transfer_prepare_failed": "脚本启动已取消：大文件传输准备失败",
+      "waiting_for_transfers": "等待大文件传输完成后启动脚本（{count}）",
+      "starting": "启动脚本…",
+      "start_canceled": "脚本启动已取消：已取消本次启动流程"
+    },
+    "transfer": {
+      "send_file": "发送文件 {name}",
+      "download_file": "下载文件 {name}"
+    }
   },
   "device_list": {
     "upload_script": "上传",
@@ -267,6 +313,7 @@
     "screenshot_saved": "截图已保存",
     "screenshot_saved_path": "截图已保存: {path}",
     "screenshot_failed": "截图失败: {msg}",
+    "screenshot_failed_no_result": "截图失败：未返回结果",
     "no_result": "未返回结果",
     "batch_snapshot_saved": "已保存 {count} 台设备截图",
     "batch_snapshot_partial": "已保存 {success} 台设备截图，{fail} 台失败",
@@ -317,7 +364,58 @@
     "auth_failed_login_again": "认证失败，请重新登录",
     "password_rejected": "密码错误或连接被拒绝",
     "connection_failed": "连接失败",
-    "auth_timeout": "认证超时，请检查密码是否正确"
+    "auth_timeout": "认证超时，请检查密码是否正确",
+    "disconnected": "WebSocket连接已断开",
+    "connection_error": "WebSocket连接错误",
+    "not_connected": "WebSocket未连接或未认证",
+    "request_id_failed": "无法生成请求 ID",
+    "command_timeout": "命令超时: {command}",
+    "send_failed": "发送消息失败",
+    "service_destroyed": "服务已关闭",
+    "request_timeout": "请求超时",
+    "transfer_progress": "传输中 {percent}%",
+    "transfer_failed": "传输失败",
+    "transfer_completed": "传输完成"
+  },
+  "device_control": {
+    "invalid_device_info": "设备信息响应无效",
+    "device_error": "设备返回错误"
+  },
+  "transfer": {
+    "server_upload_failed": "上传到服务器失败",
+    "push_failed": "推送文件失败",
+    "pull_failed": "拉取文件失败",
+    "upload_failed": "上传失败"
+  },
+  "error": {
+    "update": {
+      "not_initialized": "更新服务未初始化",
+      "disabled": "更新功能已禁用",
+      "download_in_progress": "正在下载更新",
+      "no_update_available": "当前没有可用更新",
+      "no_active_download": "当前没有正在进行的下载",
+      "no_downloaded_update": "没有可应用的已下载更新",
+      "check_failed": "检查更新失败",
+      "download_failed": "下载更新失败",
+      "download_canceled": "更新下载已取消",
+      "apply_failed": "应用更新失败",
+      "previous_apply_retry": "上次应用更新未完成，请重试应用更新",
+      "previous_apply_redownload": "上次应用更新未完成，请重新下载后再试",
+      "docker_readonly": "Docker 文件系统不可写，请拉取新镜像并重建容器完成更新"
+    },
+    "device": {
+      "offline": "设备离线",
+      "not_connected": "设备未连接",
+      "named_not_connected": "设备 {device} 未连接"
+    },
+    "snapshot": {
+      "empty_payload": "截图内容为空",
+      "failed": "截图失败"
+    },
+    "request": {
+      "timeout": "请求超时",
+      "failed": "请求失败"
+    }
   },
   "modal": {
     "brightness_title": "设置屏幕亮度",
@@ -594,6 +692,10 @@
     "copy_to_clipboard": "拷贝到剪贴板",
     "copy_image_unsupported": "当前环境不支持自动拷贝图片，请手动右键保存图片",
     "copy_text_failed": "拷贝失败，请手动选中文本后按 Ctrl/Cmd+C 拷贝",
+    "key_space": "空格",
+    "key_return": "回车",
+    "key_backspace": "退格",
+    "key_delete": "删除",
     "paste_title": "粘贴文本到选中设备",
     "paste_placeholder": "输入要粘贴的文本...",
     "send_to_devices": "发送到 {count} 台设备"

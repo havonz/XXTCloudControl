@@ -9,6 +9,7 @@ import ScriptConfigModal from './ScriptConfigModal';
 import { authFetch } from '../services/httpAuth';
 import ContextMenu, { ContextMenuButton } from './ContextMenu';
 import { useI18n } from '../i18n';
+import { DEVICE_SELECTED_SCRIPT, isDeviceSelectedScript } from '../utils/scriptSelection';
 
 interface GroupListProps {
   groupStore: GroupStoreState;
@@ -108,7 +109,7 @@ const GroupList: Component<GroupListProps> = (props) => {
     let defaultValue = group.scriptPath || '';
     if (defaultValue === '') {
       defaultValue = NO_BINDING_PLACEHOLDER;
-    } else if (defaultValue === '<设备端已选中>') {
+    } else if (isDeviceSelectedScript(defaultValue)) {
       defaultValue = DEVICE_SELECTED_PLACEHOLDER;
     }
 
@@ -125,9 +126,8 @@ const GroupList: Component<GroupListProps> = (props) => {
       if (scriptPath === NO_BINDING_PLACEHOLDER) {
         scriptPath = ''; // Empty means follow global selection
       } else if (scriptPath === DEVICE_SELECTED_PLACEHOLDER) {
-        scriptPath = '<设备端已选中>';
+        scriptPath = DEVICE_SELECTED_SCRIPT;
       }
-      // DEVICE_SELECTED_PLACEHOLDER stays as-is for display, backend will handle it
       
       await props.groupStore.bindScriptToGroup(menu.groupId, scriptPath);
     }
@@ -276,7 +276,7 @@ const GroupList: Component<GroupListProps> = (props) => {
                   <span class={styles.groupName}>{group.name}</span>
                   <span class={styles.groupSubInfo}>{t('group.device_count', { count: group.deviceIds?.length || 0 })}</span>
                   <span class={styles.groupSubInfo}>
-                    {t('group.bound_script', { script: group.scriptPath === '<设备端已选中>' ? t('group.device_selected_script') : (group.scriptPath || '-') })}
+                    {t('group.bound_script', { script: isDeviceSelectedScript(group.scriptPath) ? t('group.device_selected_script') : (group.scriptPath || '-') })}
                   </span>
                 </div>
               </div>

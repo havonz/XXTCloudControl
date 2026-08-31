@@ -106,6 +106,8 @@
     "port_required": "Enter the port",
     "port_invalid": "Port must be a number from 1 to 65535",
     "password_required": "Enter the password",
+    "failed": "Login failed",
+    "connection_failed": "Connection failed: {msg}",
     "time_hint": "Hint: if the password is correct, try synchronizing local time with the server time.",
     "server_version": "Server version: {version}",
     "server_time": "Server time: {time}"
@@ -156,7 +158,51 @@
     "status_running": "Running",
     "status_paused": "Paused",
     "status_stopped": "Stopped",
-    "status_unknown": "Unknown"
+    "status_unknown": "Unknown",
+    "command": {
+      "script_run": "Run script",
+      "script_stop": "Stop script",
+      "reboot": "Restart device",
+      "respring": "Respring",
+      "home": "Go to Home Screen",
+      "lock": "Lock screen",
+      "unlock": "Unlock screen",
+      "volume_up": "Increase volume",
+      "volume_down": "Decrease volume",
+      "clipboard_write": "Write to clipboard",
+      "clipboard_read": "Read clipboard",
+      "file_upload": "Upload file",
+      "file_delete": "Delete file",
+      "file_download": "Download file",
+      "large_file_fetch": "Fetch large file",
+      "app_install": "Install app",
+      "app_uninstall": "Uninstall app",
+      "app_open": "Open app",
+      "app_close": "Close app"
+    },
+    "script": {
+      "start_transfer_timeout": "Script failed to start: large-file transfer timed out",
+      "started": "Script started",
+      "start_device_offline": "Script failed to start: device is offline",
+      "start_send_failed": "Script failed to start: could not send the start command",
+      "start_transfer_failed": "Script start canceled: large-file transfer failed",
+      "large_transfer_complete": "Large-file transfer complete. Starting script…",
+      "upload_summary": "Upload script ({small} small files, {large} large files)",
+      "send_summary": "Send script ({small} small files, {large} large files)",
+      "upload_large_file": "Upload large file {name}",
+      "verify_failed": "Verification failed: {name}",
+      "uploaded": "Script uploaded",
+      "start_previous_pending": "Script start canceled: the previous start is still pending. Try again later.",
+      "start_not_connected": "Script failed to start: device is not connected",
+      "start_transfer_prepare_failed": "Script start canceled: could not prepare the large-file transfer",
+      "waiting_for_transfers": "Waiting for large-file transfers before starting the script ({count})",
+      "starting": "Starting script…",
+      "start_canceled": "Script start canceled: this start operation was canceled"
+    },
+    "transfer": {
+      "send_file": "Send file {name}",
+      "download_file": "Download file {name}"
+    }
   },
   "device_list": {
     "upload_script": "Upload",
@@ -267,6 +313,7 @@
     "screenshot_saved": "Screenshot saved",
     "screenshot_saved_path": "Screenshot saved: {path}",
     "screenshot_failed": "Screenshot failed: {msg}",
+    "screenshot_failed_no_result": "Screenshot failed: no result returned",
     "no_result": "No result returned",
     "batch_snapshot_saved": "Saved screenshots for {count} device(s)",
     "batch_snapshot_partial": "Saved screenshots for {success} device(s), {fail} failed",
@@ -317,7 +364,58 @@
     "auth_failed_login_again": "Authentication failed. Log in again.",
     "password_rejected": "Password is incorrect or the connection was rejected",
     "connection_failed": "Connection failed",
-    "auth_timeout": "Authentication timed out. Check whether the password is correct."
+    "auth_timeout": "Authentication timed out. Check whether the password is correct.",
+    "disconnected": "WebSocket disconnected",
+    "connection_error": "WebSocket connection error",
+    "not_connected": "WebSocket is not connected or authenticated",
+    "request_id_failed": "Could not generate a request ID",
+    "command_timeout": "Command timed out: {command}",
+    "send_failed": "Failed to send message",
+    "service_destroyed": "Service is closed",
+    "request_timeout": "Request timed out",
+    "transfer_progress": "Transferring {percent}%",
+    "transfer_failed": "Transfer failed",
+    "transfer_completed": "Transfer complete"
+  },
+  "device_control": {
+    "invalid_device_info": "Invalid device information response",
+    "device_error": "The device returned an error"
+  },
+  "transfer": {
+    "server_upload_failed": "Failed to upload to the server",
+    "push_failed": "Failed to push the file",
+    "pull_failed": "Failed to pull the file",
+    "upload_failed": "Upload failed"
+  },
+  "error": {
+    "update": {
+      "not_initialized": "The update service is not initialized",
+      "disabled": "Updates are disabled",
+      "download_in_progress": "An update download is already in progress",
+      "no_update_available": "No update is available",
+      "no_active_download": "There is no active download",
+      "no_downloaded_update": "There is no downloaded update to apply",
+      "check_failed": "Failed to check for updates",
+      "download_failed": "Failed to download the update",
+      "download_canceled": "The update download was canceled",
+      "apply_failed": "Failed to apply the update",
+      "previous_apply_retry": "The previous update was not completed. Try applying it again.",
+      "previous_apply_redownload": "The previous update was not completed. Download it again and retry.",
+      "docker_readonly": "The Docker file system is read-only. Pull the new image and recreate the container to update."
+    },
+    "device": {
+      "offline": "Device is offline",
+      "not_connected": "Device is not connected",
+      "named_not_connected": "Device {device} is not connected"
+    },
+    "snapshot": {
+      "empty_payload": "The screenshot is empty",
+      "failed": "Failed to capture the screenshot"
+    },
+    "request": {
+      "timeout": "Request timed out",
+      "failed": "Request failed"
+    }
   },
   "modal": {
     "brightness_title": "Set Screen Brightness",
@@ -594,6 +692,10 @@
     "copy_to_clipboard": "Copy to Clipboard",
     "copy_image_unsupported": "This environment does not support automatic image copy. Save the image manually.",
     "copy_text_failed": "Copy failed. Select the text manually and press Ctrl/Cmd+C.",
+    "key_space": "Space",
+    "key_return": "Enter",
+    "key_backspace": "Backspace",
+    "key_delete": "Delete",
     "paste_title": "Paste Text to Selected Devices",
     "paste_placeholder": "Enter text to paste...",
     "send_to_devices": "Send to {count} device(s)"

@@ -1,5 +1,6 @@
 import { AuthService } from './AuthService';
 import type { WebSocketService } from './WebSocketService';
+import { getCurrentLocale, translate } from '../i18n';
 
 let requestIdCounter = 0;
 
@@ -87,7 +88,7 @@ export class ControlHttpClient {
     if (typeof this.wsService.onStatusChange === 'function') {
       this.unsubscribeStatus = this.wsService.onStatusChange((status) => {
         if (status === 'disconnected') {
-          this.rejectAllPendingRequests(new Error('WebSocket连接已断开'));
+          this.rejectAllPendingRequests(new Error(translate(getCurrentLocale(), 'websocket.disconnected')));
         }
       });
     }
@@ -95,7 +96,7 @@ export class ControlHttpClient {
 
   send<T = any>(options: ControlHttpRequestOptions): Promise<ControlHttpResponse<T>> {
     if (this.isDestroyed) {
-      return Promise.reject(new Error('Service destroyed'));
+      return Promise.reject(new Error(translate(getCurrentLocale(), 'websocket.service_destroyed')));
     }
 
     const requestId = generateRequestId(this.requestIdPrefix);
@@ -116,13 +117,13 @@ export class ControlHttpClient {
 
       const timeout = window.setTimeout(() => {
         this.pendingRequests.delete(requestId);
-        reject(new Error('Request timeout'));
+        reject(new Error(translate(getCurrentLocale(), 'websocket.request_timeout')));
       }, options.timeoutMs ?? this.defaultTimeoutMs);
 
       this.pendingRequests.set(requestId, { resolve, reject, timeout });
 
       if (!this.wsService.send(message)) {
-        this.rejectPendingRequest(requestId, new Error('发送消息失败'));
+        this.rejectPendingRequest(requestId, new Error(translate(getCurrentLocale(), 'websocket.send_failed')));
       }
     });
   }
@@ -140,7 +141,7 @@ export class ControlHttpClient {
     };
   }
 
-  destroy(reason: Error = new Error('Service destroyed')): void {
+  destroy(reason: Error = new Error(translate(getCurrentLocale(), 'websocket.service_destroyed'))): void {
     if (this.isDestroyed) {
       return;
     }

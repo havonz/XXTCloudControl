@@ -1,4 +1,6 @@
 import { authFetch } from './httpAuth';
+import { getCurrentLocale, translate } from '../i18n';
+import { localizeApiError } from '../utils/apiError';
 
 const LARGE_FILE_THRESHOLD = 128 * 1024; // 128KB
 
@@ -94,7 +96,14 @@ export class FileTransferService {
 
       const result = await uploadResponse.json().catch(() => ({}));
       if (!uploadResponse.ok) {
-        return { success: false, error: result.error || 'Server upload failed' };
+        return {
+          success: false,
+          error: localizeApiError(
+            result,
+            (key, vars) => translate(getCurrentLocale(), key, vars),
+            translate(getCurrentLocale(), 'transfer.server_upload_failed'),
+          ).message,
+        };
       }
 
       return {
@@ -124,7 +133,7 @@ export class FileTransferService {
 
     const uploadResult = await this.uploadFileToServer(file, 'files', '_temp');
     if (!uploadResult.success || !uploadResult.path) {
-      const error = uploadResult.error || 'Server upload failed';
+      const error = uploadResult.error || translate(getCurrentLocale(), 'transfer.server_upload_failed');
       return deviceSNs.map(() => ({ success: false, error }));
     }
 
@@ -184,7 +193,11 @@ export class FileTransferService {
       } else {
         return {
           success: false,
-          error: result.error || 'Push failed',
+          error: localizeApiError(
+            result,
+            (key, vars) => translate(getCurrentLocale(), key, vars),
+            translate(getCurrentLocale(), 'transfer.push_failed'),
+          ).message,
         };
       }
     } catch (e) {
@@ -229,7 +242,11 @@ export class FileTransferService {
       } else {
         return {
           success: false,
-          error: result.error || 'Pull failed',
+          error: localizeApiError(
+            result,
+            (key, vars) => translate(getCurrentLocale(), key, vars),
+            translate(getCurrentLocale(), 'transfer.pull_failed'),
+          ).message,
         };
       }
     } catch (e) {
@@ -250,7 +267,7 @@ export class FileTransferService {
     deviceTargetPath: string
   ): Promise<PushFileResult> {
     const [result] = await this.uploadFileToDevices([deviceSN], file, deviceTargetPath);
-    return result || { success: false, error: 'Upload failed' };
+    return result || { success: false, error: translate(getCurrentLocale(), 'transfer.upload_failed') };
   }
   
   /**

@@ -34,8 +34,10 @@ const (
 	scriptStartPhaseWaitingTransfer = "waiting_transfer"
 	scriptStartPhaseStarting        = "starting"
 
-	scriptStartCancelReasonNoActive      = "没有活动启动流程"
-	scriptStartCancelReasonNotCancelable = "已不再可取消"
+	scriptStartCancelReasonNoActive          = "没有活动启动流程"
+	scriptStartCancelReasonNotCancelable     = "已不再可取消"
+	scriptStartCancelReasonCodeNoActive      = "script.start.cancel.no_active"
+	scriptStartCancelReasonCodeNotCancelable = "script.start.cancel.not_cancelable"
 )
 
 type scriptFileData struct {
@@ -85,8 +87,9 @@ type readyScriptStart struct {
 }
 
 type scriptStartCancelResult struct {
-	Canceled bool
-	Reason   string
+	Canceled   bool
+	Reason     string
+	ReasonCode string
 }
 
 var scriptPackageCache = struct {
@@ -207,7 +210,7 @@ func createScriptStartSession(
 			scriptStartSessions.Unlock()
 
 			broadcastScriptStartState(device, scriptStartState{})
-			broadcastDeviceMessage(device, "脚本启动失败: 大文件传输超时")
+			broadcastDeviceMessage(device, "device.script.start_transfer_timeout", nil)
 		}(deviceID, generation, scriptStartWaitTimeout)
 	}
 
@@ -305,17 +308,17 @@ func isCurrentScriptStartSession(deviceID string, generation uint64) bool {
 
 func cancelScriptStartSession(deviceID string) scriptStartCancelResult {
 	if deviceID == "" {
-		return scriptStartCancelResult{Reason: scriptStartCancelReasonNoActive}
+		return scriptStartCancelFailure(scriptStartCancelReasonCodeNoActive)
 	}
 	scriptStartSessions.Lock()
 	current := scriptStartSessions.entries[deviceID]
 	if current == nil || !current.state.Active {
 		scriptStartSessions.Unlock()
-		return scriptStartCancelResult{Reason: scriptStartCancelReasonNoActive}
+		return scriptStartCancelFailure(scriptStartCancelReasonCodeNoActive)
 	}
 	if !current.state.Cancelable {
 		scriptStartSessions.Unlock()
-		return scriptStartCancelResult{Reason: scriptStartCancelReasonNotCancelable}
+		return scriptStartCancelFailure(scriptStartCancelReasonCodeNotCancelable)
 	}
 	delete(scriptStartSessions.entries, deviceID)
 	scriptStartSessions.Unlock()
@@ -324,9 +327,17 @@ func cancelScriptStartSession(deviceID string) scriptStartCancelResult {
 	return scriptStartCancelResult{Canceled: true}
 }
 
-func failScriptStartSession(deviceID string, generation uint64, message string) {
+func scriptStartCancelFailure(reasonCode string) scriptStartCancelResult {
+	reason := scriptStartCancelReasonNoActive
+	if reasonCode == scriptStartCancelReasonCodeNotCancelable {
+		reason = scriptStartCancelReasonNotCancelable
+	}
+	return scriptStartCancelResult{Reason: reason, ReasonCode: reasonCode}
+}
+
+func failScriptStartSession(deviceID string, generation uint64, messageCode string) {
 	if clearScriptStartSessionIfGeneration(deviceID, generation) {
-		broadcastDeviceMessage(deviceID, message)
+		broadcastDeviceMessage(deviceID, messageCode, nil)
 	}
 }
 
@@ -350,7 +361,7 @@ func startScriptOnDevice(
 		conn, exists := deviceLinks[deviceID]
 		mu.RUnlock()
 		if !exists {
-			failScriptStartSession(deviceID, generation, "脚本启动失败: 设备已离线")
+			failScriptStartSession(deviceID, generation, "device.script.start_device_offline")
 			return
 		}
 
@@ -366,14 +377,14 @@ func startScriptOnDevice(
 			})
 		}
 		if err != nil {
-			failScriptStartSession(deviceID, generation, "脚本启动失败: 发送启动命令失败")
+			failScriptStartSession(deviceID, generation, "device.script.start_send_failed")
 			return
 		}
 		if !clearScriptStartSessionIfGeneration(deviceID, generation) {
 			return
 		}
 
-		broadcastDeviceMessage(deviceID, "脚本已启动")
+		broadcastDeviceMessage(deviceID, "device.script.started", nil)
 	}()
 }
 
@@ -424,10 +435,10 @@ func resolveAndCompletePendingFetch(
 		broadcastScriptStartState(deviceID, scriptStartState{})
 
 		errMsg = strings.TrimSpace(errMsg)
-		if errMsg == "" {
-			errMsg = "未知错误"
-		}
 		if resolvedPath != "" {
+			if errMsg == "" {
+				return nil, resolvedPath, true
+			}
 			return nil, fmt.Sprintf("%s (%s)", errMsg, resolvedPath), true
 		}
 		return nil, errMsg, true
@@ -539,7 +550,7 @@ func handleTransferFetchCompletionForScriptStart(deviceID string, body interface
 	}
 
 	if cancelMsg != "" {
-		broadcastDeviceMessage(deviceID, "脚本启动已取消: "+cancelMsg)
+		broadcastDeviceMessageWithDetail(deviceID, "device.script.start_transfer_failed", nil, cancelMsg)
 		return
 	}
 
@@ -547,7 +558,7 @@ func handleTransferFetchCompletionForScriptStart(deviceID string, body interface
 		return
 	}
 
-	broadcastDeviceMessage(deviceID, "大文件传输完成，启动脚本...")
+	broadcastDeviceMessage(deviceID, "device.script.large_transfer_complete", nil)
 	startScriptOnDevice(deviceID, ready.generation, ready.runPayload, ready.runPayloadPrepared, ready.runName, ScriptStartDelay)
 }
 
@@ -1465,7 +1476,7 @@ func scriptsSendHandler(c *gin.Context) {
 	deviceConns := snapshotDeviceConns(req.Devices)
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
-			broadcastDeviceMessage(udid, fmt.Sprintf("上传脚本 (%d小文件, %d大文件)", smallFilesCount, largeFilesCount))
+			broadcastDeviceMessage(udid, "device.script.upload_summary", map[string]any{"small": smallFilesCount, "large": largeFilesCount})
 
 			sender.sendSmallFilesToConn(conn, udid)
 
@@ -1473,11 +1484,11 @@ func scriptsSendHandler(c *gin.Context) {
 				if f.Data != "" {
 					continue
 				}
-				broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
+				broadcastDeviceMessage(udid, "device.script.upload_large_file", map[string]any{"name": filepath.Base(f.Path)})
 
 				md5Info, ok := largeFileMD5[f.SourcePath]
 				if !ok || md5Info.err != nil {
-					broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
+					broadcastDeviceMessage(udid, "device.script.verify_failed", map[string]any{"name": filepath.Base(f.Path)})
 					continue
 				}
 				md5Hash := md5Info.hash
@@ -1515,7 +1526,7 @@ func scriptsSendHandler(c *gin.Context) {
 				writeTextMessageAsync(conn, fetchPayload)
 			}
 
-			broadcastDeviceMessage(udid, "脚本已上传")
+			broadcastDeviceMessage(udid, "device.script.uploaded", nil)
 		}
 	}
 
@@ -1543,12 +1554,12 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			if _, exists := deviceConns[udid]; exists {
 				generation, ok := createScriptStartSession(udid, nil, false, "", scriptStartPhaseStarting, nil)
 				if !ok {
-					broadcastDeviceMessage(udid, "脚本启动已取消: 上一次脚本启动尚未完成，请稍后重试")
+					broadcastDeviceMessage(udid, "device.script.start_previous_pending", nil)
 					continue
 				}
 				startScriptOnDevice(udid, generation, nil, false, "", 0)
 			} else {
-				broadcastDeviceMessage(udid, "脚本启动失败: 设备未连接")
+				broadcastDeviceMessage(udid, "device.script.start_not_connected", nil)
 			}
 		}
 
@@ -1649,22 +1660,22 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			largeTransferPrepareFailed := false
 			generation, ok := createScriptStartSession(udid, runPayload, runPayloadPrepared, runName, scriptStartPhasePreparing, pendingFetchRequests)
 			if !ok {
-				broadcastDeviceMessage(udid, "脚本启动已取消: 上一次脚本启动尚未完成，请稍后重试")
+				broadcastDeviceMessage(udid, "device.script.start_previous_pending", nil)
 				continue
 			}
 
-			broadcastDeviceMessage(udid, fmt.Sprintf("发送脚本 (%d小文件, %d大文件)", smallFilesCount, largeFilesCount))
+			broadcastDeviceMessage(udid, "device.script.send_summary", map[string]any{"small": smallFilesCount, "large": largeFilesCount})
 
 			sender.sendSmallFilesToConn(conn, udid)
 
 			for _, planned := range plannedLargeFetches {
 				f := planned.file
 
-				broadcastDeviceMessage(udid, fmt.Sprintf("上传大文件 %s", filepath.Base(f.Path)))
+				broadcastDeviceMessage(udid, "device.script.upload_large_file", map[string]any{"name": filepath.Base(f.Path)})
 
 				md5Info, ok := largeFileMD5[f.SourcePath]
 				if !ok || md5Info.err != nil {
-					broadcastDeviceMessage(udid, fmt.Sprintf("校验失败 %s", filepath.Base(f.Path)))
+					broadcastDeviceMessage(udid, "device.script.verify_failed", map[string]any{"name": filepath.Base(f.Path)})
 					largeTransferPrepareFailed = true
 					break
 				}
@@ -1709,22 +1720,22 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 
 			if largeTransferPrepareFailed {
 				clearScriptStartSessionIfGeneration(udid, generation)
-				broadcastDeviceMessage(udid, "脚本启动已取消: 大文件传输准备失败")
+				broadcastDeviceMessage(udid, "device.script.start_transfer_prepare_failed", nil)
 				continue
 			}
 
 			if len(pendingFetchRequests) > 0 {
 				if updateScriptStartSessionPhase(udid, generation, scriptStartPhaseWaitingTransfer, true) {
-					broadcastDeviceMessage(udid, fmt.Sprintf("等待大文件传输完成后启动脚本 (%d)", len(pendingFetchRequests)))
+					broadcastDeviceMessage(udid, "device.script.waiting_for_transfers", map[string]any{"count": len(pendingFetchRequests)})
 				}
 				continue
 			}
 
-			broadcastDeviceMessage(udid, "启动脚本...")
+			broadcastDeviceMessage(udid, "device.script.starting", nil)
 			updateScriptStartSessionPhase(udid, generation, scriptStartPhaseStarting, true)
 			startScriptOnDevice(udid, generation, runPayload, runPayloadPrepared, runName, ScriptStartDelay)
 		} else {
-			broadcastDeviceMessage(udid, "脚本启动失败: 设备未连接")
+			broadcastDeviceMessage(udid, "device.script.start_not_connected", nil)
 		}
 	}
 
@@ -1752,12 +1763,13 @@ func scriptsSendAndStartCancelHandler(c *gin.Context) {
 		result := cancelScriptStartSession(udid)
 		if result.Canceled {
 			canceled = append(canceled, udid)
-			broadcastDeviceMessage(udid, "脚本启动已取消: 已取消本次启动流程")
+			broadcastDeviceMessage(udid, "device.script.start_canceled", nil)
 			continue
 		}
 		ignored = append(ignored, gin.H{
-			"udid":   udid,
-			"reason": result.Reason,
+			"udid":       udid,
+			"reason":     result.Reason,
+			"reasonCode": result.ReasonCode,
 		})
 	}
 

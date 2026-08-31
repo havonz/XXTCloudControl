@@ -1,6 +1,8 @@
 import { createSignal, createMemo, Accessor, Setter } from 'solid-js';
 import type { GroupInfo } from '../types';
 import { authFetch } from './httpAuth';
+import { getCurrentLocale, translate } from '../i18n';
+import { localizeApiError } from '../utils/apiError';
 
 // API functions for group operations
 const api = async (url: string, options?: RequestInit) => {
@@ -13,7 +15,11 @@ const api = async (url: string, options?: RequestInit) => {
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || `Request failed: ${response.status}`);
+    throw new Error(localizeApiError(
+      data,
+      (key, vars) => translate(getCurrentLocale(), key, vars),
+      `Request failed: ${response.status}`,
+    ).message);
   }
   return response.json();
 };

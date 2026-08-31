@@ -63,8 +63,9 @@ func TestScriptsSendAndStartCancelHandlerReturnsCanceledAndIgnored(t *testing.T)
 		Success  bool `json:"success"`
 		Canceled []string
 		Ignored  []struct {
-			UDID   string `json:"udid"`
-			Reason string `json:"reason"`
+			UDID       string `json:"udid"`
+			Reason     string `json:"reason"`
+			ReasonCode string `json:"reasonCode"`
 		} `json:"ignored"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
@@ -77,7 +78,7 @@ func TestScriptsSendAndStartCancelHandlerReturnsCanceledAndIgnored(t *testing.T)
 	if len(resp.Canceled) != 1 || resp.Canceled[0] != "device-cancel" {
 		t.Fatalf("unexpected canceled payload: %+v", resp.Canceled)
 	}
-	if len(resp.Ignored) != 1 || resp.Ignored[0].UDID != "device-missing" || resp.Ignored[0].Reason != scriptStartCancelReasonNoActive {
+	if len(resp.Ignored) != 1 || resp.Ignored[0].UDID != "device-missing" || resp.Ignored[0].Reason != scriptStartCancelReasonNoActive || resp.Ignored[0].ReasonCode != scriptStartCancelReasonCodeNoActive {
 		t.Fatalf("unexpected ignored payload: %+v", resp.Ignored)
 	}
 	if _, exists := scriptStartStateForTest("device-cancel"); exists {

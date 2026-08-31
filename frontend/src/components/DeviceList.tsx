@@ -47,6 +47,13 @@ import ScriptConfigModal from './ScriptConfigModal';
 import { authFetch } from '../services/httpAuth';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
 import { buildBatchSnapshotFeedback, type BatchScreenshotSaveResult } from '../utils/batchSnapshotFeedback';
+import { DEVICE_SELECTED_SCRIPT, isDeviceSelectedScript, normalizeDeviceSelectedScript } from '../utils/scriptSelection';
+import {
+  resolveDeviceSystemMessage,
+  resolveLocalDeviceMessage,
+  type LocalDeviceMessage,
+} from '../utils/deviceMessage';
+import { localizeApiError } from '../utils/apiError';
 import ContextMenu, { ContextMenuButton, ContextMenuDivider, ContextMenuSection } from './ContextMenu';
 import BrightnessModal from '../modals/domain/BrightnessModal';
 import VolumeModal from '../modals/domain/VolumeModal';
@@ -96,6 +103,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const toast = useToast();
   const { t } = useI18n();
   const authService = AuthService.getInstance();
+  const apiErrorMessage = (payload: unknown, fallback: string) => (
+    localizeApiError(payload, t, fallback).message
+  );
   
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = createSignal<string[]>(['name', 'udid', 'ip', 'version', 'battery', 'running', 'message', 'log']);
@@ -225,13 +235,13 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   });
   
   // Device messages: local immediate write, then backend message overwrites on arrival.
-  const [localDeviceMessages, setLocalDeviceMessages] = createSignal<Record<string, string>>({}, { equals: false });
+  const [localDeviceMessages, setLocalDeviceMessages] = createSignal<Record<string, LocalDeviceMessage>>({}, { equals: false });
   const [lastLogs, setLastLogs] = createStore<Record<string, string>>({});
   const localMessageTimers = new Map<string, number>();
   const localMessageTTL = 10000;
-  const setDeviceMessage = (udid: string, message: string) => {
+  const setDeviceMessage = (udid: string, message: LocalDeviceMessage) => {
     setLocalDeviceMessages((prev) => {
-      if (prev[udid] === message) {
+      if (JSON.stringify(prev[udid]) === JSON.stringify(message)) {
         return prev;
       }
       return {
@@ -256,10 +266,17 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }, localMessageTTL);
     localMessageTimers.set(udid, nextTimer);
 
-    props.webSocketService?.updateDeviceMessage(udid, message);
+    props.webSocketService?.updateDeviceMessage(udid, {
+      message: message.fallback,
+      messageCode: message.code,
+      messageParams: message.params,
+    });
   };
   const getDisplayMessage = (device: Device): string => {
-    return localDeviceMessages()[device.udid] || device.system?.message || '';
+    const localMessage = localDeviceMessages()[device.udid];
+    return localMessage
+      ? resolveLocalDeviceMessage(localMessage, t)
+      : resolveDeviceSystemMessage(device.system, t);
   };
   const getDisplayLog = (device: Device): string => {
     return lastLogs[device.udid] ?? device.system?.log ?? '';
@@ -556,14 +573,19 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       if (Object.keys(prev).length === 0) {
         return prev;
       }
-      let next: Record<string, string> | null = null;
+      let next: Record<string, LocalDeviceMessage> | null = null;
       for (const device of devices) {
         const localMessage = prev[device.udid];
         if (!localMessage) {
           continue;
         }
-        const backendMessage = device.system?.message || '';
-        if (backendMessage && backendMessage !== localMessage) {
+        const backendMessage = typeof device.system?.message === 'string' ? device.system.message : '';
+        const backendCode = typeof device.system?.messageCode === 'string' ? device.system.messageCode : '';
+        const backendParams = device.system?.messageParams;
+        const matchesBackend = backendCode
+          ? backendCode === localMessage.code && JSON.stringify(backendParams) === JSON.stringify(localMessage.params)
+          : backendMessage === localMessage.fallback;
+        if ((backendCode || backendMessage) && !matchesBackend) {
           if (next === null) {
             next = { ...prev };
           }
@@ -615,12 +637,11 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [isLoadingScripts, setIsLoadingScripts] = createSignal(false);
   const [isSubmittingScriptAction, setIsSubmittingScriptAction] = createSignal(false);
   // Placeholder for device-selected script option
-  const DEVICE_SELECTED_PLACEHOLDER = '<设备端已选中>';
-  const [serverScriptName, setServerScriptName] = createSignal(DEVICE_SELECTED_PLACEHOLDER); // 默认选择设备端已选中
+  const [serverScriptName, setServerScriptName] = createSignal(DEVICE_SELECTED_SCRIPT); // 默认使用设备端已选中的脚本
   
   // Script items for display in dropdowns
   const selectableScriptsWithPlaceholder = createMemo(() => 
-    [DEVICE_SELECTED_PLACEHOLDER, ...selectableScripts()]
+    [DEVICE_SELECTED_SCRIPT, ...selectableScripts()]
   );
   
   // Collection for Select component (reactive)
@@ -629,7 +650,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   );
 
   const formatScriptOption = (script: string) => {
-    if (script === DEVICE_SELECTED_PLACEHOLDER) return t('group.device_selected_script');
+    if (isDeviceSelectedScript(script)) return t('group.device_selected_script');
     return script;
   };
 
@@ -650,7 +671,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       cancelled = true;
     });
 
-    if (scriptName && scriptName !== DEVICE_SELECTED_PLACEHOLDER) {
+    if (scriptName && !isDeviceSelectedScript(scriptName)) {
       scriptConfigManager.checkConfigurable(scriptName)
         .then((configurable) => {
           if (!cancelled && serverScriptName() === scriptName) {
@@ -674,9 +695,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       if (response.ok) {
         const data = await response.json();
         if (data.selectedScript) {
-          setServerScriptName(data.selectedScript);
+          setServerScriptName(normalizeDeviceSelectedScript(data.selectedScript));
         } else {
-          setServerScriptName(DEVICE_SELECTED_PLACEHOLDER);
+          setServerScriptName(DEVICE_SELECTED_SCRIPT);
         }
       }
     } catch (error) {
@@ -762,7 +783,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
 
   const resolveScriptName = (name: string | undefined): string => {
     if (!name) return '';
-    if (name === DEVICE_SELECTED_PLACEHOLDER || name.includes('设备端已选中')) {
+    if (isDeviceSelectedScript(name)) {
       return '';
     }
     return name;
@@ -805,7 +826,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     } else {
       const effectiveScriptName = resolveScriptName(serverScriptName());
 
-      if (effectiveScriptName === '' && serverScriptName() !== DEVICE_SELECTED_PLACEHOLDER) {
+      if (effectiveScriptName === '' && !isDeviceSelectedScript(serverScriptName())) {
         showToastMessage(t('device_list.choose_script_first'));
         return;
       }
@@ -831,7 +852,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       }
 
       selectedDeviceIds.forEach((udid) => {
-        setDeviceMessage(udid, t('device_list.msg_starting_script'));
+        setDeviceMessage(udid, { code: 'device_list.msg_starting_script' });
       });
 
       if (groupedDevices.length > 0) {
@@ -889,7 +910,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           showToastMessage(t('device_list.script_started'));
         } else {
           console.error('发送脚本失败:', result.error);
-          showToastMessage(t('device_list.send_script_failed', { msg: result.error || t('common.unknown_error') }));
+          showToastMessage(t('device_list.send_script_failed', {
+            msg: apiErrorMessage(result, t('common.unknown_error')),
+          }));
         }
       }
     } catch (error) {
@@ -919,7 +942,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     try {
       const deviceIds = devicesToCancel.map((device) => device.udid);
       deviceIds.forEach((udid) => {
-        setDeviceMessage(udid, t('device_list.msg_canceling_start'));
+        setDeviceMessage(udid, { code: 'device_list.msg_canceling_start' });
       });
 
       const response = await authFetch('/api/scripts/send-and-start/cancel', {
@@ -930,7 +953,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       const result = await response.json();
 
       if (!response.ok) {
-        showToastMessage(t('device_list.cancel_start_failed', { msg: result?.error || t('common.unknown_error') }));
+        showToastMessage(t('device_list.cancel_start_failed', {
+          msg: apiErrorMessage(result, t('common.unknown_error')),
+        }));
         return;
       }
 
@@ -1131,7 +1156,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     skipped: BatchRenameSkippedItem[],
   ): Promise<boolean> => {
     skipped.forEach((item) => {
-      setDeviceMessage(item.udid, t('device_list.batch_rename.rename_failed', { msg: item.error }));
+      setDeviceMessage(item.udid, {
+        code: 'device_list.batch_rename.rename_failed',
+        params: { msg: item.error },
+      });
     });
 
     if (items.length === 0) {
@@ -1147,7 +1175,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
 
     items.forEach((item) => {
-      setDeviceMessage(item.udid, t('device_list.batch_rename.renaming'));
+      setDeviceMessage(item.udid, { code: 'device_list.batch_rename.renaming' });
     });
 
     let results;
@@ -1156,7 +1184,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       items.forEach((item) => {
-        setDeviceMessage(item.udid, t('device_list.batch_rename.rename_failed', { msg: message }));
+        setDeviceMessage(item.udid, {
+          code: 'device_list.batch_rename.rename_failed',
+          params: { msg: message },
+        });
       });
       await webSocketService.refreshDeviceStates();
       toast.showError(t('device_list.batch_rename.all_failed', { count: items.length + skipped.length }));
@@ -1168,11 +1199,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       if (result.success) {
         successCount++;
         webSocketService.updateDeviceName(result.udid, result.name);
-        setDeviceMessage(result.udid, t('device_list.batch_rename.rename_success'));
+        setDeviceMessage(result.udid, { code: 'device_list.batch_rename.rename_success' });
       } else {
-        setDeviceMessage(result.udid, t('device_list.batch_rename.rename_failed', {
-          msg: result.error || t('common.unknown_error'),
-        }));
+        setDeviceMessage(result.udid, {
+          code: 'device_list.batch_rename.rename_failed',
+          params: { msg: result.error || t('common.unknown_error') },
+        });
       }
     }
 
@@ -1494,7 +1526,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     }
 
     setIsBatchSnapshotting(true);
-    deviceIds.forEach((udid) => setDeviceMessage(udid, t('device_list.msg_screenshotting')));
+    deviceIds.forEach((udid) => setDeviceMessage(udid, { code: 'device_list.msg_screenshotting' }));
 
     try {
       const response = await authFetch('/api/devices/snapshot-save-batch', {
@@ -1502,9 +1534,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceIds }),
       });
-      const payload = await response.json().catch(() => ({} as { error?: string; results?: BatchScreenshotSaveResult[] }));
+      const payload = await response.json().catch(() => ({} as {
+        error?: string;
+        errorCode?: string;
+        errorParams?: Record<string, unknown>;
+        detail?: string;
+        results?: BatchScreenshotSaveResult[];
+      }));
       if (!response.ok) {
-        throw new Error(payload?.error || `HTTP ${response.status}`);
+        throw new Error(apiErrorMessage(payload, `HTTP ${response.status}`));
       }
 
       const feedback = buildBatchSnapshotFeedback(
@@ -1513,7 +1551,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         t,
       );
 
-      for (const [udid, message] of Object.entries(feedback.perDeviceMessages)) {
+      for (const [udid, message] of Object.entries(feedback.perDeviceMessageDescriptors)) {
         setDeviceMessage(udid, message);
       }
 
@@ -1527,7 +1565,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       const msg = reason || t('common.unknown_error');
-      deviceIds.forEach((udid) => setDeviceMessage(udid, t('device_list.screenshot_failed', { msg })));
+      deviceIds.forEach((udid) => setDeviceMessage(udid, {
+        code: 'device_list.screenshot_failed',
+        params: { msg },
+      }));
       toast.showError(t('device_list.batch_snapshot_failed', { msg }));
     } finally {
       setIsBatchSnapshotting(false);
@@ -1585,7 +1626,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
       if (result.success) {
         showToastMessage(t('device_list.script_uploaded_count', { count: deviceUdids.length, name: scriptName }));
       } else {
-        showToastMessage(t('files.upload_failed', { msg: result.error || t('common.unknown_error') }));
+        showToastMessage(t('files.upload_failed', {
+          msg: apiErrorMessage(result, t('common.unknown_error')),
+        }));
       }
     } catch (error) {
       console.error('上传脚本失败:', error);
@@ -1849,10 +1892,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     if (!service || props.selectedDevices().length === 0) return;
                     const devices = props.selectedDevices();
                     // Show pending message for each device
-                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_locking_screen')));
+                    devices.forEach(d => setDeviceMessage(d.udid, { code: 'device_list.msg_locking_screen' }));
                     const result = await service.lockScreen(devices.map(d => d.udid));
                     // Update with result
-                    devices.forEach(d => setDeviceMessage(d.udid, result.success ? t('device_list.msg_screen_locked') : t('device_list.msg_lock_failed', { msg: result.error || t('common.unknown_error') })));
+                    devices.forEach(d => setDeviceMessage(d.udid, result.success
+                      ? { code: 'device_list.msg_screen_locked' }
+                      : { code: 'device_list.msg_lock_failed', params: { msg: result.error || t('common.unknown_error') } }));
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
@@ -1867,10 +1912,12 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     if (!service || props.selectedDevices().length === 0) return;
                     const devices = props.selectedDevices();
                     // Show pending message for each device
-                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_unlocking_screen')));
+                    devices.forEach(d => setDeviceMessage(d.udid, { code: 'device_list.msg_unlocking_screen' }));
                     const result = await service.unlockScreen(devices.map(d => d.udid));
                     // Update with result
-                    devices.forEach(d => setDeviceMessage(d.udid, result.success ? t('device_list.msg_screen_unlocked') : t('device_list.msg_unlock_failed', { msg: result.error || t('common.unknown_error') })));
+                    devices.forEach(d => setDeviceMessage(d.udid, result.success
+                      ? { code: 'device_list.msg_screen_unlocked' }
+                      : { code: 'device_list.msg_unlock_failed', params: { msg: result.error || t('common.unknown_error') } }));
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
@@ -1920,9 +1967,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     setShowMoreActions(false);
                     if (!props.webSocketService || props.selectedDevices().length === 0) return;
                     const devices = props.selectedDevices();
-                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_pausing_script')));
+                    devices.forEach(d => setDeviceMessage(d.udid, { code: 'device_list.msg_pausing_script' }));
                     await props.webSocketService.pauseScript(devices.map(d => d.udid));
-                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_pause_sent')));
+                    devices.forEach(d => setDeviceMessage(d.udid, { code: 'device_list.msg_pause_sent' }));
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
@@ -1935,9 +1982,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     setShowMoreActions(false);
                     if (!props.webSocketService || props.selectedDevices().length === 0) return;
                     const devices = props.selectedDevices();
-                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_resuming_script')));
+                    devices.forEach(d => setDeviceMessage(d.udid, { code: 'device_list.msg_resuming_script' }));
                     await props.webSocketService.resumeScript(devices.map(d => d.udid));
-                    devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_resume_sent')));
+                    devices.forEach(d => setDeviceMessage(d.udid, { code: 'device_list.msg_resume_sent' }));
                   }}
                   disabled={props.selectedDevices().length === 0}
                 >
@@ -1962,9 +2009,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                     if (!props.webSocketService || props.selectedDevices().length === 0) return;
                     if (await dialog.confirm(t('device_list.reboot_confirm', { count: props.selectedDevices().length }))) {
                       const devices = props.selectedDevices();
-                      devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_rebooting')));
+                      devices.forEach(d => setDeviceMessage(d.udid, { code: 'device_list.msg_rebooting' }));
                       await props.webSocketService.rebootDevices(devices.map(d => d.udid));
-                      devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_reboot_sent')));
+                      devices.forEach(d => setDeviceMessage(d.udid, { code: 'device_list.msg_reboot_sent' }));
                     }
                   }}
                   disabled={props.selectedDevices().length === 0}
@@ -2645,10 +2692,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           }
           setIsSettingBrightness(true);
           const devices = props.selectedDevices();
-          devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_setting_brightness', { value: brightnessValue() })));
+          devices.forEach(d => setDeviceMessage(d.udid, {
+            code: 'device_list.msg_setting_brightness',
+            params: { value: brightnessValue() },
+          }));
           try {
             const result = await service.setBrightness(devices.map(d => d.udid), brightnessValue());
-            devices.forEach(d => setDeviceMessage(d.udid, result.success ? t('device_list.msg_brightness_set', { value: brightnessValue() }) : t('device_list.msg_brightness_failed', { msg: result.error || t('common.unknown_error') })));
+            devices.forEach(d => setDeviceMessage(d.udid, result.success
+              ? { code: 'device_list.msg_brightness_set', params: { value: brightnessValue() } }
+              : { code: 'device_list.msg_brightness_failed', params: { msg: result.error || t('common.unknown_error') } }));
           } finally {
             setIsSettingBrightness(false);
             setShowBrightnessModal(false);
@@ -2672,10 +2724,15 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           }
           setIsSettingVolume(true);
           const devices = props.selectedDevices();
-          devices.forEach(d => setDeviceMessage(d.udid, t('device_list.msg_setting_volume', { value: volumeValue() })));
+          devices.forEach(d => setDeviceMessage(d.udid, {
+            code: 'device_list.msg_setting_volume',
+            params: { value: volumeValue() },
+          }));
           try {
             const result = await service.setVolume(devices.map(d => d.udid), volumeValue());
-            devices.forEach(d => setDeviceMessage(d.udid, result.success ? t('device_list.msg_volume_set', { value: volumeValue() }) : t('device_list.msg_volume_failed', { msg: result.error || t('common.unknown_error') })));
+            devices.forEach(d => setDeviceMessage(d.udid, result.success
+              ? { code: 'device_list.msg_volume_set', params: { value: volumeValue() } }
+              : { code: 'device_list.msg_volume_failed', params: { msg: result.error || t('common.unknown_error') } }));
           } finally {
             setIsSettingVolume(false);
             setShowVolumeModal(false);
