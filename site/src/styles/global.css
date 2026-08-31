@@ -134,31 +134,129 @@ a:hover {
     color: var(--ifm-text);
   }
 
-  .lang-pill {
-    background: var(--ifm-surface);
-    border: 1px solid var(--ifm-border-strong);
-    border-radius: 9999px;
-    color: var(--ifm-text-muted);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.72rem;
-    line-height: 1.1;
-    padding: 0.34rem 0.82rem;
-    min-height: 1.78rem;
-    transition: all 160ms ease;
+  .language-menu {
+    min-width: 12rem;
+    position: relative;
+    width: 12rem;
+    z-index: 20;
   }
 
-  .lang-pill:hover {
+  .language-menu summary {
+    list-style: none;
+  }
+
+  .language-menu summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .language-menu-trigger {
+    align-items: center;
+    background: var(--ifm-surface);
+    border: 1px solid var(--ifm-border-strong);
+    border-radius: 0.75rem;
+    color: var(--ifm-text-strong);
+    cursor: pointer;
+    display: flex;
+    font-size: 0.85rem;
+    font-weight: 700;
+    gap: 0.55rem;
+    justify-content: flex-start;
+    min-height: 2.5rem;
+    padding: 0.55rem 0.75rem;
+    transition: all 160ms ease;
+    user-select: none;
+  }
+
+  .language-menu-trigger:hover,
+  .language-menu-trigger:focus-visible,
+  .language-menu details[open] .language-menu-trigger {
     border-color: var(--ifm-color-primary);
+    box-shadow: 0 0 0 3px var(--ifm-primary-soft);
+    outline: none;
+  }
+
+  .language-menu-trigger:active {
+    transform: scale(0.98);
+  }
+
+  .language-menu-icon {
     color: var(--ifm-color-primary);
+    fill: none;
+    flex: 0 0 auto;
+    height: 1rem;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
+    width: 1rem;
+  }
+
+  .language-menu-chevron {
+    fill: none;
+    height: 0.8rem;
+    margin-left: auto;
+    stroke: var(--ifm-text-muted);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+    transition: transform 160ms ease;
+    width: 0.8rem;
+  }
+
+  .language-menu details[open] .language-menu-chevron {
+    transform: rotate(180deg);
+  }
+
+  .language-menu-panel {
+    background: var(--ifm-surface);
+    border: 1px solid var(--ifm-border);
+    border-radius: 1rem;
+    box-shadow: var(--ifm-shadow-soft);
+    padding: 0.5rem;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.5rem);
+    width: 21rem;
+  }
+
+  .language-menu-grid {
+    display: grid;
+    gap: 0.25rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .language-menu-grid a {
+    border-radius: 0.65rem;
+    color: var(--ifm-text);
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    overflow: hidden;
+    padding: 0.6rem 0.7rem;
+    text-overflow: ellipsis;
+    transition: all 160ms ease;
+    white-space: nowrap;
+  }
+
+  .language-menu-grid a:hover,
+  .language-menu-grid a:focus-visible {
+    background: var(--ifm-hover-overlay);
+    color: var(--ifm-text-strong);
+    outline: none;
     text-decoration: none;
   }
 
-  .lang-pill-active {
+  .language-menu-grid a:active {
+    transform: scale(0.98);
+  }
+
+  .language-menu-grid .language-menu-active {
     background: var(--ifm-primary-soft);
-    border-color: var(--ifm-color-primary);
-    color: var(--ifm-color-primary);
+    color: var(--ifm-text-strong);
+    font-weight: 800;
   }
 
   .action-btn {
@@ -328,6 +426,16 @@ a:hover {
 }
 
 @media (max-width: 640px) {
+  .language-menu {
+    width: 100%;
+  }
+
+  .language-menu-panel {
+    left: 0;
+    right: 0;
+    width: 100%;
+  }
+
   .hero-panel,
   .screenshot-panel,
   .guide-panel {

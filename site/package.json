@@ -9,7 +9,8 @@
   "scripts": {
     "fetch:release": "node ./scripts/fetch-latest-release.mjs",
     "dev": "npm run fetch:release && astro dev",
-    "build": "npm run fetch:release && astro build",
+    "build": "npm run fetch:release && astro build && npm run verify:i18n",
+    "verify:i18n": "node ./scripts/verify-localized-build.mjs",
     "preview": "astro preview"
   },
   "dependencies": {

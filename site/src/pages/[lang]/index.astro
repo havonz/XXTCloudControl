@@ -1,0 +1,21 @@
+---
+import ReleasePage from '../../components/ReleasePage.astro';
+import { siteLocaleMeta, siteLocaleOrder, type SiteLocale } from '../../i18n';
+
+export function getStaticPaths() {
+  return siteLocaleOrder
+    .filter((locale) => siteLocaleMeta[locale].slug)
+    .map((locale) => ({
+      params: { lang: siteLocaleMeta[locale].slug },
+      props: { locale }
+    }));
+}
+
+interface Props {
+  locale: SiteLocale;
+}
+
+const { locale } = Astro.props;
+---
+
+<ReleasePage locale={locale} />
