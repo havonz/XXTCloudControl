@@ -1,10 +1,22 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DeviceControlService } from '../DeviceControlService';
 import type { WebSocketService } from '../WebSocketService';
+import { localeStorageKey } from '../../i18n';
+
+const localeStorage = new Map<string, string>();
 
 function setWindow(): void {
   Object.defineProperty(globalThis, 'window', {
     value: globalThis,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: {
+      getItem: (key: string) => localeStorage.get(key) ?? null,
+      setItem: (key: string, value: string) => localeStorage.set(key, value),
+      removeItem: (key: string) => localeStorage.delete(key),
+      clear: () => localeStorage.clear(),
+    },
     configurable: true,
   });
 }
@@ -61,11 +73,52 @@ describe('DeviceControlService control/http requests', () => {
 
   afterAll(() => {
     delete (globalThis as any).window;
+    delete (globalThis as any).localStorage;
   });
 
   afterEach(() => {
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
+    localeStorage.clear();
+  });
+
+  it('同一个客户端实例在每次发送时读取当前前端语言', async () => {
+    vi.useFakeTimers();
+
+    const { listeners, sentMessages, wsService } = createWebSocketService();
+    const service = new DeviceControlService(wsService, 'password');
+
+    window.localStorage.setItem(localeStorageKey, 'fr-FR');
+    const frenchRequest = service.lockScreen(['device-1']);
+    expect(sentMessages[0].body.headers).toEqual({
+      'Content-Type': 'application/json',
+      'Accept-Language': 'fr-FR',
+    });
+
+    window.localStorage.setItem(localeStorageKey, 'de-DE');
+    const germanRequest = service.unlockScreen(['device-1']);
+    expect(sentMessages[1].body.headers).toEqual({
+      'Content-Type': 'application/json',
+      'Accept-Language': 'de-DE',
+    });
+
+    for (const message of sentMessages) {
+      listeners[0]({
+        type: 'http/response',
+        body: {
+          requestId: message.body.requestId,
+          statusCode: 200,
+          body: encodeJsonBody({ ok: true }),
+        },
+      });
+    }
+
+    await expect(Promise.all([frenchRequest, germanRequest])).resolves.toEqual([
+      { success: true, detail: { ok: true } },
+      { success: true, detail: { ok: true } },
+    ]);
+
+    service.destroy();
   });
 
   it('解析 control/http 成功响应并保持 DeviceControlResult 结构', async () => {

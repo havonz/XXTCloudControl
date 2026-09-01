@@ -81,6 +81,67 @@ func setupHTTPBinProxyTestState(t *testing.T, controllerConn, deviceConn *SafeCo
 	_ = controllerConn
 }
 
+func TestControlHTTPForwardsHeadersUnchanged(t *testing.T) {
+	writes := make(chan recordedWebSocketWrite, 1)
+	deviceConn := &SafeConn{writeMessageHook: func(messageType int, data []byte) error {
+		writes <- recordedWebSocketWrite{
+			messageType: messageType,
+			data:        append([]byte(nil), data...),
+		}
+		return nil
+	}}
+	controllerConn := &SafeConn{}
+	setupHTTPBinProxyTestState(t, controllerConn, deviceConn)
+
+	body := map[string]any{
+		"devices":   []any{"device-http-bin"},
+		"requestId": "http-headers-1",
+		"method":    "POST",
+		"path":      "/api/webrtc/start",
+		"query":     map[string]any{},
+		"headers": map[string]any{
+			"Content-Type":    "application/json",
+			"Accept-Language": "fr-FR",
+			"X-Test":          "preserved",
+		},
+		"body":      "e30=",
+		"port":      46952,
+		"timeoutMs": 45000,
+	}
+	msg := signTestControlMessage(t, "control/http", body, "http-headers-order-1")
+	if err := handleMessage(controllerConn, msg); err != nil {
+		t.Fatalf("handleMessage returned error: %v", err)
+	}
+
+	var write recordedWebSocketWrite
+	select {
+	case write = <-writes:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for forwarded HTTP request")
+	}
+	if write.messageType != websocket.TextMessage {
+		t.Fatalf("forwarded request should be a text frame, got %d", write.messageType)
+	}
+	var forwarded Message
+	if err := json.Unmarshal(write.data, &forwarded); err != nil {
+		t.Fatalf("decode forwarded request: %v", err)
+	}
+	if forwarded.Type != "http/request" {
+		t.Fatalf("unexpected forwarded request type: %s", forwarded.Type)
+	}
+	forwardedBody, err := decodeBodyMap(forwarded.Body)
+	if err != nil {
+		t.Fatalf("decode forwarded request body: %v", err)
+	}
+	forwardedHeaders, ok := toMapStringString(forwardedBody["headers"])
+	if !ok {
+		t.Fatalf("unexpected forwarded headers: %#v", forwardedBody["headers"])
+	}
+	if forwardedHeaders["Content-Type"] != "application/json" || forwardedHeaders["Accept-Language"] != "fr-FR" || forwardedHeaders["X-Test"] != "preserved" {
+		t.Fatalf("headers were changed during forwarding: %+v", forwardedHeaders)
+	}
+}
+
 func TestControlHTTPBinWithRequestBodyWritesMetadataBeforeReturning(t *testing.T) {
 	requestID := "00112233445566778899aabbccddeeff"
 	writeStarted := make(chan struct{}, 1)
@@ -115,7 +176,11 @@ func TestControlHTTPBinWithRequestBodyWritesMetadataBeforeReturning(t *testing.T
 		"method":    "POST",
 		"path":      "/api/ui-element/query",
 		"query":     map[string]any{},
-		"headers":   map[string]any{"Content-Type": "application/json"},
+		"headers": map[string]any{
+			"Content-Type":    "application/json",
+			"Accept-Language": "pt-BR",
+			"X-Test":          "preserved",
+		},
 		"bodySize":  17,
 		"chunkSize": 65536,
 		"timeoutMs": 90000,
@@ -177,6 +242,17 @@ func TestControlHTTPBinWithRequestBodyWritesMetadataBeforeReturning(t *testing.T
 	}
 	if forwarded.Type != "http/request-bin" {
 		t.Fatalf("unexpected forwarded metadata type: %s", forwarded.Type)
+	}
+	forwardedBody, err := decodeBodyMap(forwarded.Body)
+	if err != nil {
+		t.Fatalf("decode forwarded metadata body: %v", err)
+	}
+	forwardedHeaders, ok := toMapStringString(forwardedBody["headers"])
+	if !ok {
+		t.Fatalf("unexpected forwarded headers: %#v", forwardedBody["headers"])
+	}
+	if forwardedHeaders["Content-Type"] != "application/json" || forwardedHeaders["Accept-Language"] != "pt-BR" || forwardedHeaders["X-Test"] != "preserved" {
+		t.Fatalf("headers were changed during forwarding: %+v", forwardedHeaders)
 	}
 	if writes[1].messageType != websocket.BinaryMessage {
 		t.Fatalf("second write should be request body binary frame, got %d", writes[1].messageType)

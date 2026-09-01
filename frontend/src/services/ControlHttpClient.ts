@@ -135,7 +135,10 @@ export class ControlHttpClient {
       method: options.method,
       path: options.path,
       query: options.query || {},
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept-Language': getCurrentLocale(),
+      },
       body: options.body ? encodeBody(JSON.stringify(options.body)) : undefined,
       port: options.port,
     };

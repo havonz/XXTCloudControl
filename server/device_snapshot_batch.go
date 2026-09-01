@@ -81,6 +81,11 @@ func snapshotSaveBatchHandler(c *gin.Context) {
 		jsonError(c, http.StatusBadRequest, "deviceIds is required")
 		return
 	}
+	translator := requestTranslator(c)
+	requestLanguage := strings.TrimSpace(c.GetHeader("Accept-Language"))
+	if locale := NormalizeLocale(c.Query("locale")); locale != "" {
+		requestLanguage = locale
+	}
 
 	results := make([]snapshotSaveBatchResult, len(deviceIDs))
 	sem := make(chan struct{}, batchSnapshotConcurrency)
@@ -93,12 +98,11 @@ func snapshotSaveBatchHandler(c *gin.Context) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			results[i] = saveSingleDeviceSnapshot(deviceID, time.Now())
+			results[i] = saveSingleDeviceSnapshot(deviceID, time.Now(), requestLanguage)
 		}(index, udid)
 	}
 
 	wg.Wait()
-	translator := requestTranslator(c)
 	for index := range results {
 		if results[index].OK || results[index].errorSpec.Code == "" {
 			continue
@@ -115,7 +119,7 @@ func snapshotSaveBatchHandler(c *gin.Context) {
 	})
 }
 
-func saveSingleDeviceSnapshot(udid string, now time.Time) snapshotSaveBatchResult {
+func saveSingleDeviceSnapshot(udid string, now time.Time, requestLanguage string) snapshotSaveBatchResult {
 	conn, deviceName, deviceIP, ok := resolveConnectedSnapshotTarget(udid)
 	if !ok || conn == nil {
 		return snapshotSaveBatchResult{
@@ -125,7 +129,7 @@ func saveSingleDeviceSnapshot(udid string, now time.Time) snapshotSaveBatchResul
 		}
 	}
 
-	data, err := captureDeviceScreenshot(udid, batchSnapshotRequestTimeout)
+	data, err := captureDeviceScreenshot(udid, requestLanguage, batchSnapshotRequestTimeout)
 	if err != nil {
 		return snapshotSaveBatchResult{
 			UDID:      udid,
@@ -279,10 +283,14 @@ func uniqueDeviceIDs(values []string) []string {
 	return out
 }
 
-func requestDeviceScreenshotViaHTTPBin(udid string, timeout time.Duration) ([]byte, error) {
+func requestDeviceScreenshotViaHTTPBin(udid, requestLanguage string, timeout time.Duration) ([]byte, error) {
+	headers := map[string]string{}
+	if requestLanguage = strings.TrimSpace(requestLanguage); requestLanguage != "" {
+		headers["Accept-Language"] = requestLanguage
+	}
 	response, err := requestDeviceHTTPBin(udid, "GET", "/api/screen/snapshot", map[string]interface{}{
 		"format": "png",
-	}, timeout)
+	}, headers, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +306,7 @@ func requestDeviceScreenshotViaHTTPBin(udid string, timeout time.Duration) ([]by
 	return response.Body, nil
 }
 
-func requestDeviceHTTPBin(udid, method, path string, query map[string]interface{}, timeout time.Duration) (internalHTTPBinResponse, error) {
+func requestDeviceHTTPBin(udid, method, path string, query map[string]interface{}, headers map[string]string, timeout time.Duration) (internalHTTPBinResponse, error) {
 	conn, _, _, ok := resolveConnectedSnapshotTarget(udid)
 	if !ok || conn == nil {
 		return internalHTTPBinResponse{}, errors.New("device is offline")
@@ -318,7 +326,7 @@ func requestDeviceHTTPBin(udid, method, path string, query map[string]interface{
 			"method":    method,
 			"path":      path,
 			"query":     query,
-			"headers":   map[string]string{},
+			"headers":   headers,
 			"bodySize":  0,
 			"chunkSize": internalHTTPBinChunkSize,
 		},

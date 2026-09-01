@@ -1,10 +1,22 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebRTCService } from '../WebRTCService';
 import type { WebSocketService } from '../WebSocketService';
+import { localeStorageKey } from '../../i18n';
+
+const localeStorage = new Map<string, string>();
 
 function setWindow(): void {
   Object.defineProperty(globalThis, 'window', {
     value: globalThis,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: {
+      getItem: (key: string) => localeStorage.get(key) ?? null,
+      setItem: (key: string, value: string) => localeStorage.set(key, value),
+      removeItem: (key: string) => localeStorage.delete(key),
+      clear: () => localeStorage.clear(),
+    },
     configurable: true,
   });
 }
@@ -23,11 +35,60 @@ describe('WebRTCService polling lifecycle', () => {
 
   afterAll(() => {
     delete (globalThis as any).window;
+    delete (globalThis as any).localStorage;
   });
 
   afterEach(() => {
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
+    localeStorage.clear();
+  });
+
+  it('WebRTC HTTP 请求通过公共客户端携带当前前端语言', async () => {
+    vi.useFakeTimers();
+
+    let listener: ((message: any) => void) | undefined;
+    const sentMessages: any[] = [];
+    const wsService = {
+      onMessage: vi.fn((callback: (message: any) => void) => {
+        listener = callback;
+        return vi.fn();
+      }),
+      send: vi.fn((message: any) => {
+        sentMessages.push(message);
+        return true;
+      }),
+    } as unknown as WebSocketService;
+    const service = new WebRTCService(wsService, 'device-1', 'password');
+
+    window.localStorage.setItem(localeStorageKey, 'pt-BR');
+    const request = (service as any).sendRequest('GET', '/api/webrtc/poll');
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]).toMatchObject({
+      type: 'control/http',
+      body: {
+        devices: ['device-1'],
+        path: '/api/webrtc/poll',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept-Language': 'pt-BR',
+        },
+      },
+    });
+
+    listener!({
+      type: 'http/response',
+      udid: 'device-1',
+      body: {
+        requestId: sentMessages[0].body.requestId,
+        statusCode: 200,
+        body: btoa(JSON.stringify({ events: [] })),
+      },
+    });
+
+    await expect(request).resolves.toEqual({ events: [] });
+    service.cleanup();
   });
 
   it('stopPolling 会清理已排队的 poll timer', async () => {
