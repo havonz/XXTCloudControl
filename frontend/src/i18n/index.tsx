@@ -34,7 +34,7 @@ export interface LocaleOption {
   shortLabel: string;
 }
 
-export const defaultLocale: Locale = 'zh-CN';
+export const defaultLocale: Locale = 'en-US';
 export const localeStorageKey = 'xxt-cloud-locale';
 export const localeOptions: readonly LocaleOption[] = [
   { value: 'zh-CN', nativeLabel: '简体中文', shortLabel: '简' },
@@ -239,12 +239,17 @@ export function getCurrentLocale(): Locale {
 }
 
 export function I18nProvider(props: { defaultLocale?: Locale; children: JSX.Element }) {
-  const [locale, setLocaleState] = createSignal<Locale>(props.defaultLocale ?? getInitialLocale());
+  const storedLocale = props.defaultLocale === undefined ? readStoredLocale() : null;
+  const [locale, setLocaleState] = createSignal<Locale>(
+    props.defaultLocale ?? storedLocale ?? getBrowserLocale() ?? defaultLocale,
+  );
   const t = createMemo(() => (key: string, vars?: Record<string, unknown>) => translate(locale(), key, vars));
+  let hasManualPreference = props.defaultLocale !== undefined || storedLocale !== null;
   activeLocale = locale();
 
   const setLocale = (nextLocale: Locale) => {
     const normalized = normalizeLocale(nextLocale) ?? defaultLocale;
+    hasManualPreference = true;
     activeLocale = normalized;
     setLocaleState(normalized);
     try {
@@ -254,6 +259,15 @@ export function I18nProvider(props: { defaultLocale?: Locale; children: JSX.Elem
     }
   };
 
+  const handleLanguageChange = () => {
+    if (hasManualPreference) return;
+    const detectedLocale = getBrowserLocale() ?? defaultLocale;
+    activeLocale = detectedLocale;
+    setLocaleState(detectedLocale);
+  };
+
+  window.addEventListener('languagechange', handleLanguageChange);
+
   createEffect(() => {
     const current = locale();
     activeLocale = current;
@@ -261,6 +275,7 @@ export function I18nProvider(props: { defaultLocale?: Locale; children: JSX.Elem
   });
 
   onCleanup(() => {
+    window.removeEventListener('languagechange', handleLanguageChange);
     if (activeLocale === locale()) {
       activeLocale = null;
     }

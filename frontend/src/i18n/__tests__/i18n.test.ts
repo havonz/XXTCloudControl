@@ -126,6 +126,8 @@ describe('i18n helpers', () => {
   });
 
   it('prefers stored locale, then browser locale, then the default', () => {
+    expect(defaultLocale).toBe('en-US');
+
     vi.stubGlobal('window', {
       localStorage: { getItem: () => 'ru-RU' },
       navigator: { languages: ['fr-CA'], language: 'fr-CA' },
@@ -144,13 +146,13 @@ describe('i18n helpers', () => {
       localStorage: { getItem: () => null },
       navigator: { languages: [], language: 'unsupported' },
     });
-    expect(getInitialLocale()).toBe(defaultLocale);
+    expect(getInitialLocale()).toBe('en-US');
   });
 
   it('interpolates values and returns the key when no locale has a message', () => {
     expect(translate('en-US', 'login.server_version', { version: '1.2.3' })).toBe('Server version: 1.2.3');
     expect(translate('en-US', 'missing.key')).toBe('missing.key');
-    expect(translate(defaultLocale, 'app.update.completed', { version: '1.2.3' })).toBe('更新完成，当前版本 1.2.3');
+    expect(translate('zh-CN', 'app.update.completed', { version: '1.2.3' })).toBe('更新完成，当前版本 1.2.3');
     expect(translate('zh-CN', 'error.update.download_failed')).toBe('下载更新失败');
     expect(translate('zh-CN', 'error.device.offline')).toBe('设备离线');
   });

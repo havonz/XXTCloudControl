@@ -48,4 +48,44 @@ describe('I18nProvider', () => {
     dispose();
     host.remove();
   });
+
+  it('follows browser language changes only before a manual selection', () => {
+    let browserLanguages = ['fr-CA'];
+    vi.stubGlobal('navigator', {
+      get languages() {
+        return browserLanguages;
+      },
+      get language() {
+        return browserLanguages[0];
+      },
+    });
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const dispose = render(() => (
+      <I18nProvider>
+        <LocaleProbe />
+      </I18nProvider>
+    ), host);
+
+    const button = host.querySelector('button')!;
+    expect(button.textContent).toBe('fr-FR|Se connecter');
+    expect(window.localStorage.getItem(localeStorageKey)).toBeNull();
+
+    browserLanguages = ['de-DE'];
+    window.dispatchEvent(new Event('languagechange'));
+    expect(button.textContent).toBe('de-DE|Anmelden');
+    expect(window.localStorage.getItem(localeStorageKey)).toBeNull();
+
+    button.click();
+    expect(button.textContent).toBe('zh-TW|登入');
+    expect(window.localStorage.getItem(localeStorageKey)).toBe('zh-TW');
+
+    browserLanguages = ['ja-JP'];
+    window.dispatchEvent(new Event('languagechange'));
+    expect(button.textContent).toBe('zh-TW|登入');
+
+    dispose();
+    host.remove();
+  });
 });

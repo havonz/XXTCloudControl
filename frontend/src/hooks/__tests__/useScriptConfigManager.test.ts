@@ -71,7 +71,7 @@ describe('useScriptConfigManager async state', () => {
     }));
     await fastRequest;
 
-    expect(manager.configTitle()).toBe('全局配置: fast.lua');
+    expect(manager.configTitle()).toBe('Global Config: fast.lua');
     expect(manager.initialValues()).toEqual({ value: 'fast' });
 
     slow.resolve(makeJsonResponse({
@@ -81,7 +81,7 @@ describe('useScriptConfigManager async state', () => {
     }));
     await slowRequest;
 
-    expect(manager.configTitle()).toBe('全局配置: fast.lua');
+    expect(manager.configTitle()).toBe('Global Config: fast.lua');
     expect(manager.initialValues()).toEqual({ value: 'fast' });
     expect(alertSpy).not.toHaveBeenCalled();
 
@@ -135,7 +135,7 @@ describe('useScriptConfigManager async state', () => {
     await Promise.resolve();
 
     expect(manager.isOpen()).toBe(true);
-    expect(manager.submitLabel()).toBe('提交并启动');
+    expect(manager.submitLabel()).toBe('Submit and Start');
 
     await manager.submitConfig({ 账号: 'abc' });
 
