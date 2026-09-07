@@ -190,6 +190,7 @@ export default function FormRunner(props: FormRunnerProps) {
           <Select.Root
             collection={collection()}
             value={value()}
+            positioning={{ hideWhenDetached: true }}
             onValueChange={(e) => handleValue((e.items?.[0] as string) ?? '')}
           >
             <Select.Control>
@@ -224,6 +225,7 @@ export default function FormRunner(props: FormRunnerProps) {
             inputValue={current()}
             value={options().includes(current()) ? value() : []}
             allowCustomValue
+            positioning={{ hideWhenDetached: true }}
             openOnClick
             invalid={!!error()}
             onInputValueChange={(e) => handleValue(e.inputValue)}
