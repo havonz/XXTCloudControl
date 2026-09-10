@@ -710,6 +710,7 @@
     "webdav_port": "WebDAV 連接埠",
     "log_port": "日誌連接埠",
     "preview": "預覽變更",
+    "restoreDefaultPorts": "還原預設連接埠",
     "apply": "套用",
     "refresh": "重新整理",
     "portHint": "選用連接埠設為 0 可停用對應服務，其餘範圍為 10000–65535。",

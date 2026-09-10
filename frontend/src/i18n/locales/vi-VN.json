@@ -851,6 +851,7 @@
     "webdav_port": "Cổng WebDAV",
     "log_port": "Cổng nhật ký",
     "preview": "Xem trước thay đổi",
+    "restoreDefaultPorts": "Khôi phục cổng mặc định",
     "apply": "Áp dụng",
     "refresh": "Làm mới",
     "portHint": "Đặt cổng tùy chọn thành 0 để tắt dịch vụ. Các cổng khác phải trong khoảng 10000–65535.",

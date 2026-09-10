@@ -91,6 +91,7 @@ describe('runtime settings batch preview', () => {
     /></I18nProvider>, host));
     await flush();
     expect(host.textContent).toContain('不支持此功能');
+    expect(host.textContent).not.toContain('恢复默认端口');
     const selected = host.querySelector('input[type=checkbox][aria-label="日志端口"]') as HTMLInputElement;
     selected.checked = true; selected.dispatchEvent(new Event('change', { bubbles: true }));
     const input = host.querySelector('#runtime-log_port') as HTMLInputElement;
@@ -250,6 +251,49 @@ describe('runtime settings direct apply', () => {
     expect(apply).toHaveBeenCalledTimes(1);
   });
 
+
+  it.each([1, 2])('restores only ports for directory mode %i and waits for Apply', async profileGeneration => {
+    const before = { ...initial('one', 50152), profile_generation: profileGeneration,
+      active: { port: 50152, udp_port: 0, webdav_port: 0, log_port: 0 } };
+    const apply = vi.fn(async () => undefined);
+    const service = serviceFor({ apply, read: async () => before });
+    const { host, button } = mountForm(service);
+    await flush(); click('预览变化');
+    expect(host.textContent).toContain('→');
+    click('恢复默认端口');
+    const settings = { port: 46952, udp_port: 46953, webdav_port: 46953, log_port: 46957 };
+    for (const [key, value] of Object.entries(settings)) {
+      expect((host.querySelector(`#runtime-${key}`) as HTMLInputElement).value).toBe(String(value));
+    }
+    expect(host.textContent).not.toContain('→');
+    expect(button.disabled).toBe(false);
+    expect(apply).not.toHaveBeenCalled();
+    button.click(); await flush();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledWith('one', { expected_revision: 4, settings });
+  });
+
+  it('clears invalid ports on restore and submits edits made afterwards', async () => {
+    const apply = vi.fn(async () => undefined);
+    const service = serviceFor({ apply, read: async id => initial(id) });
+    const { host, button } = mountForm(service);
+    await flush();
+    const input = host.querySelector('#runtime-port') as HTMLInputElement;
+    input.value = '0'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(host.textContent).toContain('端口无效');
+    expect(button.disabled).toBe(true);
+    click('恢复默认端口');
+    expect(host.textContent).not.toContain('端口无效');
+    expect(button.disabled).toBe(false);
+    expect(apply).not.toHaveBeenCalled();
+    expect(host.querySelector('#runtime-port')).toBe(input);
+    input.value = '56952'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    button.click(); await flush();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledWith('one', { expected_revision: 4,
+      settings: { port: 56952, udp_port: 46953, webdav_port: 46953, log_port: 46957 } });
+  });
+
   it('blocks apply during loading and submitting and sends only once for repeated clicks', async () => {
     let finishRead!: (status: RuntimeStatus) => void;
     let finishApply!: () => void;
@@ -258,17 +302,23 @@ describe('runtime settings direct apply', () => {
     const apply = vi.fn(async () => { await new Promise<void>(resolve => { finishApply = resolve; }); return undefined; });
     const service = serviceFor({ apply, read });
     const { host, button } = mountForm(service);
+    const restore = Array.from(host.querySelectorAll('button')).find(element => element.textContent === '恢复默认端口')!;
     expect(button.disabled).toBe(true);
+    expect(restore.disabled).toBe(true);
     finishRead(initial('one')); await flush();
     expect(button.disabled).toBe(false);
+    expect(restore.disabled).toBe(false);
     button.click(); button.click(); await flush();
     expect(button.disabled).toBe(true);
+    expect(restore.disabled).toBe(true);
     expect(apply).toHaveBeenCalledTimes(1);
     finishApply(); await flush();
     expect(button.disabled).toBe(false);
+    expect(restore.disabled).toBe(false);
     read.mockImplementationOnce(() => new Promise<RuntimeStatus>(resolve => { finishRead = resolve; }));
     click('刷新');
     expect(button.disabled).toBe(true);
+    expect(restore.disabled).toBe(true);
     finishRead({ ...initial('one'), busy: true }); await flush();
     expect(button.disabled).toBe(true);
     expect(host.textContent).toContain('设备正在更新配置');

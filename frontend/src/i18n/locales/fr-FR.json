@@ -851,6 +851,7 @@
     "webdav_port": "Port WebDAV",
     "log_port": "Port des journaux",
     "preview": "Aperçu des modifications",
+    "restoreDefaultPorts": "Rétablir les ports par défaut",
     "apply": "Appliquer",
     "refresh": "Actualiser",
     "portHint": "Les ports facultatifs peuvent être définis sur 0 pour désactiver le service. Les autres doivent être compris entre 10000 et 65535.",

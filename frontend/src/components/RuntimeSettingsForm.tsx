@@ -7,6 +7,8 @@ import { useI18n } from '../i18n';
 import { prepareRuntimeChange, isRuntimeSettingsEditable, runtimePortKeys, RuntimePorts, RuntimeSettingsError, RuntimeStatus, PendingRuntimeChange } from '../services/runtimeSettingsProtocol';
 import { RuntimeSettingsService } from '../services/runtimeSettingsService';
 
+const defaultPorts: RuntimePorts = { port: 46952, udp_port: 46953, webdav_port: 46953, log_port: 46957 };
+
 export interface RuntimeTarget { id: string; name: string }
 interface PreviewRow { target: RuntimeTarget; before?: RuntimeStatus; change?: PendingRuntimeChange; loadError?: string; error?: string }
 export default function RuntimeSettingsForm(props: { targets: RuntimeTarget[]; service: RuntimeSettingsService; concurrency: number; runBatch?: (changes: PendingRuntimeChange[], worker: (change: PendingRuntimeChange) => Promise<void>) => Promise<void>; onClose: () => void }) {
@@ -15,7 +17,7 @@ export default function RuntimeSettingsForm(props: { targets: RuntimeTarget[]; s
   const [loading, setLoading] = createSignal(false);
   const [submitting, setSubmitting] = createSignal(false);
   const [previewed, setPreviewed] = createSignal(false);
-  const [values, setValues] = createSignal<RuntimePorts>({ port: 46952, udp_port: 46953, webdav_port: 46953, log_port: 46957 });
+  const [values, setValues] = createSignal<RuntimePorts>({ ...defaultPorts });
   const [directory, setDirectory] = createSignal(false);
   const directoryOptions = createMemo(() => createListCollection({ items: [
     { value: 'shared', label: t('runtime.shared') },
@@ -135,7 +137,13 @@ export default function RuntimeSettingsForm(props: { targets: RuntimeTarget[]; s
           <input class={`${modalStyles.patternInput} ${styles.port}`} id={`runtime-${key}`} aria-label={label(key)} type="number" min={key === 'port' ? 10000 : 0} max="65535" step="1" value={values()[key]} disabled={!checked().has(key)} onInput={event => { setValues(previous => ({ ...previous, [key]: event.currentTarget.value === '' ? NaN : Number(event.currentTarget.value) })); setPreviewed(false); }} />
         </div>}</For>
         <p class={styles.hint}>{t('runtime.portHint')}</p>
-        <button class={modalStyles.exampleButton} onClick={() => setPreviewed(true)} disabled={!checked().size || loading()}>{t('runtime.preview')}</button>
+        <div class={styles.actions}>
+          <button class={modalStyles.exampleButton} onClick={() => setPreviewed(true)} disabled={!checked().size || loading()}>{t('runtime.preview')}</button>
+          <Show when={props.targets.length === 1}>
+            <button type="button" class={modalStyles.exampleButton} disabled={loading() || submitting()}
+              onClick={() => { setValues({ ...defaultPorts }); setPreviewed(false); }}>{t('runtime.restoreDefaultPorts')}</button>
+          </Show>
+        </div>
       </fieldset>
       <div class={styles.results} aria-live="polite">
         <For each={previewRows()}>{row => <section class={styles.result}>

@@ -851,6 +851,7 @@
     "webdav_port": "Puerto WebDAV",
     "log_port": "Puerto de registros",
     "preview": "Vista previa",
+    "restoreDefaultPorts": "Restaurar puertos predeterminados",
     "apply": "Aplicar",
     "refresh": "Actualizar",
     "portHint": "Los puertos opcionales pueden ser 0 para desactivar el servicio. Los demás deben estar entre 10000 y 65535.",

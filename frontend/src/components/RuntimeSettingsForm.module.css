@@ -19,6 +19,7 @@
 .field :global(.cbx-select) { justify-content: space-between; text-align: left; }
 .port { box-sizing: border-box; padding: 8px 12px; font-size: 13px; }
 .fields :disabled { opacity: 0.55; cursor: not-allowed; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .results { margin-top: 16px; }
 .result { border-top: 1px solid var(--border); padding: 10px 0; overflow-wrap: anywhere; }
 .name { display: block; margin-bottom: 4px; font-weight: 600; }

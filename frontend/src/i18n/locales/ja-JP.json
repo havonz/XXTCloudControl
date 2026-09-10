@@ -710,6 +710,7 @@
     "webdav_port": "WebDAV ポート",
     "log_port": "ログポート",
     "preview": "変更をプレビュー",
+    "restoreDefaultPorts": "ポートを初期値に戻す",
     "apply": "適用",
     "refresh": "更新",
     "portHint": "任意のポートは 0 でサービスを無効にできます。それ以外は 10000–65535 を指定してください。",

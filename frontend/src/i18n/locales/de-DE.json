@@ -848,6 +848,7 @@
     "webdav_port": "WebDAV-Port",
     "log_port": "Protokollport",
     "preview": "Änderungen prüfen",
+    "restoreDefaultPorts": "Standardports wiederherstellen",
     "apply": "Anwenden",
     "refresh": "Aktualisieren",
     "portHint": "Optionale Ports können mit 0 deaktiviert werden. Alle anderen Ports müssen zwischen 10000 und 65535 liegen.",

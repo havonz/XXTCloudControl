@@ -710,6 +710,7 @@
     "webdav_port": "WebDAV port",
     "log_port": "Log port",
     "preview": "Preview changes",
+    "restoreDefaultPorts": "Restore default ports",
     "apply": "Apply",
     "refresh": "Refresh",
     "portHint": "Optional ports can be 0 to disable the service. Other ports must be 10000–65535.",

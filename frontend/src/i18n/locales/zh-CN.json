@@ -710,6 +710,7 @@
     "webdav_port": "WebDAV 端口",
     "log_port": "日志端口",
     "preview": "预览变化",
+    "restoreDefaultPorts": "恢复默认端口",
     "apply": "应用",
     "refresh": "刷新",
     "portHint": "可选端口设为 0 可关闭对应服务，其余端口范围为 10000–65535。",
