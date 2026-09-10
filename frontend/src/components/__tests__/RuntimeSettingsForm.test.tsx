@@ -96,9 +96,6 @@ describe('runtime settings batch preview', () => {
     const input = host.querySelector('#runtime-log_port') as HTMLInputElement;
     input.focus(); input.value = '0'; input.dispatchEvent(new Event('input', { bubbles: true }));
     expect(host.querySelector('#runtime-log_port')).toBe(input); expect(document.activeElement).toBe(input);
-    click('预览变化');
-    expect(host.textContent).toContain('50153 → 50153');
-    expect(host.textContent).toContain('46953 → 46953');
     click('应用'); await flush();
     expect(apply).toHaveBeenCalledTimes(2);
     expect(host.textContent).toContain('已发起');
@@ -191,5 +188,89 @@ describe('runtime settings modal interactions', () => {
     finishApply(); await flush();
     expect(service.get('one')?.state).toBe('submitted');
     expect(apply).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runtime settings direct apply', () => {
+  function mountForm(service: RuntimeSettingsService) {
+    const host = document.createElement('div'); document.body.appendChild(host);
+    disposers.push(render(() => <I18nProvider defaultLocale="zh-CN"><RuntimeSettingsForm
+      targets={[{ id: 'one', name: '第一台' }]} service={service} concurrency={1} onClose={() => {}}
+    /></I18nProvider>, host));
+    const button = Array.from(host.querySelectorAll('button')).find(element => element.textContent === '应用')!;
+    return { host, button };
+  }
+
+  it('applies valid ports including disabled optional services without previewing', async () => {
+    const apply = vi.fn(async () => undefined);
+    const service = serviceFor({ apply, read: async id => ({ ...initial(id), profile_generation: 2 }) });
+    const { host, button } = mountForm(service);
+    await flush();
+    for (const [key, value] of Object.entries({ port: 56952, udp_port: 0, webdav_port: 0, log_port: 0 })) {
+      const input = host.querySelector(`#runtime-${key}`) as HTMLInputElement;
+      input.value = String(value); input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    expect(button.disabled).toBe(false);
+    button.click(); await flush();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledWith('one', {
+      expected_revision: 4, settings: { port: 56952, udp_port: 0, webdav_port: 0, log_port: 0 },
+    });
+  });
+
+  it('submits the current input after editing an earlier preview', async () => {
+    const apply = vi.fn(async () => undefined);
+    const service = serviceFor({ apply, read: async id => initial(id) });
+    const { host, button } = mountForm(service);
+    await flush(); click('预览变化');
+    const input = host.querySelector('#runtime-port') as HTMLInputElement;
+    input.value = '56952'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(button.disabled).toBe(false);
+    button.click(); await flush();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledWith('one', {
+      expected_revision: 4, settings: { ...initial('one').active, port: 56952 },
+    });
+  });
+
+  it.each(['', '0', '9999', '65536', '46957'])('rejects invalid API port %j and enables apply as soon as it is corrected', async invalid => {
+    const apply = vi.fn(async () => undefined);
+    const service = serviceFor({ apply, read: async id => initial(id) });
+    const { host, button } = mountForm(service);
+    await flush();
+    const input = host.querySelector('#runtime-port') as HTMLInputElement;
+    input.value = invalid; input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(button.disabled).toBe(true);
+    expect(host.textContent).toContain('端口无效');
+    button.click(); expect(apply).not.toHaveBeenCalled();
+    input.value = '56952'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(button.disabled).toBe(false);
+    expect(host.textContent).not.toContain('端口无效');
+    button.click(); await flush();
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks apply during loading and submitting and sends only once for repeated clicks', async () => {
+    let finishRead!: (status: RuntimeStatus) => void;
+    let finishApply!: () => void;
+    const read = vi.fn(async (id: string) => initial(id));
+    read.mockImplementationOnce(() => new Promise<RuntimeStatus>(resolve => { finishRead = resolve; }));
+    const apply = vi.fn(async () => { await new Promise<void>(resolve => { finishApply = resolve; }); return undefined; });
+    const service = serviceFor({ apply, read });
+    const { host, button } = mountForm(service);
+    expect(button.disabled).toBe(true);
+    finishRead(initial('one')); await flush();
+    expect(button.disabled).toBe(false);
+    button.click(); button.click(); await flush();
+    expect(button.disabled).toBe(true);
+    expect(apply).toHaveBeenCalledTimes(1);
+    finishApply(); await flush();
+    expect(button.disabled).toBe(false);
+    read.mockImplementationOnce(() => new Promise<RuntimeStatus>(resolve => { finishRead = resolve; }));
+    click('刷新');
+    expect(button.disabled).toBe(true);
+    finishRead({ ...initial('one'), busy: true }); await flush();
+    expect(button.disabled).toBe(true);
+    expect(host.textContent).toContain('设备正在更新配置');
   });
 });

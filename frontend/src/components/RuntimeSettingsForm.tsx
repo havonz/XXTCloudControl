@@ -70,29 +70,32 @@ export default function RuntimeSettingsForm(props: { targets: RuntimeTarget[]; s
     setChecked(new Set(props.targets.length === 1 ? [...runtimePortKeys, 'deviceDirectory'] : []));
     void refresh();
   }));
-  const preview = () => {
+  const previewRows = createMemo<PreviewRow[]>(() => {
     const patch: Partial<RuntimePorts> & { deviceDirectory?: boolean } = {};
     for (const key of runtimePortKeys) if (checked().has(key)) patch[key] = values()[key];
     if (checked().has('deviceDirectory')) patch.deviceDirectory = directory();
-    setRows(items => items.map(row => {
-      if (!row.before || row.loadError) return row;
-      try { return { ...row, error: undefined, change: prepareRuntimeChange(row.target.id, row.before, patch) }; }
-      catch (error) { return { ...row, change: undefined, error: errorMessage(error) }; }
-    }));
-    setPreviewed(true);
-  };
+    return rows().map(row => {
+      if (!checked().size || !row.before || row.loadError) return row;
+      try { return { ...row, change: prepareRuntimeChange(row.target.id, row.before, patch) }; }
+      catch (error) { return { ...row, error: errorMessage(error) }; }
+    });
+  });
   const submit = async () => {
-    if (!previewed() || submitting()) return;
+    if (loading() || submitting()) return;
+    const changes = previewRows().filter(row => row.change).map(row => row.change!);
+    if (!changes.length) return;
     setSubmitting(true);
-    const changes = rows().filter(row => row.change && !row.error).map(row => row.change!);
+    setRows(items => items.map(row => row.loadError ? row : { ...row, error: undefined }));
     const worker = async (change: PendingRuntimeChange) => {
       try { await props.service.submit(change); }
       catch (error) { if (!closed) setRows(items => items.map(item => item.target.id === change.deviceId ? { ...item, error: errorMessage(error) } : item)); }
     };
-    if (props.runBatch) await props.runBatch(changes, worker);
-    else await work(changes, worker);
-
-    if (!closed) { setSubmitting(false); setPreviewed(false); }
+    try {
+      if (props.runBatch) await props.runBatch(changes, worker);
+      else await work(changes, worker);
+    } finally {
+      if (!closed) { setSubmitting(false); setPreviewed(false); }
+    }
   };
   const toggle = (key: string, value: boolean) => { setChecked(previous => { const next = new Set(previous); if (value) next.add(key); else next.delete(key); return next; }); setPreviewed(false); };
   return <div class={styles.form}>
@@ -132,10 +135,10 @@ export default function RuntimeSettingsForm(props: { targets: RuntimeTarget[]; s
           <input class={`${modalStyles.patternInput} ${styles.port}`} id={`runtime-${key}`} aria-label={label(key)} type="number" min={key === 'port' ? 10000 : 0} max="65535" step="1" value={values()[key]} disabled={!checked().has(key)} onInput={event => { setValues(previous => ({ ...previous, [key]: event.currentTarget.value === '' ? NaN : Number(event.currentTarget.value) })); setPreviewed(false); }} />
         </div>}</For>
         <p class={styles.hint}>{t('runtime.portHint')}</p>
-        <button class={modalStyles.exampleButton} onClick={preview} disabled={!checked().size || loading()}>{t('runtime.preview')}</button>
+        <button class={modalStyles.exampleButton} onClick={() => setPreviewed(true)} disabled={!checked().size || loading()}>{t('runtime.preview')}</button>
       </fieldset>
       <div class={styles.results} aria-live="polite">
-        <For each={rows()}>{row => <section class={styles.result}>
+        <For each={previewRows()}>{row => <section class={styles.result}>
           <strong class={styles.name}>{row.target.name}</strong>
           <Show when={row.before}>{before => <>
             <dl class={styles.details}>
@@ -157,7 +160,7 @@ export default function RuntimeSettingsForm(props: { targets: RuntimeTarget[]; s
     <div class={modalStyles.footer}>
       <button class={`${modalStyles.cancelButton} ${styles.close}`} title={`${t('runtime.close')} (Esc)`} onClick={props.onClose}><span>{t('runtime.close')}</span></button>
       <button class={modalStyles.cancelButton} disabled={loading() || submitting()} onClick={() => void refresh()}>{t('runtime.refresh')}</button>
-      <button class={modalStyles.submitButton} disabled={!previewed() || submitting() || !rows().some(row => row.change && !row.error)} onClick={() => void submit()}>{t('runtime.apply')}</button>
+      <button class={modalStyles.submitButton} disabled={loading() || submitting() || !previewRows().some(row => row.change)} onClick={() => void submit()}>{t('runtime.apply')}</button>
     </div>
   </div>;
 }
