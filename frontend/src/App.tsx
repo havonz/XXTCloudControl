@@ -659,8 +659,8 @@ const App: Component = () => {
               type: file.type === 'dir' ? 'directory' : 'file'
             }));
             setFileList(mappedFiles);
-          } else {
-            setFileList([]);
+          } else if (message.error) {
+            toast.error(localizeApiError(message.error, t).message);
           }
           setIsLoadingFiles(false);
         } else if (message.type === 'file/put' || message.type === 'file/delete') {

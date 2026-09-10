@@ -1,3 +1,5 @@
+import { RuntimeSettingsService } from './runtimeSettingsService';
+import { decodeRuntimeResponse, parseRuntimeStatus, RuntimeSettingsError } from './runtimeSettingsProtocol';
 /**
  * Device Control Service
  * Sends control/http messages via WebSocket to proxy HTTP requests to device OpenAPI
@@ -32,6 +34,7 @@ export interface DeviceRenameResult extends DeviceRenameItem {
 
 export class DeviceControlService {
   private httpClient: ControlHttpClient;
+  readonly runtimeSettings: RuntimeSettingsService;
 
   constructor(wsService: WebSocketService, password: string) {
     this.httpClient = new ControlHttpClient({
@@ -39,6 +42,24 @@ export class DeviceControlService {
       password,
       requestIdPrefix: 'ctrl',
       defaultTimeoutMs: 15000,
+    });
+    this.runtimeSettings = new RuntimeSettingsService({
+      read: async id => {
+        const response = await this.httpClient.send({ devices: [id], method: 'GET', path: '/runtime_settings/status', timeoutMs: 7000 });
+        if ([404, 405, 501].includes(response.statusCode)) {
+          const info = await this.getDeviceInfo(id);
+          if (!info.success || info.data?.deviceid !== id) throw new RuntimeSettingsError('connection', 'Could not verify the device identity');
+        }
+        const status = parseRuntimeStatus(decodeRuntimeResponse(response.statusCode, response.body));
+        if (status.deviceid && status.deviceid !== id) throw new RuntimeSettingsError('invalid', 'Device identity does not match');
+        if (!status.deviceid) {
+          const info = await this.getDeviceInfo(id);
+          if (!info.success || info.data?.deviceid !== id) throw new RuntimeSettingsError('connection', 'Could not verify the device identity');
+          status.deviceid = id;
+        }
+        return status;
+      },
+      apply: (id, body) => this.httpClient.dispatch({ devices: [id], method: 'POST', path: '/runtime_settings/apply', body, timeoutMs: 20000 }),
     });
   }
 
@@ -226,6 +247,7 @@ export class DeviceControlService {
    * Cleanup resources
    */
   destroy(): void {
+    this.runtimeSettings.dispose();
     this.httpClient.destroy();
   }
 }

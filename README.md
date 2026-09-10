@@ -11,6 +11,10 @@
   <img alt="XXTCloudControl screenshot" src="site/public/screenshot-001.png">
 </picture>
 
+## 目录与端口
+
+支持单台与批量配置设备目录模式、API／UDP／WebDAV／日志端口。修改只发起一次，设备完成后重新连接云控。使用方法及兼容约定见[运行配置协议](docs/runtime-settings.md)。
+
 ## 发布地址
 
 - 官方发布下载页（GitHub Pages）：[https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

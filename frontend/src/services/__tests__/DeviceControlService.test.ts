@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DeviceControlService } from '../DeviceControlService';
+import { prepareRuntimeChange } from '../runtimeSettingsProtocol';
 import type { WebSocketService } from '../WebSocketService';
 import { localeStorageKey } from '../../i18n';
 
@@ -80,6 +81,43 @@ describe('DeviceControlService control/http requests', () => {
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
     localeStorage.clear();
+  });
+
+  it('目录端口请求发出即结束，不等待 HTTP 回包或轮询设备', async () => {
+    vi.useFakeTimers();
+    const { sentMessages, wsService } = createWebSocketService();
+    const service = new DeviceControlService(wsService, 'password');
+    const change = prepareRuntimeChange('device-1', {
+      ok: true, ready: true, deviceid: 'device-1', revision: 4, profile_generation: 1,
+      document_path: '/var/mobile/Media/1ferver', configuration_path: '/var/mobile/Media/1ferver/1ferver.conf',
+      active: { port: 46952, udp_port: 46953, webdav_port: 0, log_port: 0 },
+    }, { udp_port: 50153 });
+    await service.runtimeSettings.submit(change);
+    expect(service.runtimeSettings.get('device-1')?.state).toBe('submitted');
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]).toMatchObject({ type: 'control/http', body: {
+      devices: ['device-1'], method: 'POST', path: '/runtime_settings/apply', timeoutMs: 20000,
+    } });
+    expect(decodeJsonBody(sentMessages[0].body.body)).toEqual(change.request);
+    expect(sentMessages[0].body.requestId).toBeTruthy();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(300001);
+    expect(sentMessages).toHaveLength(1);
+    service.destroy();
+  });
+
+  it('目录端口请求无法发送时展示错误，不留下待确认状态', async () => {
+    vi.useFakeTimers();
+    const { wsService } = createWebSocketService();
+    vi.mocked(wsService.send).mockReturnValue(false);
+    const service = new DeviceControlService(wsService, 'password');
+    await service.runtimeSettings.submit({ deviceId: 'device-1', profileGeneration: 1, startedAt: Date.now(),
+      request: { expected_revision: 4, settings: { port: 50152, udp_port: 50153, webdav_port: 0, log_port: 0 } },
+    });
+    expect(service.runtimeSettings.get('device-1')?.state).toBe('failed');
+    expect(service.runtimeSettings.get('device-1')?.error).toBeTruthy();
+    expect(vi.getTimerCount()).toBe(0);
+    service.destroy();
   });
 
   it('同一个客户端实例在每次发送时读取当前前端语言', async () => {

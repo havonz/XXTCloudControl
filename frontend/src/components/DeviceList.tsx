@@ -1,3 +1,5 @@
+import RuntimeSettingsModal from './RuntimeSettingsModal';
+import type { RuntimeTarget } from './RuntimeSettingsForm';
 import { Component, createSignal, For, Accessor, Show, createEffect, createMemo, JSX, onMount, onCleanup } from 'solid-js';
 import { AuthService, Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
@@ -216,12 +218,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [volumeValue, setVolumeValue] = createSignal(50);
   const [isSettingVolume, setIsSettingVolume] = createSignal(false);
   const [isBatchSnapshotting, setIsBatchSnapshotting] = createSignal(false);
+  const [runtimeTargets, setRuntimeTargets] = createSignal<RuntimeTarget[]>([]);
+  const openRuntimeSettings = (devices: Device[]) => { closeContextMenu(); setShowMoreActions(false); setRuntimeTargets(devices.map(device => ({ id: device.udid, name: device.system?.name || device.udid }))); };
   const [showBatchRenameModal, setShowBatchRenameModal] = createSignal(false);
   const [batchRenameTargets, setBatchRenameTargets] = createSignal<BatchRenameTarget[]>([]);
   
   // DeviceControlService instance (lazily created when needed)
   let deviceControlService: DeviceControlService | null = null;
+  let controlServiceSocket: WebSocketService | null = null;
   const getDeviceControlService = () => {
+    if (controlServiceSocket !== props.webSocketService) { deviceControlService?.destroy(); deviceControlService = null; controlServiceSocket = props.webSocketService; }
     if (!deviceControlService && props.webSocketService) {
       const password = authService.getCurrentCredentials()?.password || '';
       deviceControlService = new DeviceControlService(props.webSocketService, password);
@@ -1851,6 +1857,9 @@ const DeviceList: Component<DeviceListProps> = (props) => {
             </button>
             <Show when={showMoreActions()}>
               <div class={styles.moreActionsMenu}>
+                <button class={styles.menuItem} onClick={() => openRuntimeSettings(props.selectedDevices())} disabled={!props.selectedDevices().length}>
+                  <IconEllipsis size={14} /><span>{t('runtime.title')}</span>
+                </button>
                 <button 
                   class={styles.menuItem}
                   onClick={() => {
@@ -2590,7 +2599,10 @@ const DeviceList: Component<DeviceListProps> = (props) => {
           webSocketService={props.webSocketService}
         />
 
-        <BatchRenameModal
+        <Show when={runtimeTargets().length > 0 && getDeviceControlService()}>{service =>
+        <RuntimeSettingsModal open={true} targets={runtimeTargets()} service={service().runtimeSettings} onClose={() => setRuntimeTargets([])} />
+      }</Show>
+      <BatchRenameModal
           open={showBatchRenameModal()}
           targets={batchRenameTargets()}
           onClose={() => setShowBatchRenameModal(false)}
@@ -2613,6 +2625,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
                 <ContextMenuButton onClick={handleContextMenuCopySelectedLastLogs}>{t('device_list.copy_selected_last_log')}</ContextMenuButton>
                 <ContextMenuButton onClick={handleContextMenuCopySelectedScriptSelects}>{t('device_list.copy_selected_script')}</ContextMenuButton>
                 <Show when={selectedCountInView() > 0}>
+                  <ContextMenuButton onClick={() => openRuntimeSettings(props.selectedDevices())}>{t('runtime.title')}</ContextMenuButton>
                   <ContextMenuButton onClick={handleOpenBatchRename}>{t('device_list.batch_rename.menu')}</ContextMenuButton>
                 </Show>
                 <Show when={props.onOpenAddToGroupModal}>
@@ -2643,6 +2656,7 @@ const DeviceList: Component<DeviceListProps> = (props) => {
               <Show when={!showSelectedDevicesContextSection() && contextMenuDeviceIsOnlySelectedDevice()}>
                 <ContextMenuButton onClick={handleOpenBatchRename}>{t('device_list.batch_rename.menu')}</ContextMenuButton>
               </Show>
+              <ContextMenuButton onClick={() => { const device = contextMenuDevice(); if (device) openRuntimeSettings([device]); }}>{t('runtime.title')}</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuOpenFileBrowser}>{t('device_list.browse_files')}</ContextMenuButton>
               <ContextMenuButton onClick={handleContextMenuOpenLogStream}>{t('device_list.view_live_logs')}</ContextMenuButton>
               <Show when={props.onOpenAddToGroupModal && contextMenuDeviceIsOnlySelectedDevice()}>

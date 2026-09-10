@@ -29,6 +29,7 @@ interface ControlHttpMessageBody {
   headers: Record<string, string>;
   body?: string;
   port?: number;
+  timeoutMs?: number;
 }
 
 export interface ControlHttpClientOptions {
@@ -128,6 +129,13 @@ export class ControlHttpClient {
     });
   }
 
+  dispatch(options: ControlHttpRequestOptions): void {
+    if (this.isDestroyed) throw new Error(translate(getCurrentLocale(), 'websocket.service_destroyed'));
+    const requestBody = this.buildRequestBody(generateRequestId(this.requestIdPrefix), options);
+    const message = AuthService.getInstance().createControlMessage(this.password, 'control/http', requestBody);
+    if (!this.wsService.send(message)) throw new Error(translate(getCurrentLocale(), 'websocket.send_failed'));
+  }
+
   private buildRequestBody(requestId: string, options: ControlHttpRequestOptions): ControlHttpMessageBody {
     return {
       devices: options.devices,
@@ -141,6 +149,7 @@ export class ControlHttpClient {
       },
       body: options.body ? encodeBody(JSON.stringify(options.body)) : undefined,
       port: options.port,
+      timeoutMs: options.timeoutMs ?? this.defaultTimeoutMs,
     };
   }
 

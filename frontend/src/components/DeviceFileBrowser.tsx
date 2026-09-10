@@ -130,6 +130,15 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     }
   });
 
+  const runtimeUpdated = (event: Event) => {
+    if (!props.isOpen || (event as CustomEvent).detail?.deviceId !== props.deviceUdid) return;
+    setSelectedItems(new Set<string>());
+    setClipboard(null);
+    props.onListFiles(props.deviceUdid, currentPath());
+  };
+  window.addEventListener('runtime-settings-updated', runtimeUpdated);
+  onCleanup(() => window.removeEventListener('runtime-settings-updated', runtimeUpdated));
+
   // 文件排序函数：文件夹在前，文件在后，都按名称正序排序
   const sortedFiles = createMemo(() => {
     let result = [...props.files].sort((a, b) => {
