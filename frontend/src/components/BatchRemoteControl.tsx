@@ -119,6 +119,14 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const COMPACT_PANEL_BREAKPOINT = 885;
   const currentIsOpen = createMemo(() => props.isOpen);
   const currentDevices = createMemo(() => props.devices);
+  // 面板打开期间仍需识别设备重连和能力变化，状态查询必须使用最新上报。
+  const currentDeviceByUdid = createMemo(() => {
+    const devices = new Map<string, Device>();
+    for (const device of currentDevices()) {
+      devices.set(device.udid, device);
+    }
+    return devices;
+  });
   const currentWebSocketService = createMemo(() => props.webSocketService);
   const currentPassword = createMemo(() => props.password);
   const [connectionStates, setConnectionStates] = createStore<Record<string, ConnectionViewState>>({});
@@ -183,7 +191,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const isCompactPanel = createMemo(() => !isViewportMobile() && panelWidth() < COMPACT_PANEL_BREAKPOINT);
   const usesSidebarLayout = createMemo(() => isViewportMobile() || isCompactPanel());
   const getLayoutMaxColumns = () => (usesSidebarLayout() ? MOBILE_MAX_COLUMNS : DESKTOP_MAX_COLUMNS);
-  const deviceByUdid = createMemo(() => new Map(cachedDevices().map((device) => [device.udid, device])));
+  const cachedDeviceByUdid = createMemo(() => new Map(cachedDevices().map((device) => [device.udid, device])));
 
   const writePersistedSettings = () => {
     if (persistSettingsTimer) {
@@ -800,7 +808,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
         setVisibleDevices(nextVisible);
 
         becameVisible.forEach((udid) => {
-          const device = deviceByUdid().get(udid);
+          const device = cachedDeviceByUdid().get(udid);
           if (!device) return;
           const currentState = getConnectionState(udid);
           if (!getService(udid) || currentState.state === 'disconnected') {
@@ -986,7 +994,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   };
   // 获取当前选中的设备列表 (被勾选的)
   const getCheckedDevicesList = (): string[] => {
-    const available = new Set(currentDevices().map(device => device.udid));
+    const available = currentDeviceByUdid();
     return [...checkedDevices()].filter(udid => available.has(udid));
   };
   
@@ -1041,8 +1049,18 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   };
 
   const isHardwareKeyboardCapable = (udid: string) => {
-    return supportsGlobalHardwareKeyboard(currentDevices().find(device => device.udid === udid));
+    return supportsGlobalHardwareKeyboard(currentDeviceByUdid().get(udid));
   };
+
+  const capableHardwareKeyboardDeviceIds = createMemo(() => {
+    const capable = new Set<string>();
+    for (const device of cachedDevices()) {
+      if (isHardwareKeyboardCapable(device.udid)) {
+        capable.add(device.udid);
+      }
+    }
+    return capable;
+  });
 
   const showHardwareKeyboardError = () => {
     setHardwareKeyboardError(t('remote.hardware_keyboard_failed'));
@@ -1072,7 +1090,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   };
 
   createEffect(() => {
-    const available = new Set(currentDevices().map(device => device.udid));
+    const available = currentDeviceByUdid();
     const nextTargets = new Set(
       [...checkedDevices()].filter(udid => available.has(udid))
     );
@@ -1129,9 +1147,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const selectedHardwareKeyboardStates = createMemo(() => {
     const checked = checkedDevices();
     const states = hardwareKeyboards();
-    return cachedDevices()
-      .filter(device => checked.has(device.udid) && isHardwareKeyboardCapable(device.udid))
-      .map(device => ({ udid: device.udid, state: states[device.udid] }))
+    return [...capableHardwareKeyboardDeviceIds()]
+      .filter(udid => checked.has(udid))
+      .map(udid => ({ udid, state: states[udid] }))
       .filter(({ udid, state }) =>
         state?.supported && state.channel === getHardwareKeyboardRoute(udid)
       ) as Array<{ udid: string; state: BatchHardwareKeyboardState }>;
@@ -1145,9 +1163,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const selectedHardwareKeyboardTargetsResolved = createMemo(() => {
     const checked = checkedDevices();
     const states = hardwareKeyboards();
-    return cachedDevices()
-      .filter(device => checked.has(device.udid) && isHardwareKeyboardCapable(device.udid))
-      .every(device => states[device.udid]?.channel === getHardwareKeyboardRoute(device.udid));
+    return [...capableHardwareKeyboardDeviceIds()]
+      .filter(udid => checked.has(udid))
+      .every(udid => states[udid]?.channel === getHardwareKeyboardRoute(udid));
   });
 
   const selectedHardwareKeyboardPending = createMemo(() => {
@@ -1430,11 +1448,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       return;
     }
     const checked = checkedDevices();
-    const capable = new Map(
-      cachedDevices()
-        .filter(device => isHardwareKeyboardCapable(device.udid))
-        .map(device => [device.udid, device])
-    );
+    const capable = capableHardwareKeyboardDeviceIds();
     const tracked = new Set([
       ...lastHardwareKeyboardRoute.keys(),
       ...desiredHardwareKeyboardDevices,
@@ -1485,7 +1499,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       }
     }
 
-    for (const [udid] of capable) {
+    for (const udid of capable) {
       if (!checked.has(udid)) {
         continue;
       }

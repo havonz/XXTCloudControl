@@ -508,4 +508,106 @@ describe('硬件键盘实时控制', () => {
 
     mounted.dispose();
   });
+
+  it('批控按最新上报更新键盘能力并保持设备卡片稳定', async () => {
+    const ws = new WebSocketServiceMock();
+    const [devices, setDevices] = createSignal([device('a', false), device('b', false)]);
+    const mounted = mountBatch(devices, ws);
+    try {
+      await flush();
+      selectAllDevices();
+      await flush();
+      const cardA = document.querySelector('[data-udid="a"]');
+      const cardB = document.querySelector('[data-udid="b"]');
+      expect(cardA).toBeTruthy();
+      expect(cardB).toBeTruthy();
+      expect(ws.sendGlobalHardwareKeyboardCommand).not.toHaveBeenCalled();
+
+      setDevices([device('a', true), device('b', false)]);
+      await flush();
+      expect(ws.sendGlobalHardwareKeyboardCommand).toHaveBeenCalledTimes(1);
+      const owner = ws.sendGlobalHardwareKeyboardCommand.mock.calls[0][2];
+      expect(ws.sendGlobalHardwareKeyboardCommand).toHaveBeenLastCalledWith(['a'], 'status', owner);
+
+      setDevices([device('a', false), device('b', true)]);
+      await flush();
+      expect(ws.sendGlobalHardwareKeyboardCommand).toHaveBeenCalledTimes(2);
+      expect(ws.sendGlobalHardwareKeyboardCommand).toHaveBeenLastCalledWith(['b'], 'status', owner);
+      expect(document.querySelector('[data-udid="a"]')).toBe(cardA);
+      expect(document.querySelector('[data-udid="b"]')).toBe(cardB);
+
+      emitKeyboardState(ws, 'b', owner, 'status', false);
+      await flush();
+      clickButton('连接键盘');
+      await flush();
+      expect(ws.sendGlobalHardwareKeyboardCommand).toHaveBeenLastCalledWith(['b'], 'connect', owner);
+    } finally {
+      mounted.dispose();
+    }
+  });
+
+  it('批控移除设备后释放已按下的按键并更新后续控制目标', async () => {
+    const ws = new WebSocketServiceMock();
+    const [devices, setDevices] = createSignal([device('a', false), device('b', false)]);
+    const mounted = mountBatch(devices, ws);
+    try {
+      await flush();
+      selectAllDevices();
+      await flush();
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', key: 'a', bubbles: true }));
+      expect(ws.keyDownMultiple).toHaveBeenLastCalledWith(['a', 'b'], 'A');
+
+      setDevices([device('b', false)]);
+      await flush();
+      expect(ws.keyUpMultiple).toHaveBeenCalledTimes(1);
+      expect(ws.keyUpMultiple).toHaveBeenLastCalledWith(['a'], 'A');
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyB', key: 'b', bubbles: true }));
+      expect(ws.keyDownMultiple).toHaveBeenLastCalledWith(['b'], 'B');
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyA', key: 'a', bubbles: true }));
+      expect(ws.keyUpMultiple).toHaveBeenLastCalledWith(['b'], 'A');
+    } finally {
+      mounted.dispose();
+    }
+  });
+
+  it('批控状态响应和列表刷新时的设备遍历量保持线性', async () => {
+    for (const count of [100, 200, 400]) {
+      const ws = new WebSocketServiceMock();
+      let idReads = 0;
+      const trackedDevices = Array.from({ length: count }, (_, index) => {
+        const udid = `indexed-${index}`;
+        const target = device(udid, true);
+        Object.defineProperty(target, 'udid', {
+          get: () => { idReads++; return udid; },
+          enumerable: true,
+        });
+        return target;
+      });
+      const [devices, setDevices] = createSignal(trackedDevices);
+      const mounted = mountBatch(devices, ws);
+      try {
+        await flush(120);
+        selectAllDevices();
+        await flush();
+        expect(ws.sendGlobalHardwareKeyboardCommand).toHaveBeenCalledTimes(count);
+        const owner = ws.sendGlobalHardwareKeyboardCommand.mock.calls[0][2];
+
+        // 计数而非计时，避免运行机器的速度影响性能回归判断。
+        idReads = 0;
+        emitKeyboardState(ws, 'indexed-0', owner, 'status', false);
+        await flush();
+        expect(idReads, `${count} devices: one status response`).toBeLessThan(count * 12);
+
+        idReads = 0;
+        setDevices([...trackedDevices]);
+        await flush();
+        expect(idReads, `${count} devices: refreshed device list`).toBeLessThan(count * 12);
+        expect(ws.sendGlobalHardwareKeyboardCommand).toHaveBeenCalledTimes(count);
+      } finally {
+        mounted.dispose();
+        await flush();
+      }
+    }
+  });
 });
