@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"sync"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 // Build information (injected via -ldflags at compile time)
@@ -117,38 +115,6 @@ var serverConfig ServerConfig
 
 // Passhash for signature validation
 var passhash []byte
-
-// SafeConn is a thread-safe WebSocket connection wrapper
-type SafeConn struct {
-	conn             *websocket.Conn
-	mu               sync.Mutex
-	writeMessageHook func(messageType int, data []byte) error
-}
-
-// WriteMessage writes a message to the WebSocket connection (thread-safe)
-func (sc *SafeConn) WriteMessage(messageType int, data []byte) error {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
-	if sc.writeMessageHook != nil {
-		return sc.writeMessageHook(messageType, data)
-	}
-	return sc.conn.WriteMessage(messageType, data)
-}
-
-// ReadMessage reads a message from the WebSocket connection
-func (sc *SafeConn) ReadMessage() (int, []byte, error) {
-	return sc.conn.ReadMessage()
-}
-
-// Close closes the WebSocket connection
-func (sc *SafeConn) Close() error {
-	return sc.conn.Close()
-}
-
-// RemoteAddr returns the remote address of the connection
-func (sc *SafeConn) RemoteAddr() string {
-	return sc.conn.RemoteAddr().String()
-}
 
 // Message represents a WebSocket message
 type Message struct {

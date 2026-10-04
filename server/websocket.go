@@ -26,22 +26,7 @@ var upgrader = websocket.Upgrader{
 const binaryHeaderSize = 24
 const stateRefreshIdleInterval = 300 * time.Second
 
-// Cap concurrent async socket writes to avoid goroutine spikes under fan-out traffic.
-var asyncWriteSlots = make(chan struct{}, 512)
 var lastStateRefreshWithoutControllersUnix int64
-
-func runAsyncWrite(task func()) {
-	select {
-	case asyncWriteSlots <- struct{}{}:
-		go func() {
-			defer func() { <-asyncWriteSlots }()
-			task()
-		}()
-	default:
-		// Queue is full: fallback to inline write to apply backpressure.
-		task()
-	}
-}
 
 func parseBinaryHeader(data []byte) (string, uint32, uint32, bool) {
 	if len(data) < binaryHeaderSize {
@@ -53,13 +38,6 @@ func parseBinaryHeader(data []byte) (string, uint32, uint32, bool) {
 	return reqID, seq, total, true
 }
 
-func sendBinaryMessage(conn *SafeConn, payload []byte) error {
-	if conn == nil {
-		return nil
-	}
-	return conn.WriteMessage(websocket.BinaryMessage, payload)
-}
-
 func writeTextMessage(conn *SafeConn, payload []byte) error {
 	if conn == nil {
 		return nil
@@ -68,15 +46,15 @@ func writeTextMessage(conn *SafeConn, payload []byte) error {
 }
 
 func writeTextMessageAsync(conn *SafeConn, payload []byte) {
-	runAsyncWrite(func() {
-		_ = writeTextMessage(conn, payload)
-	})
+	if conn != nil {
+		_ = conn.WriteMessagesAsync(websocket.TextMessage, [][]byte{payload})
+	}
 }
 
 func sendBinaryMessageAsync(conn *SafeConn, payload []byte) {
-	runAsyncWrite(func() {
-		_ = sendBinaryMessage(conn, payload)
-	})
+	if conn != nil {
+		_ = conn.WriteMessagesAsync(websocket.BinaryMessage, [][]byte{payload})
+	}
 }
 
 func toInt(value interface{}) (int, bool) {
@@ -788,12 +766,7 @@ func forwardDeviceMessageToControllers(conn *SafeConn, data Message) error {
 		return err
 	}
 	for _, controllerConn := range controllerList {
-		if data.Type == "key/global-keyboard" {
-			// 键盘归属状态依赖响应顺序，当前设备读循环内同步写入可保持 FIFO。
-			_ = writeTextMessage(controllerConn, encodedData)
-		} else {
-			writeTextMessageAsync(controllerConn, encodedData)
-		}
+		writeTextMessageAsync(controllerConn, encodedData)
 	}
 	return nil
 }
@@ -903,14 +876,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 				if messageCode != "" {
 					broadcastDeviceMessage(udid, messageCode, nil)
 				}
-				if cmdBody.Type == "key/global-keyboard" {
-					// 该低频命令会改变租约状态，必须先完成本次写入再处理后续命令或断线清理。
-					if err := writeTextMessage(deviceConn, cmdBytes); err != nil {
-						log.Printf("Failed to send hardware keyboard command to %s: %v", udid, err)
-					}
-				} else {
-					writeTextMessageAsync(deviceConn, cmdBytes)
-				}
+				writeTextMessageAsync(deviceConn, cmdBytes)
 			}
 		}
 
@@ -1038,14 +1004,8 @@ func handleMessage(conn *SafeConn, data Message) error {
 
 		for _, udid := range httpReq.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
-				deviceUDID := udid
-				dc := deviceConn
 				httpDebugf("[http] Sending http/request to device %s", udid)
-				runAsyncWrite(func() {
-					if err := writeTextMessage(dc, httpBytes); err != nil {
-						log.Printf("[http] Failed to send to device %s: %v", deviceUDID, err)
-					}
-				})
+				writeTextMessageAsync(deviceConn, httpBytes)
 			} else {
 				httpDebugf("[http] Device %s not found in deviceLinks", udid)
 			}
@@ -1102,21 +1062,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 
 		for _, udid := range httpReq.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
-				deviceUDID := udid
-				dc := deviceConn
 				httpDebugf("[http-bin] Sending http/request-bin to device %s", udid)
-				if httpReq.BodySize > 0 {
-					// 请求体分片随后会到达，必须先让设备建立 pending_http_bin，否则早到分片会被丢弃。
-					if err := writeTextMessage(dc, httpBytes); err != nil {
-						log.Printf("[http-bin] Failed to send to device %s: %v", deviceUDID, err)
-					}
-					continue
-				}
-				runAsyncWrite(func() {
-					if err := writeTextMessage(dc, httpBytes); err != nil {
-						log.Printf("[http-bin] Failed to send to device %s: %v", deviceUDID, err)
-					}
-				})
+				// 元数据与随后到达的分片进入同一 FIFO，无需阻塞当前控制端的读循环。
+				writeTextMessageAsync(deviceConn, httpBytes)
 			} else {
 				httpDebugf("[http-bin] Device %s not found in deviceLinks", udid)
 			}
@@ -1236,7 +1184,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 		}
 
 		if routeController != nil {
-			if err := writeTextMessage(routeController, encodedData); err == nil {
+			if err := routeController.WriteMessagesAsync(websocket.TextMessage, [][]byte{encodedData}); err == nil {
 				if requestId != "" && bodySize == 0 {
 					mu.Lock()
 					delete(binaryRoutes, requestId)
@@ -1278,7 +1226,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 			if err != nil {
 				return err
 			}
-			_ = writeTextMessage(routeController, encodedData)
+			writeTextMessageAsync(routeController, encodedData)
 		}
 		if data.Type == "debug-tunnel/close" {
 			mu.Lock()
@@ -1470,9 +1418,11 @@ func sendMessage(conn *SafeConn, msg Message) error {
 }
 
 func sendMessageAsync(conn *SafeConn, msg Message) {
-	runAsyncWrite(func() {
-		_ = sendMessage(conn, msg)
-	})
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	writeTextMessageAsync(conn, data)
 }
 
 // handleDisconnection handles WebSocket disconnection
@@ -1526,15 +1476,13 @@ func handleDisconnection(conn *SafeConn) {
 			}
 		}
 		for _, target := range hardwareKeyboardCleanupTargets {
-			if err := sendMessage(target.conn, Message{
+			sendMessageAsync(target.conn, Message{
 				Type: "key/global-keyboard",
 				Body: map[string]interface{}{
 					"action": "disconnect",
 					"owner":  target.owner,
 				},
-			}); err != nil {
-				log.Printf("Failed to clean up hardware keyboard owner %s: %v", target.owner, err)
-			}
+			})
 		}
 		return
 	}
@@ -1715,13 +1663,7 @@ func sendStateRequestToAllDevices() {
 	}
 
 	for _, target := range deviceTargets {
-		deviceUDID := target.udid
-		dc := target.conn
-		runAsyncWrite(func() {
-			if err := writeTextMessage(dc, statePayload); err != nil {
-				log.Printf("Failed to send state request to device %s: %v", deviceUDID, err)
-			}
-		})
+		writeTextMessageAsync(target.conn, statePayload)
 	}
 }
 
@@ -1736,12 +1678,6 @@ func sendPingToAllDevices() {
 	}
 
 	for _, target := range deviceTargets {
-		deviceUDID := target.udid
-		dc := target.conn
-		runAsyncWrite(func() {
-			if err := dc.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				log.Printf("Failed to send ping to device %s: %v", deviceUDID, err)
-			}
-		})
+		_ = target.conn.WriteMessagesAsync(websocket.PingMessage, [][]byte{nil})
 	}
 }

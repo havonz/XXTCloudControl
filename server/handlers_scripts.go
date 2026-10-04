@@ -19,6 +19,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -365,17 +366,30 @@ func startScriptOnDevice(
 			return
 		}
 
-		var err error
-		if runPayloadPrepared {
-			err = writeTextMessage(conn, runPayload)
-		} else {
-			err = sendMessage(conn, Message{
+		if !runPayloadPrepared {
+			var err error
+			runPayload, err = json.Marshal(Message{
 				Type: "script/run",
 				Body: gin.H{
 					"name": runName,
 				},
 			})
+			if err != nil {
+				failScriptStartSession(deviceID, generation, "device.script.start_send_failed")
+				return
+			}
 		}
+		err := conn.writeAndWait(websocketWrite{
+			messageType: websocket.TextMessage,
+			payloads:    [][]byte{runPayload},
+			beforeWrite: func() error {
+				// 排队等待文件发送期间仍允许取消；只有真正开始写启动命令时才锁定本次启动。
+				if !updateScriptStartSessionPhase(deviceID, generation, scriptStartPhaseStarting, false) {
+					return errors.New("script start canceled before send")
+				}
+				return nil
+			},
+		})
 		if err != nil {
 			failScriptStartSession(deviceID, generation, "device.script.start_send_failed")
 			return
@@ -1354,28 +1368,25 @@ func (s *scriptFileSender) parseMainJSONTemplate(pathKey string, encoded string)
 	return mainObj
 }
 
-// sendSmallFile sends a single small file (f.Data != "") to conn, applying config merge if needed.
-func (s *scriptFileSender) sendSmallFile(conn *SafeConn, f scriptFileData, groupConfig map[string]interface{}, configKey string) {
+func (s *scriptFileSender) smallFilePayload(f scriptFileData, groupConfig map[string]interface{}, configKey string) []byte {
 	if !f.IsMainJSON || groupConfig == nil {
 		payload, ok := s.basePutPayloadCache[f.Path]
 		if !ok {
 			encoded, buildErr := buildFilePutPayload(f.Path, f.Data)
 			if buildErr != nil {
-				return
+				return nil
 			}
 			payload = encoded
 			s.basePutPayloadCache[f.Path] = payload
 		}
-		writeTextMessageAsync(conn, payload)
-		return
+		return payload
 	}
 
 	cacheKey := ""
 	if configKey != "" {
 		cacheKey = f.NormalizedPath + "|" + configKey
 		if cachedPayload, ok := s.mergedPutPayloadCache[cacheKey]; ok {
-			writeTextMessageAsync(conn, cachedPayload)
-			return
+			return cachedPayload
 		}
 	}
 
@@ -1387,24 +1398,32 @@ func (s *scriptFileSender) sendSmallFile(conn *SafeConn, f scriptFileData, group
 
 	payload, buildErr := buildFilePutPayload(f.Path, finalData)
 	if buildErr != nil {
-		return
+		return nil
 	}
 	if cacheKey != "" {
 		s.mergedPutPayloadCache[cacheKey] = payload
 	}
-	writeTextMessageAsync(conn, payload)
+	return payload
 }
 
 // sendSmallFilesToConn sends all small files to a specific device connection.
 func (s *scriptFileSender) sendSmallFilesToConn(conn *SafeConn, udid string) {
+	if conn == nil {
+		return
+	}
 	groupConfig := s.deviceConfigIndex[udid]
 	configKey := s.groupConfigKey(groupConfig)
+	payloads := make([][]byte, 0, len(s.files))
 	for _, f := range s.files {
 		if f.Data == "" {
 			continue
 		}
-		s.sendSmallFile(conn, f, groupConfig, configKey)
+		if payload := s.smallFilePayload(f, groupConfig, configKey); payload != nil {
+			payloads = append(payloads, payload)
+		}
 	}
+	// 大量小文件属于同一次分发，合并入队以免正常脚本包耗尽连接的队列额度。
+	_ = conn.WriteMessagesAsync(websocket.TextMessage, payloads)
 }
 
 // scriptsSendHandler handles POST /api/scripts/send

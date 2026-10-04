@@ -67,8 +67,11 @@ func TestHardwareKeyboardResponsesAreForwardedInOrder(t *testing.T) {
 	controller := &SafeConn{}
 	firstWriteStarted := make(chan struct{})
 	releaseFirstWrite := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseFirstWrite) })
+	t.Cleanup(release)
 	var actionsMu sync.Mutex
 	var actions []string
+	writes := make(chan struct{}, 2)
 	controller.writeMessageHook = func(messageType int, payload []byte) error {
 		if messageType != websocket.TextMessage {
 			t.Fatalf("unexpected message type: %d", messageType)
@@ -86,6 +89,7 @@ func TestHardwareKeyboardResponsesAreForwardedInOrder(t *testing.T) {
 		actionsMu.Lock()
 		actions = append(actions, action)
 		actionsMu.Unlock()
+		writes <- struct{}{}
 		return nil
 	}
 
@@ -121,14 +125,8 @@ func TestHardwareKeyboardResponsesAreForwardedInOrder(t *testing.T) {
 	}
 	select {
 	case <-firstDone:
-		t.Fatal("hardware keyboard forwarding returned before the ordered write completed")
-	default:
-	}
-	close(releaseFirstWrite)
-	select {
-	case <-firstDone:
 	case <-time.After(time.Second):
-		t.Fatal("first hardware keyboard response did not finish")
+		t.Fatal("slow controller blocked hardware keyboard forwarding")
 	}
 
 	if err := forwardDeviceMessageToControllers(device, Message{
@@ -139,6 +137,14 @@ func TestHardwareKeyboardResponsesAreForwardedInOrder(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatalf("forward disconnect: %v", err)
+	}
+	release()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-writes:
+		case <-time.After(time.Second):
+			t.Fatal("hardware keyboard response did not finish")
+		}
 	}
 
 	actionsMu.Lock()
@@ -154,8 +160,11 @@ func TestHardwareKeyboardControlCommandsAreWrittenInOrder(t *testing.T) {
 	controller := &SafeConn{}
 	firstWriteStarted := make(chan struct{})
 	releaseFirstWrite := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseFirstWrite) })
+	t.Cleanup(release)
 	var actionsMu sync.Mutex
 	var actions []string
+	writes := make(chan struct{}, 2)
 	device.writeMessageHook = func(messageType int, payload []byte) error {
 		var message Message
 		if err := json.Unmarshal(payload, &message); err != nil {
@@ -170,6 +179,7 @@ func TestHardwareKeyboardControlCommandsAreWrittenInOrder(t *testing.T) {
 		actionsMu.Lock()
 		actions = append(actions, action)
 		actionsMu.Unlock()
+		writes <- struct{}{}
 		return nil
 	}
 
@@ -215,21 +225,23 @@ func TestHardwareKeyboardControlCommandsAreWrittenInOrder(t *testing.T) {
 	}
 	select {
 	case err := <-firstDone:
-		t.Fatalf("connect handler returned before ordered write completed: %v", err)
-	default:
-	}
-	close(releaseFirstWrite)
-	select {
-	case err := <-firstDone:
 		if err != nil {
 			t.Fatalf("connect command: %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("connect command did not finish")
+		t.Fatal("slow device blocked the control handler")
 	}
 
 	if err := handleMessage(controller, command("disconnect", "keyboard-disconnect")); err != nil {
 		t.Fatalf("disconnect command: %v", err)
+	}
+	release()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-writes:
+		case <-time.After(time.Second):
+			t.Fatal("hardware keyboard command did not finish")
+		}
 	}
 
 	actionsMu.Lock()

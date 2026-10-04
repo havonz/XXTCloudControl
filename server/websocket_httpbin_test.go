@@ -142,10 +142,12 @@ func TestControlHTTPForwardsHeadersUnchanged(t *testing.T) {
 	}
 }
 
-func TestControlHTTPBinWithRequestBodyWritesMetadataBeforeReturning(t *testing.T) {
+func TestControlHTTPBinWithRequestBodyKeepsMetadataAheadOfChunks(t *testing.T) {
 	requestID := "00112233445566778899aabbccddeeff"
 	writeStarted := make(chan struct{}, 1)
 	releaseWrite := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseWrite) })
+	t.Cleanup(release)
 	writeDone := make(chan struct{}, 4)
 	var writesMu sync.Mutex
 	writes := make([]recordedWebSocketWrite, 0, 2)
@@ -200,28 +202,23 @@ func TestControlHTTPBinWithRequestBodyWritesMetadataBeforeReturning(t *testing.T
 
 	select {
 	case err := <-done:
-		t.Fatalf("handleMessage returned before metadata write completed: %v", err)
-	default:
-	}
-
-	close(releaseWrite)
-
-	select {
-	case err := <-done:
 		if err != nil {
 			t.Fatalf("handleMessage returned error: %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatalf("timed out waiting for handleMessage")
+		t.Fatalf("slow device blocked the HTTP-bin handler")
 	}
 
-	handleBinaryMessage(controllerConn, buildTestHTTPBinFrame(t, requestID, 0, 1, []byte(`{"method":"list"}`)))
+	bodyBytes := []byte(`{"method":"list"}`)
+	handleBinaryMessage(controllerConn, buildTestHTTPBinFrame(t, requestID, 0, 2, bodyBytes[:8]))
+	handleBinaryMessage(controllerConn, buildTestHTTPBinFrame(t, requestID, 1, 2, bodyBytes[8:]))
+	release()
 
 	for {
 		writesMu.Lock()
 		writeCount := len(writes)
 		writesMu.Unlock()
-		if writeCount >= 2 {
+		if writeCount >= 3 {
 			break
 		}
 		select {
@@ -254,7 +251,10 @@ func TestControlHTTPBinWithRequestBodyWritesMetadataBeforeReturning(t *testing.T
 	if forwardedHeaders["Content-Type"] != "application/json" || forwardedHeaders["Accept-Language"] != "pt-BR" || forwardedHeaders["X-Test"] != "preserved" {
 		t.Fatalf("headers were changed during forwarding: %+v", forwardedHeaders)
 	}
-	if writes[1].messageType != websocket.BinaryMessage {
-		t.Fatalf("second write should be request body binary frame, got %d", writes[1].messageType)
+	for i, write := range writes[1:] {
+		id, seq, total, ok := parseBinaryHeader(write.data)
+		if write.messageType != websocket.BinaryMessage || !ok || id != requestID || seq != uint32(i) || total != 2 {
+			t.Fatalf("request body chunk %d was reordered or changed: %+v", i, write)
+		}
 	}
 }
