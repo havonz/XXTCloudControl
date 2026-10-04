@@ -1,4 +1,4 @@
-import { Component, createSignal, onCleanup, createMemo, createEffect } from 'solid-js';
+import { Component, createSignal, onCleanup, createMemo, createEffect, lazy, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { useToast } from './components/ToastContext';
 import { WebSocketService, Device } from './services/WebSocketService';
@@ -7,12 +7,9 @@ import { createGroupStore } from './services/GroupStore';
 import { createDeviceSelectionCoordinator } from './services/DeviceSelectionCoordinator';
 import { FileTransferService } from './services/FileTransferService';
 import LoginForm from './components/LoginForm';
-import DeviceList from './components/DeviceList';
-import DeviceFileBrowser from './components/DeviceFileBrowser';
-import GroupList from './components/GroupList';
 import NewGroupModal from './components/NewGroupModal';
 import AddToGroupModal from './components/AddToGroupModal';
-import BindPage from './components/BindPage';
+import AsyncBoundary from './components/AsyncBoundary';
 import { useTheme } from './components/ThemeContext';
 import LanguageSelect from './components/LanguageSelect';
 import { IconMoon, IconSun, IconDesktop } from './icons';
@@ -24,6 +21,11 @@ import { debugLog } from './utils/debugLogger';
 import { useI18n } from './i18n';
 import { localizeApiError } from './utils/apiError';
 import { localizeUpdateError } from './utils/updateError';
+
+const DeviceList = lazy(() => import('./components/DeviceList'));
+const DeviceFileBrowser = lazy(() => import('./components/DeviceFileBrowser'));
+const GroupList = lazy(() => import('./components/GroupList'));
+const BindPage = lazy(() => import('./components/BindPage'));
 
 const VERSION_CACHE_KEY = 'xxt_server_version';
 
@@ -100,6 +102,7 @@ const App: Component = () => {
   
   // File browser state
   const [fileBrowserOpen, setFileBrowserOpen] = createSignal(false);
+  const fileBrowserActivated = createMemo<boolean>(opened => opened || fileBrowserOpen(), false);
   const [fileBrowserDevice, setFileBrowserDevice] = createSignal<{udid: string, name: string} | null>(null);
   const [fileList, setFileList] = createSignal<any[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = createSignal(false);
@@ -1227,7 +1230,9 @@ const App: Component = () => {
   return (
     <div class={styles.App}>
       {isBindPage() ? (
-        <BindPage onNavigateToLogin={handleNavigateToLogin} />
+        <AsyncBoundary>
+          <BindPage onNavigateToLogin={handleNavigateToLogin} />
+        </AsyncBoundary>
       ) : !isAuthenticated() ? (
         <LoginForm 
           onLogin={handleLogin}
@@ -1349,36 +1354,38 @@ const App: Component = () => {
             </div>
           </header>
           <main class={`${styles.appMain} ${isMobileMenuOpen() ? styles.sidebarOpen : ''}`}>
-            <DeviceList 
-              devices={filteredDevices()}
-              onDeviceSelect={handleDeviceSelect}
-              selectedDevices={selectedDevices}
-              onRefresh={handleRefreshDevices}
-              onStartScript={handleStartScript}
-              onStopScript={handleStopScript}
-              onRespringDevices={handleRespringDevices}
-              onUploadFiles={handleUploadFiles}
-              onOpenFileBrowser={handleOpenFileBrowser}
-              webSocketService={wsService}
-              isLoading={isLoadingDevices()}
-              serverHost={serverHost()}
-              serverPort={serverPort()}
-              getGroupedDevicesForLaunch={groupStore.getGroupedDevicesForLaunch}
-              onOpenAddToGroupModal={() => setShowAddToGroupModal(true)}
-              currentGroup={currentGroup()}
-              onRemoveDevicesFromGroup={handleRemoveDevicesFromGroup}
-              isMobileMenuOpen={isMobileMenuOpen()}
-              onCloseMobileMenu={() => setIsMobileMenuOpen(false)}
-              sidebar={
-                <GroupList
-                  groupStore={groupStore}
-                  deviceCount={devices().length}
-                  allDevices={devices()}
-                  onOpenNewGroupModal={() => setShowNewGroupModal(true)}
-                  onDeviceSelectionChange={handleGroupDeviceSelectionChange}
-                />
-              }
-            />
+            <AsyncBoundary>
+              <DeviceList
+                devices={filteredDevices()}
+                onDeviceSelect={handleDeviceSelect}
+                selectedDevices={selectedDevices}
+                onRefresh={handleRefreshDevices}
+                onStartScript={handleStartScript}
+                onStopScript={handleStopScript}
+                onRespringDevices={handleRespringDevices}
+                onUploadFiles={handleUploadFiles}
+                onOpenFileBrowser={handleOpenFileBrowser}
+                webSocketService={wsService}
+                isLoading={isLoadingDevices()}
+                serverHost={serverHost()}
+                serverPort={serverPort()}
+                getGroupedDevicesForLaunch={groupStore.getGroupedDevicesForLaunch}
+                onOpenAddToGroupModal={() => setShowAddToGroupModal(true)}
+                currentGroup={currentGroup()}
+                onRemoveDevicesFromGroup={handleRemoveDevicesFromGroup}
+                isMobileMenuOpen={isMobileMenuOpen()}
+                onCloseMobileMenu={() => setIsMobileMenuOpen(false)}
+                sidebar={
+                  <GroupList
+                    groupStore={groupStore}
+                    deviceCount={devices().length}
+                    allDevices={devices()}
+                    onOpenNewGroupModal={() => setShowNewGroupModal(true)}
+                    onDeviceSelectionChange={handleGroupDeviceSelectionChange}
+                  />
+                }
+              />
+            </AsyncBoundary>
           </main>
         </div>
       )}
@@ -1398,29 +1405,33 @@ const App: Component = () => {
         onAddToGroup={handleAddDevicesToGroup}
       />
       
-      <DeviceFileBrowser
-        deviceUdid={fileBrowserDevice()?.udid || ''}
-        deviceName={fileBrowserDevice()?.name || ''}
-        isOpen={fileBrowserOpen()}
-        onClose={handleCloseFileBrowser}
-        onListFiles={handleListFiles}
-        onListFilesAsync={handleListFilesAsync}
-        onDeleteFile={handleDeleteFile}
-        onCreateDirectory={handleCreateDirectory}
-        onUploadFile={handleUploadSingleFile}
-        onUploadLargeFile={handleUploadLargeFile}
-        onDownloadFile={handleDownloadFile}
-        onDownloadLargeFile={handleDownloadLargeFile}
-        onMoveFile={handleMoveFile}
-        onCopyFile={handleCopyFile}
-        onReadFile={handleReadFile}
-        onSelectScript={handleSelectScript}
-        selectedScript={fileBrowserSelectedScript()}
-        files={fileList()}
-        isLoading={isLoadingFiles()}
-        fileContent={fileContent()}
-        onPullFileFromDevice={handlePullFileFromDevice}
-      />
+      <Show when={fileBrowserActivated()}>
+        <AsyncBoundary modal visible={fileBrowserOpen()} onClose={handleCloseFileBrowser}>
+          <DeviceFileBrowser
+            deviceUdid={fileBrowserDevice()?.udid || ''}
+            deviceName={fileBrowserDevice()?.name || ''}
+            isOpen={fileBrowserOpen()}
+            onClose={handleCloseFileBrowser}
+            onListFiles={handleListFiles}
+            onListFilesAsync={handleListFilesAsync}
+            onDeleteFile={handleDeleteFile}
+            onCreateDirectory={handleCreateDirectory}
+            onUploadFile={handleUploadSingleFile}
+            onUploadLargeFile={handleUploadLargeFile}
+            onDownloadFile={handleDownloadFile}
+            onDownloadLargeFile={handleDownloadLargeFile}
+            onMoveFile={handleMoveFile}
+            onCopyFile={handleCopyFile}
+            onReadFile={handleReadFile}
+            onSelectScript={handleSelectScript}
+            selectedScript={fileBrowserSelectedScript()}
+            files={fileList()}
+            isLoading={isLoadingFiles()}
+            fileContent={fileContent()}
+            onPullFileFromDevice={handlePullFileFromDevice}
+          />
+        </AsyncBoundary>
+      </Show>
     </div>
   );
 };

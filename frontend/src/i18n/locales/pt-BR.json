@@ -18,6 +18,7 @@
     "edit": "Editar",
     "failed": "Falha",
     "loading": "Carregando...",
+    "load_failed": "Não foi possível carregar. Atualize a página e tente novamente.",
     "move": "Mover",
     "new_file": "Novo arquivo",
     "new_folder": "Nova pasta",

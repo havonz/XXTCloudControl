@@ -1,3 +1,4 @@
+import './preloadLocales';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import zhCN from '../locales/zh-CN.json';
 import zhTW from '../locales/zh-TW.json';

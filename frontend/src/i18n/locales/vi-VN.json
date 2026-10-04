@@ -18,6 +18,7 @@
     "edit": "Chỉnh sửa",
     "failed": "Thất bại",
     "loading": "Đang tải...",
+    "load_failed": "Không thể tải. Vui lòng tải lại trang và thử lại.",
     "move": "Di chuyển",
     "new_file": "Tệp mới",
     "new_folder": "Thư mục mới",

@@ -1,0 +1,15 @@
+.inline {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 180px;
+  padding: 1rem;
+}
+
+.overlay {
+  z-index: 10001;
+}
+
+.message {
+  text-align: center;
+}

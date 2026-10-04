@@ -18,6 +18,7 @@
     "edit": "编辑",
     "failed": "失败",
     "loading": "加载中...",
+    "load_failed": "加载失败，请刷新页面后重试。",
     "move": "移动",
     "new_file": "新建文件",
     "new_folder": "新建文件夹",

@@ -1,3 +1,4 @@
+import '../../i18n/__tests__/preloadLocales';
 import { describe, expect, it } from 'vitest';
 import { translate } from '../../i18n';
 import { localizeUpdateError } from '../updateError';

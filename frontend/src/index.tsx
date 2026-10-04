@@ -47,13 +47,13 @@ import { DialogProvider } from './components/DialogContext';
 import { ToastProvider } from './components/ToastContext';
 
 render(() => (
-  <I18nProvider>
-    <ThemeProvider>
+  <ThemeProvider>
+    <I18nProvider>
       <ToastProvider>
         <DialogProvider>
           <App />
         </DialogProvider>
       </ToastProvider>
-    </ThemeProvider>
-  </I18nProvider>
+    </I18nProvider>
+  </ThemeProvider>
 ), root!);

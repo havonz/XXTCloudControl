@@ -1,15 +1,6 @@
-import { createContext, createEffect, createMemo, createSignal, JSX, onCleanup, useContext } from 'solid-js';
-import zhCN from './locales/zh-CN.json';
-import zhTW from './locales/zh-TW.json';
+import { createContext, createEffect, createSignal, JSX, onCleanup, Show, useContext } from 'solid-js';
 import enUS from './locales/en-US.json';
-import jaJP from './locales/ja-JP.json';
-import koKR from './locales/ko-KR.json';
-import viVN from './locales/vi-VN.json';
-import esES from './locales/es-ES.json';
-import ptBR from './locales/pt-BR.json';
-import ruRU from './locales/ru-RU.json';
-import frFR from './locales/fr-FR.json';
-import deDE from './locales/de-DE.json';
+import LoadingState from '../components/LoadingState';
 
 export const supportedLocales = [
   'zh-CN',
@@ -52,7 +43,7 @@ export const localeOptions: readonly LocaleOption[] = [
 
 type I18nContextValue = {
   locale: () => Locale;
-  setLocale: (locale: Locale) => void;
+  setLocale: (locale: Locale) => Promise<void>;
   t: (key: string, vars?: Record<string, unknown>) => string;
 };
 
@@ -100,19 +91,23 @@ const baseLanguageLocales: Record<string, Locale> = {
   de: 'de-DE',
 };
 
-const dictionaries: Record<Locale, Messages> = {
-  'zh-CN': zhCN as Messages,
-  'zh-TW': zhTW as Messages,
+const dictionaries: Partial<Record<Locale, Messages>> = {
   'en-US': enUS as Messages,
-  'ja-JP': jaJP as Messages,
-  'ko-KR': koKR as Messages,
-  'vi-VN': viVN as Messages,
-  'es-ES': esES as Messages,
-  'pt-BR': ptBR as Messages,
-  'ru-RU': ruRU as Messages,
-  'fr-FR': frFR as Messages,
-  'de-DE': deDE as Messages,
 };
+
+export const localeLoaders = {
+  'zh-CN': () => import('./locales/zh-CN.json'),
+  'zh-TW': () => import('./locales/zh-TW.json'),
+  'ja-JP': () => import('./locales/ja-JP.json'),
+  'ko-KR': () => import('./locales/ko-KR.json'),
+  'vi-VN': () => import('./locales/vi-VN.json'),
+  'es-ES': () => import('./locales/es-ES.json'),
+  'pt-BR': () => import('./locales/pt-BR.json'),
+  'ru-RU': () => import('./locales/ru-RU.json'),
+  'fr-FR': () => import('./locales/fr-FR.json'),
+  'de-DE': () => import('./locales/de-DE.json'),
+};
+const pendingLocaleLoads = new Map<Locale, Promise<void>>();
 
 const fallbackLocales: Record<Locale, readonly Locale[]> = {
   'zh-CN': [],
@@ -127,6 +122,20 @@ const fallbackLocales: Record<Locale, readonly Locale[]> = {
   'fr-FR': ['en-US'],
   'de-DE': ['en-US'],
 };
+
+export async function loadLocaleMessages(locale: Locale): Promise<void> {
+  await Promise.all([locale, ...fallbackLocales[locale]].map((candidate) => {
+    if (dictionaries[candidate]) return;
+    let pending = pendingLocaleLoads.get(candidate);
+    if (!pending && candidate !== 'en-US') {
+      pending = localeLoaders[candidate]()
+        .then((module) => { dictionaries[candidate] = module.default; })
+        .finally(() => { pendingLocaleLoads.delete(candidate); });
+      pendingLocaleLoads.set(candidate, pending);
+    }
+    return pending;
+  }));
+}
 
 const pluralCategories = new Set<Intl.LDMLPluralRule>([
   'zero',
@@ -228,7 +237,9 @@ function resolveMessage(value: unknown, locale: Locale, vars?: Record<string, un
 
 export function translate(locale: Locale, key: string, vars?: Record<string, unknown>): string {
   for (const candidate of [locale, ...fallbackLocales[locale]]) {
-    const message = resolveMessage(getValue(dictionaries[candidate], key), candidate, vars);
+    const messages = dictionaries[candidate];
+    if (!messages) continue;
+    const message = resolveMessage(getValue(messages, key), candidate, vars);
     if (message !== null) return interpolate(message, vars);
   }
   return key;
@@ -240,32 +251,55 @@ export function getCurrentLocale(): Locale {
 
 export function I18nProvider(props: { defaultLocale?: Locale; children: JSX.Element }) {
   const storedLocale = props.defaultLocale === undefined ? readStoredLocale() : null;
-  const [locale, setLocaleState] = createSignal<Locale>(
-    props.defaultLocale ?? storedLocale ?? getBrowserLocale() ?? defaultLocale,
+  const initialLocale = props.defaultLocale ?? storedLocale ?? getBrowserLocale() ?? defaultLocale;
+  const [locale, setLocaleState] = createSignal<Locale>(initialLocale);
+  const [ready, setReady] = createSignal(
+    [initialLocale, ...fallbackLocales[initialLocale]].every(candidate => !!dictionaries[candidate]),
   );
-  const t = createMemo(() => (key: string, vars?: Record<string, unknown>) => translate(locale(), key, vars));
+  const [initialLoadFailed, setInitialLoadFailed] = createSignal(false);
+  const t = (key: string, vars?: Record<string, unknown>) => translate(locale(), key, vars);
   let hasManualPreference = props.defaultLocale !== undefined || storedLocale !== null;
+  let localeRequest = 0;
+  let pendingManualRequest: number | null = null;
+  let disposed = false;
   activeLocale = locale();
 
-  const setLocale = (nextLocale: Locale) => {
-    const normalized = normalizeLocale(nextLocale) ?? defaultLocale;
-    hasManualPreference = true;
-    activeLocale = normalized;
-    setLocaleState(normalized);
+  const activateLocale = async (nextLocale: Locale, persist: boolean) => {
+    const request = ++localeRequest;
+    if (persist) pendingManualRequest = request;
     try {
-      window.localStorage.setItem(localeStorageKey, normalized);
-    } catch {
-      // ignore storage failures; the in-memory locale still updates
+      await loadLocaleMessages(nextLocale);
+      if (disposed || request !== localeRequest) return;
+      // 语言包齐备后再切换和保存，加载期间保留现有界面及用户正在编辑的内容。
+      activeLocale = nextLocale;
+      setLocaleState(nextLocale);
+      setReady(true);
+      if (persist) {
+        hasManualPreference = true;
+        try {
+          window.localStorage.setItem(localeStorageKey, nextLocale);
+        } catch {
+          // 存储不可用时仍保留本次会话的语言选择。
+        }
+      }
+    } catch (error) {
+      if (disposed || request !== localeRequest) return;
+      if (!ready()) setInitialLoadFailed(true);
+      throw error;
+    } finally {
+      if (pendingManualRequest === request) pendingManualRequest = null;
     }
   };
 
+  const setLocale = (nextLocale: Locale) => activateLocale(normalizeLocale(nextLocale) ?? defaultLocale, true);
+
   const handleLanguageChange = () => {
-    if (hasManualPreference) return;
+    if (hasManualPreference || pendingManualRequest !== null) return;
     const detectedLocale = getBrowserLocale() ?? defaultLocale;
-    activeLocale = detectedLocale;
-    setLocaleState(detectedLocale);
+    void activateLocale(detectedLocale, false).catch(() => {});
   };
 
+  if (!ready()) void activateLocale(initialLocale, false).catch(() => {});
   window.addEventListener('languagechange', handleLanguageChange);
 
   createEffect(() => {
@@ -275,6 +309,8 @@ export function I18nProvider(props: { defaultLocale?: Locale; children: JSX.Elem
   });
 
   onCleanup(() => {
+    disposed = true;
+    localeRequest++;
     window.removeEventListener('languagechange', handleLanguageChange);
     if (activeLocale === locale()) {
       activeLocale = null;
@@ -282,8 +318,16 @@ export function I18nProvider(props: { defaultLocale?: Locale; children: JSX.Elem
   });
 
   return (
-    <I18nContext.Provider value={{ locale, setLocale, t: t() }}>
-      {props.children}
+    <I18nContext.Provider value={{ locale, setLocale, t }}>
+      <Show when={ready()} fallback={
+        <LoadingState
+          error={initialLoadFailed()}
+          message={translate(defaultLocale, initialLoadFailed() ? 'common.load_failed' : 'common.loading')}
+          refreshLabel={translate(defaultLocale, 'common.refresh')}
+        />
+      }>
+        {props.children}
+      </Show>
     </I18nContext.Provider>
   );
 }

@@ -18,6 +18,7 @@
     "edit": "Bearbeiten",
     "failed": "Fehlgeschlagen",
     "loading": "Wird geladen…",
+    "load_failed": "Laden fehlgeschlagen. Bitte die Seite aktualisieren und erneut versuchen.",
     "move": "Verschieben",
     "new_file": "Neue Datei",
     "new_folder": "Neuer Ordner",

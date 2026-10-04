@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import '../../i18n/__tests__/preloadLocales';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'solid-js/web';
 import FormRunner from '../FormRunner';

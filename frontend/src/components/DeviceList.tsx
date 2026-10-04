@@ -1,18 +1,16 @@
 import RuntimeSettingsModal from './RuntimeSettingsModal';
 import type { RuntimeTarget } from './RuntimeSettingsForm';
-import { Component, createSignal, For, Accessor, Show, createEffect, createMemo, JSX, onMount, onCleanup } from 'solid-js';
+import { Component, createSignal, For, Accessor, Show, createEffect, createMemo, JSX, onMount, onCleanup, lazy } from 'solid-js';
 import { AuthService, Device } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { useDialog } from './DialogContext';
 import { useToast } from './ToastContext';
-import WebRTCControl from './WebRTCControl';
-import BatchRemoteControl from './BatchRemoteControl';
+import AsyncBoundary from './AsyncBoundary';
 import styles from './DeviceList.module.css';
 import DeviceBindingModal from './DeviceBindingModal';
 import DictionaryModal from './DictionaryModal';
 import { ScriptSelectionModal } from './ScriptSelectionModal';
 import { ScriptUploadModal } from './ScriptUploadModal';
-import ServerFileBrowser from './ServerFileBrowser';
 import LogStreamModal from './LogStreamModal';
 import { 
   IconRotate, 
@@ -68,6 +66,10 @@ import BatchRenameModal, {
 import { DeviceControlService } from '../services/DeviceControlService';
 import { useI18n } from '../i18n';
 import type { GroupInfo } from '../types';
+
+const WebRTCControl = lazy(() => import('./WebRTCControl'));
+const BatchRemoteControl = lazy(() => import('./BatchRemoteControl'));
+const ServerFileBrowser = lazy(() => import('./ServerFileBrowser'));
 
 interface DeviceListProps {
   devices: Device[];
@@ -199,6 +201,8 @@ const DeviceList: Component<DeviceListProps> = (props) => {
   const [showScriptSelectionModal, setShowScriptSelectionModal] = createSignal(false);
   const [showScriptUploadModal, setShowScriptUploadModal] = createSignal(false);
   const [showServerFileBrowser, setShowServerFileBrowser] = createSignal(false);
+  // 首次打开才加载，之后保留实例以延续目录、选择和编辑状态。
+  const serverFileBrowserActivated = createMemo<boolean>(opened => opened || showServerFileBrowser(), false);
   const [showLogStreamModal, setShowLogStreamModal] = createSignal(false);
   const [logStreamDevice, setLogStreamDevice] = createSignal<Device | null>(null);
   const [showUploadModal, setShowUploadModal] = createSignal(false);
@@ -2526,24 +2530,28 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         
         {/* WebRTC 实时控制弹窗 */}
         <Show when={showWebRTCModal()}>
-          <WebRTCControl
-            isOpen={showWebRTCModal()}
-            onClose={handleCloseWebRTCControl}
-            selectedDevices={() => props.selectedDevices()}
-            webSocketService={props.webSocketService}
-            password={localStorage.getItem('xxt_password_hash') ? `__STORED_PASSHASH__${localStorage.getItem('xxt_password_hash')}` : ''}
-          />
+          <AsyncBoundary modal onClose={handleCloseWebRTCControl}>
+            <WebRTCControl
+              isOpen={showWebRTCModal()}
+              onClose={handleCloseWebRTCControl}
+              selectedDevices={() => props.selectedDevices()}
+              webSocketService={props.webSocketService}
+              password={localStorage.getItem('xxt_password_hash') ? `__STORED_PASSHASH__${localStorage.getItem('xxt_password_hash')}` : ''}
+            />
+          </AsyncBoundary>
         </Show>
         
         {/* 批量实时控制弹窗 */}
         <Show when={showBatchRemoteModal()}>
-          <BatchRemoteControl
-            isOpen={showBatchRemoteModal()}
-            onClose={handleCloseBatchRemoteControl}
-            devices={props.selectedDevices()}
-            webSocketService={props.webSocketService}
-            password={localStorage.getItem('xxt_password_hash') ? `__STORED_PASSHASH__${localStorage.getItem('xxt_password_hash')}` : ''}
-          />
+          <AsyncBoundary modal onClose={handleCloseBatchRemoteControl}>
+            <BatchRemoteControl
+              isOpen={showBatchRemoteModal()}
+              onClose={handleCloseBatchRemoteControl}
+              devices={props.selectedDevices()}
+              webSocketService={props.webSocketService}
+              password={localStorage.getItem('xxt_password_hash') ? `__STORED_PASSHASH__${localStorage.getItem('xxt_password_hash')}` : ''}
+            />
+          </AsyncBoundary>
         </Show>
         
         {/* 字典设置弹窗 */}
@@ -2582,12 +2590,16 @@ const DeviceList: Component<DeviceListProps> = (props) => {
         />
         
         {/* 服务器文件浏览弹窗 */}
-        <ServerFileBrowser
-          isOpen={showServerFileBrowser()}
-          onClose={() => setShowServerFileBrowser(false)}
-          serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
-          selectedDevices={props.selectedDevices()}
-        />
+        <Show when={serverFileBrowserActivated()}>
+          <AsyncBoundary modal visible={showServerFileBrowser()} onClose={() => setShowServerFileBrowser(false)}>
+            <ServerFileBrowser
+              isOpen={showServerFileBrowser()}
+              onClose={() => setShowServerFileBrowser(false)}
+              serverBaseUrl={authService.getHttpBaseUrl(props.serverHost, props.serverPort)}
+              selectedDevices={props.selectedDevices()}
+            />
+          </AsyncBoundary>
+        </Show>
 
         <LogStreamModal
           isOpen={showLogStreamModal()}

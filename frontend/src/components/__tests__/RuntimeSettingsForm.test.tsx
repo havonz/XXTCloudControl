@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import '../../i18n/__tests__/preloadLocales';
 import { createSignal } from 'solid-js';
 import RuntimeSettingsModal from '../RuntimeSettingsModal';
 import { render } from 'solid-js/web';

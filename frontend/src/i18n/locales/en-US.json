@@ -18,6 +18,7 @@
     "edit": "Edit",
     "failed": "Failed",
     "loading": "Loading...",
+    "load_failed": "Unable to load. Refresh the page to try again.",
     "move": "Move",
     "new_file": "New File",
     "new_folder": "New Folder",

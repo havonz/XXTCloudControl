@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import './preloadLocales';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'solid-js/web';
 import { I18nProvider, localeStorageKey, useI18n } from '../index';
@@ -28,7 +29,7 @@ describe('I18nProvider', () => {
     vi.unstubAllGlobals();
   });
 
-  it('re-renders translated text and persists the locale without remounting', () => {
+  it('re-renders translated text and persists the locale without remounting', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
     const dispose = render(() => (
@@ -42,14 +43,15 @@ describe('I18nProvider', () => {
 
     button.click();
 
-    expect(button.textContent).toBe('zh-TW|登入');
+    await vi.waitFor(() => expect(button.textContent).toBe('zh-TW|登入'));
+    expect(host.querySelector('button')).toBe(button);
     expect(document.documentElement.lang).toBe('zh-TW');
     expect(window.localStorage.getItem(localeStorageKey)).toBe('zh-TW');
     dispose();
     host.remove();
   });
 
-  it('follows browser language changes only before a manual selection', () => {
+  it('follows browser language changes only before a manual selection', async () => {
     let browserLanguages = ['fr-CA'];
     vi.stubGlobal('navigator', {
       get languages() {
@@ -74,11 +76,11 @@ describe('I18nProvider', () => {
 
     browserLanguages = ['de-DE'];
     window.dispatchEvent(new Event('languagechange'));
-    expect(button.textContent).toBe('de-DE|Anmelden');
+    await vi.waitFor(() => expect(button.textContent).toBe('de-DE|Anmelden'));
     expect(window.localStorage.getItem(localeStorageKey)).toBeNull();
 
     button.click();
-    expect(button.textContent).toBe('zh-TW|登入');
+    await vi.waitFor(() => expect(button.textContent).toBe('zh-TW|登入'));
     expect(window.localStorage.getItem(localeStorageKey)).toBe('zh-TW');
 
     browserLanguages = ['ja-JP'];

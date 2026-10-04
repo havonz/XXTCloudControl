@@ -1,3 +1,4 @@
+import '../../i18n/__tests__/preloadLocales';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DeviceControlService } from '../DeviceControlService';
 import { prepareRuntimeChange } from '../runtimeSettingsProtocol';

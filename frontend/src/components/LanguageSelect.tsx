@@ -4,6 +4,7 @@ import { Portal } from 'solid-js/web';
 import { IconGlobe } from '../icons';
 import { Locale, localeOptions, useI18n } from '../i18n';
 import styles from './LanguageSelect.module.css';
+import { useToast } from './ToastContext';
 
 interface LanguageSelectProps {
   compact?: boolean;
@@ -12,6 +13,7 @@ interface LanguageSelectProps {
 
 const LanguageSelect: Component<LanguageSelectProps> = (props) => {
   const { locale, setLocale, t } = useI18n();
+  const toast = useToast();
   const isCompact = createMemo(() => props.compact || props.variant === 'login');
   const items = localeOptions.map(option => ({
     value: option.value,
@@ -35,7 +37,9 @@ const LanguageSelect: Component<LanguageSelectProps> = (props) => {
       value={[locale()]}
       onValueChange={(event) => {
         const next = event.value[0] as Locale | undefined;
-        if (next) setLocale(next);
+        if (next) {
+          void setLocale(next).catch(() => toast.showError(t('common.load_failed')));
+        }
       }}
     >
       <Select.Control>
