@@ -34,6 +34,7 @@ import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './ServerFileBrowser.module.css';
 import { authFetch, appendAuthQuery } from '../services/httpAuth';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
+import { runWithConcurrency } from '../utils/runWithConcurrency';
 import type { Device } from '../services/WebSocketService';
 import ContextMenu, { ContextMenuButton, ContextMenuDivider } from './ContextMenu';
 import { useI18n } from '../i18n';
@@ -162,26 +163,6 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [isSendingToDevices, setIsSendingToDevices] = createSignal(false);
   
   const toast = useToast();
-
-  const runWithConcurrency = async <T,>(
-    items: T[],
-    limit: number,
-    worker: (item: T) => Promise<void>
-  ) => {
-    if (items.length === 0) return;
-    const concurrency = Math.max(1, Math.min(limit, items.length));
-    let cursor = 0;
-
-    const tasks = Array.from({ length: concurrency }, async () => {
-      while (cursor < items.length) {
-        const index = cursor;
-        cursor += 1;
-        await worker(items[index]);
-      }
-    });
-
-    await Promise.all(tasks);
-  };
 
   const targetPathOptions = createMemo(() => [
     { value: '/lua/scripts/', label: t('files.target_scripts_dir') },

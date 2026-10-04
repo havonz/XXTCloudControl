@@ -18,6 +18,7 @@ import LanguageSelect from './components/LanguageSelect';
 import { IconMoon, IconSun, IconDesktop } from './icons';
 import styles from './App.module.css';
 import { ScannedFile } from './utils/fileUpload';
+import { runWithConcurrency } from './utils/runWithConcurrency';
 import { setApiBaseUrl, authFetch } from './services/httpAuth';
 import { debugLog } from './utils/debugLogger';
 import { useI18n } from './i18n';
@@ -846,28 +847,6 @@ const App: Component = () => {
     } else {
       console.warn('未选择设备或WebSocket服务未连接');
     }
-  };
-
-
-
-  const runWithConcurrency = async <T,>(
-    items: T[],
-    limit: number,
-    worker: (item: T) => Promise<void>
-  ) => {
-    if (items.length === 0) return;
-    const concurrency = Math.max(1, Math.min(limit, items.length));
-    let cursor = 0;
-
-    const tasks = Array.from({ length: concurrency }, async () => {
-      while (cursor < items.length) {
-        const index = cursor;
-        cursor += 1;
-        await worker(items[index]);
-      }
-    });
-
-    await Promise.all(tasks);
   };
 
   const handleUploadFiles = async (scannedFiles: ScannedFile[], uploadPath: string) => {

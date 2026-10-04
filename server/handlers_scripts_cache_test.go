@@ -13,6 +13,8 @@ import (
 func resetScriptPackageCacheForTest() {
 	scriptPackageCache.Lock()
 	scriptPackageCache.entries = make(map[string]scriptPackageCacheEntry)
+	scriptPackageCache.totalBytes = 0
+	scriptPackageCache.useSequence = 0
 	scriptPackageCache.Unlock()
 }
 

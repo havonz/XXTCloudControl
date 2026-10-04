@@ -1,6 +1,7 @@
 import { authFetch } from './httpAuth';
 import { getCurrentLocale, translate } from '../i18n';
 import { localizeApiError } from '../utils/apiError';
+import { runWithConcurrency } from '../utils/runWithConcurrency';
 
 const LARGE_FILE_THRESHOLD = 128 * 1024; // 128KB
 
@@ -140,11 +141,12 @@ export class FileTransferService {
     const sourcePath = uploadResult.path;
     const sharedSourceId = deviceSNs.length > 1 ? this.createFanoutBatchId() : undefined;
 
-    const pushResults = await Promise.all(
-      deviceSNs.map(async (deviceSN) => {
-        return this.pushToDevice(deviceSN, 'files', sourcePath, deviceTargetPath, undefined, sharedSourceId);
-      })
-    );
+    const pushResults = await runWithConcurrency(deviceSNs, 6, (deviceSN) => (
+      this.pushToDevice(
+        deviceSN, 'files', sourcePath, deviceTargetPath, undefined,
+        sharedSourceId, sharedSourceId ? deviceSNs.length : undefined,
+      )
+    ));
 
     // If every push request failed, no transfer token was retained by backend.
     // Delete uploaded temp file to avoid orphaned files.
@@ -164,7 +166,8 @@ export class FileTransferService {
     path: string, 
     targetPath: string,
     timeout?: number,
-    sharedSourceId?: string
+    sharedSourceId?: string,
+    sharedSourceTotal?: number,
   ): Promise<PushFileResult> {
     try {
       const response = await authFetch(`${this.baseUrl}/api/transfer/push-to-device`, {
@@ -178,6 +181,7 @@ export class FileTransferService {
           serverBaseUrl: this.baseUrl,
           timeout: timeout || 300,
           sharedSourceId,
+          sharedSourceTotal,
         }),
       });
       

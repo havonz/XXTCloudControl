@@ -22,11 +22,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const (
-	scriptLargeFileThreshold = 128 * 1024
-	scriptPackageCacheMax    = 64
-	scriptPackageCacheTrimTo = 48
-)
+const scriptLargeFileThreshold = 128 * 1024
 
 var scriptStartWaitTimeout = 6 * time.Minute
 
@@ -53,11 +49,6 @@ type scriptFileData struct {
 type md5Result struct {
 	hash string
 	err  error
-}
-
-type scriptPackageCacheEntry struct {
-	signature string
-	files     []scriptFileData
 }
 
 type pendingScriptFetchRequest struct {
@@ -91,13 +82,6 @@ type scriptStartCancelResult struct {
 	Canceled   bool
 	Reason     string
 	ReasonCode string
-}
-
-var scriptPackageCache = struct {
-	sync.RWMutex
-	entries map[string]scriptPackageCacheEntry
-}{
-	entries: make(map[string]scriptPackageCacheEntry),
 }
 
 var scriptStartSessions = struct {
@@ -757,23 +741,6 @@ func collectScannedScriptFiles(scannedFiles []scriptFileData) ([]scriptFileData,
 	return filesToSend, nil
 }
 
-func trimScriptPackageCacheLocked() {
-	if len(scriptPackageCache.entries) < scriptPackageCacheMax {
-		return
-	}
-	toRemove := len(scriptPackageCache.entries) - scriptPackageCacheTrimTo
-	if toRemove <= 0 {
-		toRemove = 1
-	}
-	for key := range scriptPackageCache.entries {
-		delete(scriptPackageCache.entries, key)
-		toRemove--
-		if toRemove == 0 {
-			break
-		}
-	}
-}
-
 func collectScriptFilesCached(scriptRootPath string, scriptName string, isDir bool, isPiled bool) ([]scriptFileData, error) {
 	signature, scannedFiles, err := scanScriptFilesForPackage(scriptRootPath, scriptName, isDir, isPiled)
 	if err != nil {
@@ -781,11 +748,8 @@ func collectScriptFilesCached(scriptRootPath string, scriptName string, isDir bo
 	}
 
 	cacheKey := scriptPackageCacheKey(scriptRootPath, scriptName, isDir, isPiled)
-	scriptPackageCache.RLock()
-	entry, ok := scriptPackageCache.entries[cacheKey]
-	scriptPackageCache.RUnlock()
-	if ok && entry.signature == signature {
-		return cloneScriptFileDataSlice(entry.files), nil
+	if files, ok := scriptPackageCache.get(cacheKey, signature); ok {
+		return files, nil
 	}
 
 	filesToSend, err := collectScannedScriptFiles(scannedFiles)
@@ -793,13 +757,7 @@ func collectScriptFilesCached(scriptRootPath string, scriptName string, isDir bo
 		return nil, err
 	}
 
-	scriptPackageCache.Lock()
-	trimScriptPackageCacheLocked()
-	scriptPackageCache.entries[cacheKey] = scriptPackageCacheEntry{
-		signature: signature,
-		files:     cloneScriptFileDataSlice(filesToSend),
-	}
-	scriptPackageCache.Unlock()
+	scriptPackageCache.put(cacheKey, signature, filesToSend)
 
 	return filesToSend, nil
 }
@@ -843,7 +801,7 @@ func calculateLargeFileMD5(filesToSend []scriptFileData) map[string]md5Result {
 			continue
 		}
 
-		md5Hash, err := calculateFileMD5Cached(f.SourcePath, nil)
+		md5Hash, err := md5Cache.get(f.SourcePath, nil)
 		if err != nil {
 			fmt.Printf("❌ Failed to calculate MD5 for %s: %v\n", f.SourcePath, err)
 			largeFileMD5[f.SourcePath] = md5Result{err: err}
@@ -852,17 +810,6 @@ func calculateLargeFileMD5(filesToSend []scriptFileData) map[string]md5Result {
 		largeFileMD5[f.SourcePath] = md5Result{hash: md5Hash}
 	}
 	return largeFileMD5
-}
-
-func countScriptFileKinds(filesToSend []scriptFileData) (smallFilesCount int, largeFilesCount int) {
-	for _, f := range filesToSend {
-		if f.Data == "" {
-			largeFilesCount++
-		} else {
-			smallFilesCount++
-		}
-	}
-	return smallFilesCount, largeFilesCount
 }
 
 func buildFilePutPayload(path string, data string) ([]byte, error) {
@@ -1446,100 +1393,34 @@ func scriptsSendHandler(c *gin.Context) {
 		return
 	}
 
-	resolved, err := resolveScriptPath(req.Name)
-	if err != nil {
-		jsonError(c, http.StatusBadRequest, err.Error())
+	distribution := prepareScriptDistribution(c, req)
+	if distribution == nil {
 		return
 	}
-	scriptPath := resolved.absPath
-	scriptName := resolved.normalizedName
-
-	fileInfo, err := os.Stat(scriptPath)
-	if err != nil {
-		jsonError(c, http.StatusNotFound, "script not found")
-		return
-	}
-
-	isDir := fileInfo.IsDir()
-	isPiled := false
-	if isDir {
-		if _, err := os.Stat(filepath.Join(scriptPath, "lua", "scripts")); err == nil {
-			isPiled = true
-		}
-	}
-
-	configIndex := buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups)
-	if isDir {
-		if err := validateScriptRequestConfig(scriptPath, req.Devices, configIndex); err != nil {
-			jsonError(c, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	filesToSend, err := collectScriptFilesCached(scriptPath, scriptName, isDir, isPiled)
-	if err != nil {
-		errorMsg := "failed to read script directory"
-		if !isDir {
-			errorMsg = "failed to read script file"
-		}
-		jsonError(c, http.StatusInternalServerError, errorMsg)
-		return
-	}
-
-	largeFileMD5 := calculateLargeFileMD5(filesToSend)
-	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
 	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
-
-	sender := newScriptFileSender(filesToSend, configIndex)
 
 	deviceConns := snapshotDeviceConns(req.Devices)
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
-			broadcastDeviceMessage(udid, "device.script.upload_summary", map[string]any{"small": smallFilesCount, "large": largeFilesCount})
+			broadcastDeviceMessage(udid, "device.script.upload_summary", map[string]any{
+				"small": len(distribution.files) - len(distribution.largeFiles),
+				"large": len(distribution.largeFiles),
+			})
 
-			sender.sendSmallFilesToConn(conn, udid)
+			distribution.sender.sendSmallFilesToConn(conn, udid)
 
-			for _, f := range filesToSend {
-				if f.Data != "" {
-					continue
-				}
+			for _, f := range distribution.largeFiles {
 				broadcastDeviceMessage(udid, "device.script.upload_large_file", map[string]any{"name": filepath.Base(f.Path)})
 
-				md5Info, ok := largeFileMD5[f.SourcePath]
+				md5Info, ok := distribution.largeFileMD5[f.SourcePath]
 				if !ok || md5Info.err != nil {
 					broadcastDeviceMessage(udid, "device.script.verify_failed", map[string]any{"name": filepath.Base(f.Path)})
 					continue
 				}
 				md5Hash := md5Info.hash
 
-				token := uuid.New().String()
-				transferTokensMu.Lock()
-				transferTokens[token] = &TransferToken{
-					Type:       "download",
-					FilePath:   f.SourcePath,
-					TargetPath: f.Path,
-					DeviceSN:   udid,
-					ExpiresAt:  time.Now().Add(5 * time.Minute),
-					OneTime:    true,
-					TotalBytes: f.Size,
-					MD5:        md5Hash,
-				}
-				transferTokensMu.Unlock()
-
-				downloadURL := fmt.Sprintf("%s/api/transfer/download/%s", transferBaseURL, token)
-
-				fetchMsg := Message{
-					Type: "transfer/fetch",
-					Body: gin.H{
-						"url":        downloadURL,
-						"targetPath": f.Path,
-						"md5":        md5Hash,
-						"totalBytes": f.Size,
-						"timeout":    300,
-					},
-				}
-				fetchPayload, marshalErr := json.Marshal(fetchMsg)
-				if marshalErr != nil {
+				fetchPayload, err := prepareScriptFileFetch(udid, transferBaseURL, f, md5Hash, "")
+				if err != nil {
 					continue
 				}
 				writeTextMessageAsync(conn, fetchPayload)
@@ -1549,7 +1430,7 @@ func scriptsSendHandler(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(filesToSend)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(distribution.files)})
 }
 
 // scriptsSendAndStartHandler handles POST /api/scripts/send-and-start
@@ -1586,59 +1467,11 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		return
 	}
 
-	resolved, err := resolveScriptPath(req.Name)
-	if err != nil {
-		jsonError(c, http.StatusBadRequest, err.Error())
+	distribution := prepareScriptDistribution(c, req)
+	if distribution == nil {
 		return
 	}
-	scriptPath := resolved.absPath
-	scriptName := resolved.normalizedName
-
-	fileInfo, err := os.Stat(scriptPath)
-	if err != nil {
-		jsonError(c, http.StatusNotFound, "script not found")
-		return
-	}
-
-	isDir := fileInfo.IsDir()
-	isPiled := false
-	if isDir {
-		if _, err := os.Stat(filepath.Join(scriptPath, "lua", "scripts")); err == nil {
-			isPiled = true
-		}
-	}
-
-	configIndex := buildDeviceScriptConfigIndex(scriptName, req.SelectedGroups)
-	if isDir {
-		if err := validateScriptRequestConfig(scriptPath, req.Devices, configIndex); err != nil {
-			jsonError(c, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	filesToSend, err := collectScriptFilesCached(scriptPath, scriptName, isDir, isPiled)
-	if err != nil {
-		errorMsg := "failed to read script directory"
-		if !isDir {
-			errorMsg = "failed to read script file"
-		}
-		jsonError(c, http.StatusInternalServerError, errorMsg)
-		return
-	}
-
-	largeFileMD5 := calculateLargeFileMD5(filesToSend)
-	smallFilesCount, largeFilesCount := countScriptFileKinds(filesToSend)
-
-	sender := newScriptFileSender(filesToSend, configIndex)
-
-	runName := scriptName
-	if isPiled {
-		if _, err := os.Stat(filepath.Join(scriptPath, "lua", "scripts", "main.lua")); err == nil {
-			runName = "main.lua"
-		} else {
-			runName = "main.xxt"
-		}
-	}
+	runName := distribution.runName
 
 	runPayload, runPayloadErr := json.Marshal(Message{
 		Type: "script/run",
@@ -1654,16 +1487,10 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		file      scriptFileData
 		requestID string
 	}
-	largeScriptFiles := make([]scriptFileData, 0, largeFilesCount)
-	for _, f := range filesToSend {
-		if f.Data == "" {
-			largeScriptFiles = append(largeScriptFiles, f)
-		}
-	}
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
-			plannedLargeFetches := make([]plannedLargeFetch, len(largeScriptFiles))
-			for i, f := range largeScriptFiles {
+			plannedLargeFetches := make([]plannedLargeFetch, len(distribution.largeFiles))
+			for i, f := range distribution.largeFiles {
 				plannedLargeFetches[i] = plannedLargeFetch{
 					file:      f,
 					requestID: uuid.New().String(),
@@ -1683,16 +1510,19 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				continue
 			}
 
-			broadcastDeviceMessage(udid, "device.script.send_summary", map[string]any{"small": smallFilesCount, "large": largeFilesCount})
+			broadcastDeviceMessage(udid, "device.script.send_summary", map[string]any{
+				"small": len(distribution.files) - len(distribution.largeFiles),
+				"large": len(distribution.largeFiles),
+			})
 
-			sender.sendSmallFilesToConn(conn, udid)
+			distribution.sender.sendSmallFilesToConn(conn, udid)
 
 			for _, planned := range plannedLargeFetches {
 				f := planned.file
 
 				broadcastDeviceMessage(udid, "device.script.upload_large_file", map[string]any{"name": filepath.Base(f.Path)})
 
-				md5Info, ok := largeFileMD5[f.SourcePath]
+				md5Info, ok := distribution.largeFileMD5[f.SourcePath]
 				if !ok || md5Info.err != nil {
 					broadcastDeviceMessage(udid, "device.script.verify_failed", map[string]any{"name": filepath.Base(f.Path)})
 					largeTransferPrepareFailed = true
@@ -1700,37 +1530,8 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				}
 				md5Hash := md5Info.hash
 
-				token := uuid.New().String()
-				transferTokensMu.Lock()
-				transferTokens[token] = &TransferToken{
-					Type:       "download",
-					FilePath:   f.SourcePath,
-					TargetPath: f.Path,
-					DeviceSN:   udid,
-					ExpiresAt:  time.Now().Add(5 * time.Minute),
-					OneTime:    true,
-					TotalBytes: f.Size,
-					MD5:        md5Hash,
-				}
-				transferTokensMu.Unlock()
-
-				downloadURL := fmt.Sprintf("%s/api/transfer/download/%s", transferBaseURL, token)
-				fetchMsg := Message{
-					Type: "transfer/fetch",
-					Body: gin.H{
-						"url":        downloadURL,
-						"targetPath": f.Path,
-						"requestId":  planned.requestID,
-						"md5":        md5Hash,
-						"totalBytes": f.Size,
-						"timeout":    300, // 5 minutes
-					},
-				}
-				fetchPayload, marshalErr := json.Marshal(fetchMsg)
-				if marshalErr != nil {
-					transferTokensMu.Lock()
-					delete(transferTokens, token)
-					transferTokensMu.Unlock()
+				fetchPayload, err := prepareScriptFileFetch(udid, transferBaseURL, f, md5Hash, planned.requestID)
+				if err != nil {
 					largeTransferPrepareFailed = true
 					break
 				}
@@ -1758,7 +1559,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(filesToSend)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(distribution.files)})
 }
 
 // scriptsSendAndStartCancelHandler handles POST /api/scripts/send-and-start/cancel

@@ -35,12 +35,12 @@ func TestCalculateFileMD5Cached_UpdatesOnChange(t *testing.T) {
 		t.Fatalf("stat file: %v", err)
 	}
 
-	hash1, err := calculateFileMD5Cached(filePath, info1)
+	hash1, err := md5Cache.get(filePath, info1)
 	if err != nil {
 		t.Fatalf("hash file: %v", err)
 	}
 
-	hash1b, err := calculateFileMD5Cached(filePath, info1)
+	hash1b, err := md5Cache.get(filePath, info1)
 	if err != nil {
 		t.Fatalf("hash file again: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestCalculateFileMD5Cached_UpdatesOnChange(t *testing.T) {
 		t.Fatalf("stat file after update: %v", err)
 	}
 
-	hash2, err := calculateFileMD5Cached(filePath, info2)
+	hash2, err := md5Cache.get(filePath, info2)
 	if err != nil {
 		t.Fatalf("hash updated file: %v", err)
 	}

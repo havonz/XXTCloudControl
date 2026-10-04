@@ -36,17 +36,13 @@ type TransferToken struct {
 	SharedSourceID string
 }
 
-type md5CacheEntry struct {
-	size    int64
-	modTime int64
-	hash    string
-}
-
 type sharedTempRef struct {
-	path           string
-	remaining      int
-	pendingCleanup bool
-	generation     uint64
+	path                 string
+	remaining            int
+	pendingRegistrations int
+	registrationDeadline time.Time
+	pendingCleanup       bool
+	generation           uint64
 }
 
 const (
@@ -140,11 +136,10 @@ var (
 	}{
 		entries: make(map[string]*sharedTempRef),
 	}
-	md5Cache = struct {
-		sync.RWMutex
-		entries map[string]md5CacheEntry
-	}{
-		entries: make(map[string]md5CacheEntry),
+	md5Cache = fileMD5Cache{
+		entries:  make(map[string]md5CacheEntry),
+		pending:  make(map[md5FileVersion]*pendingMD5),
+		hashFile: calculateFileMD5,
 	}
 )
 
@@ -165,7 +160,7 @@ func isTempFilePath(filePath string) bool {
 	return strings.Contains(clean, needle)
 }
 
-func registerSharedTempRef(sharedID, filePath string) {
+func registerSharedTempRef(sharedID, filePath string, total int) {
 	if sharedID == "" || !isTempFilePath(filePath) {
 		return
 	}
@@ -173,16 +168,25 @@ func registerSharedTempRef(sharedID, filePath string) {
 	sharedTempRefs.Lock()
 	entry := sharedTempRefs.entries[sharedID]
 	if entry == nil {
-		sharedTempRefs.entries[sharedID] = &sharedTempRef{
+		entry = &sharedTempRef{
 			path:       filePath,
 			remaining:  1,
 			generation: 1,
 		}
+		if total > 1 {
+			entry.pendingRegistrations = total - 1
+			entry.registrationDeadline = time.Now().Add(defaultTransferTokenTTL)
+		}
+		sharedTempRefs.entries[sharedID] = entry
 		sharedTempRefs.Unlock()
 		return
 	}
-	// Keep the original file path for this shared batch; only count tokens.
+	// 后续批次沿用最初的源文件，避免改变整批传输的清理目标。
 	entry.remaining++
+	if entry.pendingRegistrations > 0 {
+		entry.pendingRegistrations--
+		entry.registrationDeadline = time.Now().Add(defaultTransferTokenTTL)
+	}
 	entry.pendingCleanup = false
 	entry.generation++
 	sharedTempRefs.Unlock()
@@ -207,61 +211,41 @@ func removeTempFileWithRetry(filePath string) {
 	log.Printf("⚠️ Failed to clean temp file: %s", filePath)
 }
 
-func trimMD5CacheLocked() {
-	if len(md5Cache.entries) <= md5CacheMaxEntries {
-		return
-	}
-
-	toRemove := len(md5Cache.entries) - md5CacheTrimEntries
-	for key := range md5Cache.entries {
-		delete(md5Cache.entries, key)
-		toRemove--
-		if toRemove <= 0 {
-			break
-		}
-	}
-}
-
 func releaseSharedTempRef(sharedID string) {
 	if sharedID == "" {
 		return
 	}
 
-	var (
-		cleanupPath string
-		generation  uint64
-	)
-
 	sharedTempRefs.Lock()
 	if entry := sharedTempRefs.entries[sharedID]; entry != nil {
-		entry.remaining--
-		if entry.remaining <= 0 {
-			entry.remaining = 0
-			entry.pendingCleanup = true
-			entry.generation++
-			generation = entry.generation
-			cleanupPath = entry.path
+		if entry.remaining > 0 {
+			entry.remaining--
 		}
+		scheduleSharedTempCleanupLocked(sharedID, entry)
 	}
 	sharedTempRefs.Unlock()
+}
 
-	if cleanupPath != "" {
-		delay := sharedTempCleanupGrace
-		go func(id string, path string, gen uint64, wait time.Duration) {
-			time.Sleep(wait)
-
-			sharedTempRefs.Lock()
-			entry := sharedTempRefs.entries[id]
-			if entry == nil || entry.generation != gen || entry.remaining > 0 || !entry.pendingCleanup {
-				sharedTempRefs.Unlock()
-				return
-			}
-			delete(sharedTempRefs.entries, id)
-			sharedTempRefs.Unlock()
-
-			removeTempFileWithRetry(path)
-		}(sharedID, cleanupPath, generation, delay)
+func scheduleSharedTempCleanupLocked(sharedID string, entry *sharedTempRef) {
+	// 分批分发时，已完成下载的设备不能提前删除尚未创建传输令牌的设备所需的源文件。
+	if entry.remaining > 0 || entry.pendingRegistrations > 0 || entry.pendingCleanup {
+		return
 	}
+	entry.pendingCleanup = true
+	entry.generation++
+	go func(path string, generation uint64, wait time.Duration) {
+		time.Sleep(wait)
+
+		sharedTempRefs.Lock()
+		current := sharedTempRefs.entries[sharedID]
+		if current != entry || current.generation != generation || current.remaining > 0 || current.pendingRegistrations > 0 || !current.pendingCleanup {
+			sharedTempRefs.Unlock()
+			return
+		}
+		delete(sharedTempRefs.entries, sharedID)
+		sharedTempRefs.Unlock()
+		removeTempFileWithRetry(path)
+	}(entry.path, entry.generation, sharedTempCleanupGrace)
 }
 
 // cleanupExpiredTokens removes expired tokens periodically
@@ -283,6 +267,16 @@ func cleanupExpiredTokens() {
 	for _, sharedID := range expiredSharedIDs {
 		releaseSharedTempRef(sharedID)
 	}
+
+	sharedTempRefs.Lock()
+	for sharedID, entry := range sharedTempRefs.entries {
+		if entry.pendingRegistrations > 0 && !now.Before(entry.registrationDeadline) {
+			// 浏览器中途退出时，让未发出的请求过期；仍在下载的设备继续持有各自引用。
+			entry.pendingRegistrations = 0
+			scheduleSharedTempCleanupLocked(sharedID, entry)
+		}
+	}
+	sharedTempRefs.Unlock()
 }
 
 // createTransferTokenHandler handles POST /api/transfer/create-token
@@ -340,7 +334,7 @@ func createTransferTokenHandler(c *gin.Context) {
 		fileSize = info.Size()
 
 		// Calculate MD5 for verification (cached by path/size/mtime)
-		if md5Hash, err := calculateFileMD5Cached(filePath, info); err == nil {
+		if md5Hash, err := md5Cache.get(filePath, info); err == nil {
 			fileMD5 = md5Hash
 		}
 
@@ -711,11 +705,13 @@ func transferUploadHandler(c *gin.Context) {
 	md5Hash := hex.EncodeToString(hashWriter.Sum(nil))
 	if info, statErr := file.Stat(); statErr == nil {
 		md5Cache.Lock()
-		trimMD5CacheLocked()
+		md5Cache.trimLocked(tokenInfo.FilePath)
+		md5Cache.generation++
 		md5Cache.entries[tokenInfo.FilePath] = md5CacheEntry{
-			size:    info.Size(),
-			modTime: info.ModTime().UnixNano(),
-			hash:    md5Hash,
+			size:       info.Size(),
+			modTime:    info.ModTime().UnixNano(),
+			hash:       md5Hash,
+			generation: md5Cache.generation,
 		}
 		md5Cache.Unlock()
 	}
@@ -729,43 +725,6 @@ func transferUploadHandler(c *gin.Context) {
 		"md5":     md5Hash,
 		"path":    tokenInfo.FilePath,
 	})
-}
-
-// calculateFileMD5Cached calculates the MD5 hash with a small cache keyed by path/size/mtime
-func calculateFileMD5Cached(filePath string, info os.FileInfo) (string, error) {
-	if info == nil {
-		statInfo, err := os.Stat(filePath)
-		if err != nil {
-			return "", err
-		}
-		info = statInfo
-	}
-
-	size := info.Size()
-	modTime := info.ModTime().UnixNano()
-
-	md5Cache.RLock()
-	if entry, ok := md5Cache.entries[filePath]; ok && entry.size == size && entry.modTime == modTime {
-		md5Cache.RUnlock()
-		return entry.hash, nil
-	}
-	md5Cache.RUnlock()
-
-	hash, err := calculateFileMD5(filePath)
-	if err != nil {
-		return "", err
-	}
-
-	md5Cache.Lock()
-	trimMD5CacheLocked()
-	md5Cache.entries[filePath] = md5CacheEntry{
-		size:    size,
-		modTime: modTime,
-		hash:    hash,
-	}
-	md5Cache.Unlock()
-
-	return hash, nil
 }
 
 // calculateFileMD5 calculates the MD5 hash of a file
@@ -968,13 +927,14 @@ func sendFileUploadCommand(deviceSN string, uploadURL string, sourcePath string,
 // Uses file/put for small files (<128KB) and transfer/fetch for large files
 func pushFileToDeviceHandler(c *gin.Context) {
 	var req struct {
-		DeviceSN       string `json:"deviceSN"`
-		Category       string `json:"category"`
-		Path           string `json:"path"`
-		TargetPath     string `json:"targetPath"`
-		Timeout        int    `json:"timeout"`       // Download timeout in seconds
-		ServerBaseUrl  string `json:"serverBaseUrl"` // Server base URL for device to download from
-		SharedSourceID string `json:"sharedSourceId"`
+		DeviceSN          string `json:"deviceSN"`
+		Category          string `json:"category"`
+		Path              string `json:"path"`
+		TargetPath        string `json:"targetPath"`
+		Timeout           int    `json:"timeout"`       // Download timeout in seconds
+		ServerBaseUrl     string `json:"serverBaseUrl"` // Server base URL for device to download from
+		SharedSourceID    string `json:"sharedSourceId"`
+		SharedSourceTotal int    `json:"sharedSourceTotal"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1058,11 +1018,11 @@ func pushFileToDeviceHandler(c *gin.Context) {
 	timeout := normalizeTransferTimeoutSeconds(req.Timeout)
 	expiresAt := time.Now().Add(transferTokenTTLForTimeout(timeout))
 
-	md5Hash, _ := calculateFileMD5Cached(filePath, info)
+	md5Hash, _ := md5Cache.get(filePath, info)
 
 	transferTokensMu.Lock()
 	if req.SharedSourceID != "" {
-		registerSharedTempRef(req.SharedSourceID, filePath)
+		registerSharedTempRef(req.SharedSourceID, filePath, req.SharedSourceTotal)
 	}
 	transferTokens[token] = &TransferToken{
 		Type:           "download",
