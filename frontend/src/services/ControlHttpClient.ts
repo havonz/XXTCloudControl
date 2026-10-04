@@ -65,6 +65,15 @@ interface PendingRequest {
   timeout: number;
 }
 
+interface ControlHttpResponseRouter {
+  clients: Set<ControlHttpClient>;
+  pendingOwners: Map<string, ControlHttpClient>;
+  unsubscribeMessage?: () => void;
+  unsubscribeStatus?: () => void;
+}
+
+const responseRouters = new WeakMap<WebSocketService, ControlHttpResponseRouter>();
+
 export class ControlHttpClient {
   private wsService: WebSocketService;
   private password: string;
@@ -72,8 +81,7 @@ export class ControlHttpClient {
   private defaultTimeoutMs: number;
   private responseFilter?: (message: any) => boolean;
   private pendingRequests: Map<string, PendingRequest> = new Map();
-  private unsubscribe: (() => void) | null = null;
-  private unsubscribeStatus: (() => void) | null = null;
+  private responseRouter: ControlHttpResponseRouter;
   private isDestroyed = false;
 
   constructor(options: ControlHttpClientOptions) {
@@ -83,16 +91,31 @@ export class ControlHttpClient {
     this.defaultTimeoutMs = options.defaultTimeoutMs;
     this.responseFilter = options.responseFilter;
 
-    this.unsubscribe = this.wsService.onMessage((message) => {
-      this.handleMessage(message);
-    });
-    if (typeof this.wsService.onStatusChange === 'function') {
-      this.unsubscribeStatus = this.wsService.onStatusChange((status) => {
-        if (status === 'disconnected') {
-          this.rejectAllPendingRequests(new Error(translate(getCurrentLocale(), 'websocket.disconnected')));
-        }
+    let router = responseRouters.get(this.wsService);
+    if (!router) {
+      const shared: ControlHttpResponseRouter = {
+        clients: new Set(),
+        pendingOwners: new Map(),
+      };
+      // 多路远控复用一条 WebSocket，回包只交给对应请求，避免逐个遍历所有客户端。
+      shared.unsubscribeMessage = this.wsService.onMessage((message) => {
+        if (message?.type !== 'http/response') return;
+        const owner = shared.pendingOwners.get(message.body?.requestId);
+        owner?.handleMessage(message);
       });
+      if (typeof this.wsService.onStatusChange === 'function') {
+        shared.unsubscribeStatus = this.wsService.onStatusChange((status) => {
+          if (status !== 'disconnected') return;
+          for (const client of shared.clients) {
+            client.rejectAllPendingRequests(new Error(translate(getCurrentLocale(), 'websocket.disconnected')));
+          }
+        });
+      }
+      responseRouters.set(this.wsService, shared);
+      router = shared;
     }
+    this.responseRouter = router;
+    router.clients.add(this);
   }
 
   send<T = any>(options: ControlHttpRequestOptions): Promise<ControlHttpResponse<T>> {
@@ -117,14 +140,18 @@ export class ControlHttpClient {
       }
 
       const timeout = window.setTimeout(() => {
-        this.pendingRequests.delete(requestId);
-        reject(new Error(translate(getCurrentLocale(), 'websocket.request_timeout')));
+        this.rejectPendingRequest(requestId, new Error(translate(getCurrentLocale(), 'websocket.request_timeout')));
       }, options.timeoutMs ?? this.defaultTimeoutMs);
 
       this.pendingRequests.set(requestId, { resolve, reject, timeout });
+      this.responseRouter.pendingOwners.set(requestId, this);
 
-      if (!this.wsService.send(message)) {
-        this.rejectPendingRequest(requestId, new Error(translate(getCurrentLocale(), 'websocket.send_failed')));
+      try {
+        if (!this.wsService.send(message)) {
+          this.rejectPendingRequest(requestId, new Error(translate(getCurrentLocale(), 'websocket.send_failed')));
+        }
+      } catch (error) {
+        this.rejectPendingRequest(requestId, error);
       }
     });
   }
@@ -160,16 +187,13 @@ export class ControlHttpClient {
 
     this.isDestroyed = true;
 
-    if (this.unsubscribe) {
-      this.unsubscribe();
-      this.unsubscribe = null;
-    }
-    if (this.unsubscribeStatus) {
-      this.unsubscribeStatus();
-      this.unsubscribeStatus = null;
-    }
-
     this.rejectAllPendingRequests(reason);
+    this.responseRouter.clients.delete(this);
+    if (this.responseRouter.clients.size === 0) {
+      this.responseRouter.unsubscribeMessage?.();
+      this.responseRouter.unsubscribeStatus?.();
+      responseRouters.delete(this.wsService);
+    }
   }
 
   private handleMessage(message: any): void {
@@ -193,6 +217,7 @@ export class ControlHttpClient {
 
     clearTimeout(pending.timeout);
     this.pendingRequests.delete(body.requestId);
+    this.responseRouter.pendingOwners.delete(body.requestId);
 
     pending.resolve({
       requestId: body.requestId,
@@ -217,7 +242,7 @@ export class ControlHttpClient {
     }
   }
 
-  private rejectPendingRequest(requestId: string, reason: Error): void {
+  private rejectPendingRequest(requestId: string, reason: unknown): void {
     const pending = this.pendingRequests.get(requestId);
     if (!pending) {
       return;
@@ -225,12 +250,14 @@ export class ControlHttpClient {
 
     clearTimeout(pending.timeout);
     this.pendingRequests.delete(requestId);
+    this.responseRouter.pendingOwners.delete(requestId);
     pending.reject(reason);
   }
 
   private rejectAllPendingRequests(reason: Error): void {
-    for (const [, pending] of this.pendingRequests) {
+    for (const [requestId, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
+      this.responseRouter.pendingOwners.delete(requestId);
       pending.reject(reason);
     }
     this.pendingRequests.clear();
