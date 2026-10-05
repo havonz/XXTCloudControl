@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import '../../i18n/__tests__/preloadLocales';
-import { createSignal } from 'solid-js';
+import { createSignal, Show } from 'solid-js';
 import { render } from 'solid-js/web';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
@@ -14,6 +14,7 @@ const webRTCMockState = vi.hoisted(() => ({
     udid: string;
     events: Record<string, (...args: any[]) => void>;
     sendKeyCommand: ReturnType<typeof vi.fn>;
+    sendTouchCommand: ReturnType<typeof vi.fn>;
     sendHardwareKeyboardCommand: ReturnType<typeof vi.fn>;
     stopStream: ReturnType<typeof vi.fn>;
   }>,
@@ -213,6 +214,47 @@ function mountBatch(devices: Device[] | (() => Device[]), ws: WebSocketServiceMo
     </I18nProvider>
   ), host);
   return {
+    dispose: () => {
+      dispose();
+      host.remove();
+    },
+  };
+}
+
+async function mountConnectedInputControl(mode: 'single' | 'batch', ws: WebSocketServiceMock) {
+  const selected = [device('current', false), device('mirror', false)];
+  const [open, setOpen] = createSignal(true);
+  const onClose = vi.fn(() => setOpen(false));
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const dispose = render(() => <I18nProvider defaultLocale="zh-CN">
+    <Show when={open()}>
+      {mode === 'single'
+        ? <WebRTCControl
+            isOpen={open()}
+            onClose={onClose}
+            selectedDevices={() => selected}
+            webSocketService={ws as unknown as WebSocketService}
+            password=""
+          />
+        : <BatchRemoteControl
+            isOpen={open()}
+            onClose={onClose}
+            devices={selected}
+            webSocketService={ws as unknown as WebSocketService}
+            password=""
+          />}
+    </Show>
+  </I18nProvider>, host);
+  await flush();
+  if (mode === 'single') clickButton('同步');
+  else selectAllDevices();
+  clickButton('连接');
+  await flush();
+  return {
+    service: webRTCMockState.instances[0],
+    host,
+    onClose,
     dispose: () => {
       dispose();
       host.remove();
@@ -609,6 +651,104 @@ describe('硬件键盘实时控制', () => {
         mounted.dispose();
         await flush();
       }
+    }
+  });
+
+  it.each(['single', 'batch'] as const)('%s 保留物理按键、通道大小写及关闭时的按键释放', async mode => {
+    const ws = new WebSocketServiceMock();
+    const mounted = await mountConnectedInputControl(mode, ws);
+    try {
+      const cases = [
+        ['KeyQ', 'a', 'q'],
+        ['Digit2', '@', '2'],
+        ['ArrowLeft', 'ArrowLeft', 'left'],
+        ['NumpadEnter', 'Enter', 'return'],
+        ['ControlLeft', 'Control', 'command'],
+        ['AltRight', 'Alt', 'option'],
+        ['ShiftLeft', 'Shift', 'shift'],
+        ['Home', 'Home', 'homebutton'],
+        ['Backquote', '~', '`'],
+        ['F12', 'F12', 'f12'],
+      ];
+      for (const [code, key, expected] of cases) {
+        const properties = { code, key, shiftKey: code === 'Digit2', bubbles: true, cancelable: true };
+        window.dispatchEvent(new KeyboardEvent('keydown', properties));
+        expect(mounted.service.sendKeyCommand).toHaveBeenLastCalledWith(mode === 'single' ? expected : expected.toUpperCase(), 'down');
+        expect(ws.keyDownMultiple).toHaveBeenLastCalledWith(['mirror'], expected.toUpperCase());
+        window.dispatchEvent(new KeyboardEvent('keyup', properties));
+        expect(mounted.service.sendKeyCommand).toHaveBeenLastCalledWith(mode === 'single' ? expected : expected.toUpperCase(), 'up');
+        expect(ws.keyUpMultiple).toHaveBeenLastCalledWith(['mirror'], expected.toUpperCase());
+      }
+
+      const input = document.createElement('input');
+      mounted.host.appendChild(input);
+      input.focus();
+      const downCount = ws.keyDownMultiple.mock.calls.length;
+      input.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', key: 'a', bubbles: true }));
+      expect(ws.keyDownMultiple).toHaveBeenCalledTimes(downCount);
+      input.blur();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyZ', key: 'z', bubbles: true }));
+      mounted.host.querySelector<HTMLButtonElement>('button[title="关闭"]')!.click();
+      expect(mounted.onClose).toHaveBeenCalledOnce();
+      expect(mounted.service.sendKeyCommand).toHaveBeenLastCalledWith(mode === 'single' ? 'z' : 'Z', 'up');
+      expect(ws.keyUpMultiple).toHaveBeenLastCalledWith(['mirror'], 'Z');
+    } finally {
+      mounted.dispose();
+    }
+  });
+
+  it.each(['single', 'batch'] as const)('%s 在松手与关闭时补发末帧并保持镜像目标', async mode => {
+    const ws = new WebSocketServiceMock();
+    const mounted = await mountConnectedInputControl(mode, ws);
+    try {
+      vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+      mounted.service.events.onTrack(new MediaStream());
+      await flush(120);
+      const video = mounted.host.querySelector('video')!;
+      expect(video).toBeTruthy();
+      Object.defineProperties(video, {
+        videoWidth: { configurable: true, value: 100 },
+        videoHeight: { configurable: true, value: 100 },
+      });
+      vi.spyOn(video, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+      const frames = new Map<number, FrameRequestCallback>();
+      let nextFrame = 0;
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+        const id = nextFrame++;
+        frames.set(id, callback);
+        return id;
+      });
+      vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+      const pointer = (type: string, x: number, y: number) => video.dispatchEvent(new MouseEvent(type, {
+        clientX: x, clientY: y, button: 0, buttons: type === 'mouseup' ? 0 : 1, bubbles: true, cancelable: true,
+      }));
+      pointer('mousedown', 10, 20);
+      pointer('mousemove', 30, 40);
+      pointer('mousemove', 60, 70);
+      expect(mounted.service.sendTouchCommand.mock.calls).toEqual([['down', 0.1, 0.2, undefined]]);
+      pointer('mouseup', 80, 90);
+      expect(mounted.service.sendTouchCommand.mock.calls).toEqual([
+        ['down', 0.1, 0.2, undefined], ['move', 0.6, 0.7, undefined], ['up', 0.8, 0.9, undefined],
+      ]);
+      expect(ws.touchMoveMultipleNormalized).toHaveBeenCalledWith(['mirror'], 0.6, 0.7, undefined);
+      expect(ws.touchUpMultipleNormalized).toHaveBeenCalledWith(['mirror'], undefined);
+
+      pointer('mousedown', 60, 70);
+      pointer('mousemove', 60, 70);
+      mounted.host.querySelector<HTMLButtonElement>('button[title="关闭"]')!.click();
+      expect(mounted.service.sendTouchCommand.mock.calls.slice(-3)).toEqual([
+        ['down', 0.6, 0.7, undefined], ['move', 0.6, 0.7, undefined], ['up', 0.6, 0.7, undefined],
+      ]);
+      expect(ws.touchUpMultipleNormalized).toHaveBeenCalledTimes(2);
+      const callsAfterClose = mounted.service.sendTouchCommand.mock.calls.length;
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+      expect(mounted.service.sendTouchCommand).toHaveBeenCalledTimes(callsAfterClose);
+      expect(mounted.onClose).toHaveBeenCalledOnce();
+    } finally {
+      mounted.dispose();
     }
   });
 });

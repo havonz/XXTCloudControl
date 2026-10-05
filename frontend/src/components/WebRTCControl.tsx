@@ -13,6 +13,7 @@ import { getDeviceHttpPort } from '../utils/device';
 import { MultiTouchSessionManager, type TouchPoint } from '../utils/multiTouchSession';
 import { debugLog, debugWarn } from '../utils/debugLogger';
 import { getNormalizedVideoCoordinates } from '../utils/videoCoordinates';
+import { createRemoteMouseMoveBatcher, getRemoteKeyFromCode } from '../utils/remoteInput';
 import {
   REMOTE_WHEEL_DEFAULTS,
   canHandleRemoteWheel,
@@ -144,9 +145,6 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     return Date.now() - lastTouchTimestamp < TOUCH_MOUSE_GUARD_MS;
   };
   const MOVE_EPSILON = 0.0015;
-  let pendingMouseMove: TouchPoint | null = null;
-  let mouseMoveRafId: number | null = null;
-  let lastSentMouseMove: TouchPoint | null = null;
   const LAG_THRESHOLD_MS = 180;
   const LAG_RECOVER_MS = 80;
   const CATCHUP_PLAYBACK_RATE = 1.15;
@@ -172,59 +170,16 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
   };
 
-  const sendMouseMove = (coords: TouchPoint) => {
+  const mouseMoveBatcher = createRemoteMouseMoveBatcher((coords) => {
     sendTouchAction('move', coords, undefined, mouseTouchTargetDevices);
-  };
-
-  const shouldSkipMouseMove = (coords: TouchPoint) => {
-    if (!lastSentMouseMove) return false;
-    const dx = coords.x - lastSentMouseMove.x;
-    const dy = coords.y - lastSentMouseMove.y;
-    return (dx * dx + dy * dy) < MOVE_EPSILON * MOVE_EPSILON;
-  };
-
-  const scheduleMouseMoveSend = (coords: TouchPoint) => {
-    pendingMouseMove = coords;
-    if (mouseMoveRafId !== null) return;
-    mouseMoveRafId = requestAnimationFrame(() => {
-      mouseMoveRafId = null;
-      if (!pendingMouseMove) return;
-      const next = pendingMouseMove;
-      pendingMouseMove = null;
-      if (shouldSkipMouseMove(next)) return;
-      sendMouseMove(next);
-      lastSentMouseMove = next;
-    });
-  };
-
-  const flushQueuedMouseMove = () => {
-    if (mouseMoveRafId !== null) {
-      cancelAnimationFrame(mouseMoveRafId);
-      mouseMoveRafId = null;
-    }
-    if (!pendingMouseMove) return;
-    const next = pendingMouseMove;
-    pendingMouseMove = null;
-    if (shouldSkipMouseMove(next)) return;
-    sendMouseMove(next);
-    lastSentMouseMove = next;
-  };
-
-  const resetMouseMoveState = () => {
-    pendingMouseMove = null;
-    if (mouseMoveRafId !== null) {
-      cancelAnimationFrame(mouseMoveRafId);
-      mouseMoveRafId = null;
-    }
-    lastSentMouseMove = null;
-  };
+  }, MOVE_EPSILON);
 
   const endMouseTouch = (finalCoords?: TouchPoint) => {
-    flushQueuedMouseMove();
+    mouseMoveBatcher.flush();
     sendTouchAction('up', finalCoords || lastMouseTouchPosition, undefined, mouseTouchTargetDevices);
     isMouseTouching = false;
     mouseTouchTargetDevices = [];
-    resetMouseMoveState();
+    mouseMoveBatcher.clear();
     clearCachedVideoRect();
   };
 
@@ -901,7 +856,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     mouseTouchTargetDevices = [];
     activeTouchTargetDevices = [];
     wheelBatcher.clear();
-    resetMouseMoveState();
+    mouseMoveBatcher.clear();
     touchSession.reset();
     clearCachedVideoRect();
   };
@@ -912,7 +867,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     if (touchSession.hasActiveTouches() || isMouseTouching) return;
     event.preventDefault();
     wheelBatcher.clear();
-    resetMouseMoveState();
+    mouseMoveBatcher.clear();
     updateCachedVideoRect();
 
     // 移除其他元素的焦点，以便键盘事件可以被捕获
@@ -949,7 +904,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     // 记录触摸位置
     lastMouseTouchPosition = coords;
 
-    scheduleMouseMoveSend(coords);
+    mouseMoveBatcher.schedule(coords);
   };
 
   const handleMouseUp = (event: MouseEvent) => {
@@ -1084,39 +1039,13 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     props.onClose();
   };
 
-  // DataChannel key -> WS key code 映射
-  const wsKeyCodeMap: Record<string, string> = {
-    'homebutton': 'HOMEBUTTON',
-    'lock': 'LOCK',
-    'volumeup': 'VOLUMEUP',
-    'volumedown': 'VOLUMEDOWN',
-    'return': 'RETURN',
-    'escape': 'ESCAPE',
-    'backspace': 'BACKSPACE',
-    'tab': 'TAB',
-    'space': 'SPACE',
-    'delete': 'DELETE',
-    'up': 'UP',
-    'down': 'DOWN',
-    'left': 'LEFT',
-    'right': 'RIGHT',
-    'command': 'COMMAND',
-    'option': 'OPTION',
-    'shift': 'SHIFT'
-  };
-
-  // 获取 WS key code (字母直接大写)
-  const getWsKeyCode = (key: string): string => {
-    return wsKeyCodeMap[key] || key.toUpperCase();
-  };
-
   function sendSynchronizedKeyCommand(key: string, action: 'down' | 'up'): void {
     let route = forwardedKeyboardRoutes.get(key);
     if (!route) {
       route = {
         service: webrtcService,
         wsTargets: getTargetDevices(),
-        wsKeyCode: getWsKeyCode(key),
+        wsKeyCode: key.toUpperCase(),
       };
       if (action === 'down') {
         forwardedKeyboardRoutes.set(key, route);
@@ -1137,7 +1066,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     }
   }
 
-  function sendSynchronizedKeyPress(key: string, wsKeyCode: string = getWsKeyCode(key)): void {
+  function sendSynchronizedKeyPress(key: string, wsKeyCode: string = key.toUpperCase()): void {
     webrtcService?.sendKeyCommand(key, 'press');
 
     const targetDevices = getTargetDevices();
@@ -1352,87 +1281,6 @@ export default function WebRTCControl(props: WebRTCControlProps) {
     });
   }
 
-  // 特殊按键映射 - 使用 e.code (物理键码) 而不是 e.key (字符)
-  // 这样 Shift+2 会发送 Shift 和 "2"，而不是发送 "@"
-  const codeMapping: Record<string, string> = {
-    // 功能键
-    'Enter': 'return',
-    'NumpadEnter': 'return',
-    'Escape': 'escape',
-    'Backspace': 'backspace',
-    'Tab': 'tab',
-    'Space': 'space',
-    'Delete': 'delete',
-    // 方向键
-    'ArrowUp': 'up',
-    'ArrowDown': 'down',
-    'ArrowLeft': 'left',
-    'ArrowRight': 'right',
-    // 导航键
-    'Home': 'homebutton',
-    'End': 'end',
-    'PageUp': 'pageup',
-    'PageDown': 'pagedown',
-    // 修饰键
-    'ControlLeft': 'command',
-    'ControlRight': 'command',
-    'MetaLeft': 'command',
-    'MetaRight': 'command',
-    'AltLeft': 'option',
-    'AltRight': 'option',
-    'ShiftLeft': 'shift',
-    'ShiftRight': 'shift',
-    // 数字键 (主键盘)
-    'Digit0': '0',
-    'Digit1': '1',
-    'Digit2': '2',
-    'Digit3': '3',
-    'Digit4': '4',
-    'Digit5': '5',
-    'Digit6': '6',
-    'Digit7': '7',
-    'Digit8': '8',
-    'Digit9': '9',
-    // 符号键
-    'Minus': '-',
-    'Equal': '=',
-    'BracketLeft': '[',
-    'BracketRight': ']',
-    'Backslash': '\\',
-    'Semicolon': ';',
-    'Quote': "'",
-    'Comma': ',',
-    'Period': '.',
-    'Slash': '/',
-    'Backquote': '`',
-    // F键
-    'F1': 'f1',
-    'F2': 'f2',
-    'F3': 'f3',
-    'F4': 'f4',
-    'F5': 'f5',
-    'F6': 'f6',
-    'F7': 'f7',
-    'F8': 'f8',
-    'F9': 'f9',
-    'F10': 'f10',
-    'F11': 'f11',
-    'F12': 'f12'
-  };
-
-  // 从 e.code 提取按键名称
-  const getKeyFromCode = (code: string): string | null => {
-    // 优先使用映射表
-    if (codeMapping[code]) {
-      return codeMapping[code];
-    }
-    // 字母键: KeyA -> a, KeyB -> b, ...
-    if (code.startsWith('Key') && code.length === 4) {
-      return code[3].toLowerCase();
-    }
-    return null;
-  };
-
   // 获取按键名称（用于显示）
   const getKeyDisplayName = (key: string): string => {
     const displayMap: Record<string, string> = {
@@ -1456,7 +1304,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
 
   // 处理键盘事件
   const handleKeyDown = (e: KeyboardEvent) => {
-    const mappedKey = getKeyFromCode(e.code);
+    const mappedKey = getRemoteKeyFromCode(e.code);
     trackClipboardShortcutModifier(e, 'down');
 
     // 如果剪贴板模态框打开，不拦截键盘事件
@@ -1488,7 +1336,7 @@ export default function WebRTCControl(props: WebRTCControlProps) {
   };
 
   const handleKeyUp = (e: KeyboardEvent) => {
-    const mappedKey = getKeyFromCode(e.code);
+    const mappedKey = getRemoteKeyFromCode(e.code);
     trackClipboardShortcutModifier(e, 'up');
 
     if (clipboardModalOpen()) {

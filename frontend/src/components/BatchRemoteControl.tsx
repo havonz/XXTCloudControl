@@ -18,6 +18,7 @@ import { getDeviceHttpPort } from '../utils/device';
 import { MultiTouchSessionManager, type TouchPoint } from '../utils/multiTouchSession';
 import { debugLog, debugWarn } from '../utils/debugLogger';
 import { getNormalizedVideoCoordinates } from '../utils/videoCoordinates';
+import { createRemoteMouseMoveBatcher, getRemoteKeyFromCode } from '../utils/remoteInput';
 import {
   canHandleRemoteWheel,
   createRemoteWheelBatcher,
@@ -284,11 +285,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
   const [wheelBrakeReversePx, setWheelBrakeReversePx] = createSignal<number>(savedWheelSettings.brakeReversePx);
   let wheelSettingsRef: HTMLDivElement | null = null;
   
-  // Move throttling 相关变量
   const MOVE_EPSILON = 0.0015;
-  let pendingMouseMove: TouchPoint | null = null;
-  let mouseMoveRafId: number | null = null;
-  let lastSentMouseMove: TouchPoint | null = null;
 
   const syncViewportMobile = () => {
     setIsViewportMobile(window.innerWidth <= VIEWPORT_MOBILE_BREAKPOINT);
@@ -1572,61 +1569,18 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     }
   };
 
-  const sendMouseMove = (coords: TouchPoint) => {
+  const mouseMoveBatcher = createRemoteMouseMoveBatcher((coords) => {
     if (!mouseActiveDevice) return;
     sendTouchAction(mouseActiveDevice, 'move', coords, undefined, mouseMirrorDevices);
-  };
-
-  const shouldSkipMouseMove = (coords: TouchPoint) => {
-    if (!lastSentMouseMove) return false;
-    const dx = coords.x - lastSentMouseMove.x;
-    const dy = coords.y - lastSentMouseMove.y;
-    return (dx * dx + dy * dy) < MOVE_EPSILON * MOVE_EPSILON;
-  };
-
-  const scheduleMouseMoveSend = (coords: TouchPoint) => {
-    pendingMouseMove = coords;
-    if (mouseMoveRafId !== null) return;
-    mouseMoveRafId = requestAnimationFrame(() => {
-      mouseMoveRafId = null;
-      if (!pendingMouseMove) return;
-      const next = pendingMouseMove;
-      pendingMouseMove = null;
-      if (shouldSkipMouseMove(next)) return;
-      sendMouseMove(next);
-      lastSentMouseMove = next;
-    });
-  };
-
-  const flushQueuedMouseMove = () => {
-    if (mouseMoveRafId !== null) {
-      cancelAnimationFrame(mouseMoveRafId);
-      mouseMoveRafId = null;
-    }
-    if (!pendingMouseMove) return;
-    const next = pendingMouseMove;
-    pendingMouseMove = null;
-    if (shouldSkipMouseMove(next)) return;
-    sendMouseMove(next);
-    lastSentMouseMove = next;
-  };
-
-  const resetMouseMoveState = () => {
-    pendingMouseMove = null;
-    if (mouseMoveRafId !== null) {
-      cancelAnimationFrame(mouseMoveRafId);
-      mouseMoveRafId = null;
-    }
-    lastSentMouseMove = null;
-  };
+  }, MOVE_EPSILON);
 
   const endMouseTouch = (udid: string, finalCoords?: TouchPoint) => {
-    flushQueuedMouseMove();
+    mouseMoveBatcher.flush();
     sendTouchAction(udid, 'up', finalCoords || lastMouseTouchPosition, undefined, mouseMirrorDevices);
     isMouseTouching = false;
     mouseActiveDevice = null;
     mouseMirrorDevices = [];
-    resetMouseMoveState();
+    mouseMoveBatcher.clear();
   };
 
   const wheelBatcher = createRemoteWheelBatcher((payload) => {
@@ -1682,7 +1636,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
       mouseActiveDevice = null;
       mouseMirrorDevices = [];
       lastMouseTouchPosition = { x: 0, y: 0 };
-      resetMouseMoveState();
+      mouseMoveBatcher.clear();
     }
 
     if (!udid || activeTouchDevice === udid) {
@@ -2049,7 +2003,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     const coords = convertToDeviceCoordinates(event, videoRef);
     if (!coords) return;
 
-    resetMouseMoveState();
+    mouseMoveBatcher.clear();
     mouseActiveDevice = udid;
     isMouseTouching = true;
     lastMouseTouchPosition = coords;
@@ -2068,7 +2022,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (!coords) return;
 
     lastMouseTouchPosition = coords;
-    scheduleMouseMoveSend(coords);
+    mouseMoveBatcher.schedule(coords);
   };
 
   const handleDeviceMouseUp = (udid: string, event: MouseEvent) => {
@@ -2435,78 +2389,6 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     disconnectAllDevices();
   });
 
-  // 特殊按键映射 - 使用 e.code (物理键码) 而不是 e.key (字符)
-  // 这样 Shift+2 会发送 Shift 和 "2"，量而不是发送 "@"
-  const codeMapping: Record<string, string> = {
-    // 功能键
-    'Enter': 'RETURN',
-    'NumpadEnter': 'RETURN',
-    'Escape': 'ESCAPE',
-    'Backspace': 'BACKSPACE',
-    'Tab': 'TAB',
-    'Space': 'SPACE',
-    'Delete': 'DELETE',
-    // 方向键
-    'ArrowUp': 'UP',
-    'ArrowDown': 'DOWN',
-    'ArrowLeft': 'LEFT',
-    'ArrowRight': 'RIGHT',
-    // 导航键
-    'Home': 'HOMEBUTTON',
-    'End': 'END',
-    'PageUp': 'PAGEUP',
-    'PageDown': 'PAGEDOWN',
-    // 修饰键
-    'ControlLeft': 'COMMAND',
-    'ControlRight': 'COMMAND',
-    'MetaLeft': 'COMMAND',
-    'MetaRight': 'COMMAND',
-    'AltLeft': 'OPTION',
-    'AltRight': 'OPTION',
-    'ShiftLeft': 'SHIFT',
-    'ShiftRight': 'SHIFT',
-    // 数字键 (主键盘)
-    'Digit0': '0',
-    'Digit1': '1',
-    'Digit2': '2',
-    'Digit3': '3',
-    'Digit4': '4',
-    'Digit5': '5',
-    'Digit6': '6',
-    'Digit7': '7',
-    'Digit8': '8',
-    'Digit9': '9',
-    // 符号键
-    'Minus': '-',
-    'Equal': '=',
-    'BracketLeft': '[',
-    'BracketRight': ']',
-    'Backslash': '\\',
-    'Semicolon': ';',
-    'Quote': "'",
-    'Comma': ',',
-    'Period': '.',
-    'Slash': '/',
-    'Backquote': '`',
-    // F键
-    'F1': 'F1', 'F2': 'F2', 'F3': 'F3', 'F4': 'F4', 'F5': 'F5',
-    'F6': 'F6', 'F7': 'F7', 'F8': 'F8', 'F9': 'F9', 'F10': 'F10',
-    'F11': 'F11', 'F12': 'F12'
-  };
-
-  // 从 e.code 提取按键名称 (设备端需要的格式)
-  const getKeyFromCode = (code: string): string | null => {
-    // 优先使用映射表
-    if (codeMapping[code]) {
-      return codeMapping[code];
-    }
-    // 字母键: KeyA -> a, KeyB -> b, ... -> 设备端需要 A, B, ...
-    if (code.startsWith('Key') && code.length === 4) {
-      return code[3].toUpperCase();
-    }
-    return null;
-  };
-
   const isTextInputTarget = (target: EventTarget | null): boolean => {
     return target instanceof HTMLTextAreaElement ||
       (target instanceof HTMLInputElement && ['text', 'password', 'number', 'email', 'search', 'tel', 'url'].includes(target.type));
@@ -2532,7 +2414,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     // 如果面板没打开或者没选中设备，不产生作用
     if (!props.isOpen || checkedDevices().size === 0) return;
 
-    const deviceKey = getKeyFromCode(e.code);
+    const deviceKey = getRemoteKeyFromCode(e.code)?.toUpperCase();
     if (!deviceKey) return;
 
     // 组织默认行为（例如方向键滚动页面）
@@ -2563,7 +2445,7 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
     if (isTextInputTarget(e.target)) return;
     if (!props.isOpen || checkedDevices().size === 0) return;
 
-    const deviceKey = getKeyFromCode(e.code);
+    const deviceKey = getRemoteKeyFromCode(e.code)?.toUpperCase();
     if (!deviceKey) return;
 
     e.preventDefault();
