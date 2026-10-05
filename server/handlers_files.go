@@ -287,14 +287,7 @@ func serverFilesUploadHandler(c *gin.Context) {
 		return
 	}
 
-	dst, err := os.Create(absTargetFile)
-	if err != nil {
-		jsonError(c, http.StatusInternalServerError, "failed to create file")
-		return
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
+	if _, _, err := replaceUploadedFile(c.Request.Context(), absTargetFile, file, header.Size); err != nil {
 		jsonError(c, http.StatusInternalServerError, "failed to save file")
 		return
 	}

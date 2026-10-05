@@ -75,6 +75,10 @@ func resetTransferTokensForTest() {
 	transferTokensMu.Lock()
 	transferTokens = make(map[string]*TransferToken)
 	transferTokensMu.Unlock()
+	deviceFileTransfers.Lock()
+	deviceFileTransfers.byPath = make(map[deviceFileTransferKey]*deviceFileTransfer)
+	deviceFileTransfers.byID = make(map[string]*deviceFileTransfer)
+	deviceFileTransfers.Unlock()
 }
 
 func setupTransferTokenCreateTest(t *testing.T) (dataDir string, filePath string) {

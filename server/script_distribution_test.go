@@ -126,8 +126,11 @@ func TestScriptDistributionPreservesConfigurationAndTransferBeforeStart(t *testi
 				t.Fatalf("download token changed: %+v, %v", token, err)
 			}
 			if !test.starts {
-				if _, ok := fetch["requestId"]; ok || hasPendingScriptStart("device-http-bin") {
+				if hasPendingScriptStart("device-http-bin") {
 					t.Fatal("send-only operation created a script start session")
+				}
+				if requestID, _ := fetch["requestId"].(string); requestID == "" {
+					t.Fatal("send-only transfer has no completion correlation ID")
 				}
 				return
 			}

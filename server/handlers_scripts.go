@@ -1354,23 +1354,36 @@ func (s *scriptFileSender) smallFilePayload(f scriptFileData, groupConfig map[st
 }
 
 // sendSmallFilesToConn sends all small files to a specific device connection.
-func (s *scriptFileSender) sendSmallFilesToConn(conn *SafeConn, udid string) {
+func (s *scriptFileSender) sendSmallFilesToConn(conn *SafeConn, udid string) error {
 	if conn == nil {
-		return
+		return errors.New("device not connected")
 	}
 	groupConfig := s.deviceConfigIndex[udid]
 	configKey := s.groupConfigKey(groupConfig)
 	payloads := make([][]byte, 0, len(s.files))
-	for _, f := range s.files {
+	batchID := uuid.NewString()
+	requestIDs := make([]string, 0, len(s.files))
+	defer func() {
+		for _, requestID := range requestIDs {
+			finishDeviceFileTransfer(requestID)
+		}
+	}()
+	for index, f := range s.files {
 		if f.Data == "" {
 			continue
 		}
+		requestID := batchID + ":" + strconv.Itoa(index)
+		if err := beginDeviceFileTransfer(udid, f.Path, requestID, "download", time.Now().Add(defaultTransferTokenTTL)); err != nil {
+			return err
+		}
+		requestIDs = append(requestIDs, requestID)
 		if payload := s.smallFilePayload(f, groupConfig, configKey); payload != nil {
 			payloads = append(payloads, payload)
 		}
 	}
 	// 大量小文件属于同一次分发，合并入队以免正常脚本包耗尽连接的队列额度。
-	_ = conn.WriteMessagesAsync(websocket.TextMessage, payloads)
+	// 小文件由设备同步写入；本批入队后，后续回传命令会排在它们之后。
+	return conn.WriteMessagesAsync(websocket.TextMessage, payloads)
 }
 
 // scriptsSendHandler handles POST /api/scripts/send
@@ -1400,6 +1413,7 @@ func scriptsSendHandler(c *gin.Context) {
 	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 
 	deviceConns := snapshotDeviceConns(req.Devices)
+	var sendErr error
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
 			broadcastDeviceMessage(udid, "device.script.upload_summary", map[string]any{
@@ -1407,29 +1421,55 @@ func scriptsSendHandler(c *gin.Context) {
 				"large": len(distribution.largeFiles),
 			})
 
-			distribution.sender.sendSmallFilesToConn(conn, udid)
+			if err := distribution.sender.sendSmallFilesToConn(conn, udid); err != nil {
+				sendErr = err
+				continue
+			}
 
+			deviceFailed := false
 			for _, f := range distribution.largeFiles {
 				broadcastDeviceMessage(udid, "device.script.upload_large_file", map[string]any{"name": filepath.Base(f.Path)})
 
 				md5Info, ok := distribution.largeFileMD5[f.SourcePath]
 				if !ok || md5Info.err != nil {
 					broadcastDeviceMessage(udid, "device.script.verify_failed", map[string]any{"name": filepath.Base(f.Path)})
+					sendErr = errors.New("failed to read file")
+					deviceFailed = true
 					continue
 				}
 				md5Hash := md5Info.hash
 
-				fetchPayload, err := prepareScriptFileFetch(udid, transferBaseURL, f, md5Hash, "")
+				requestID := uuid.NewString()
+				fetchPayload, token, err := prepareScriptFileFetch(udid, transferBaseURL, f, md5Hash, requestID)
 				if err != nil {
+					sendErr = err
+					deviceFailed = true
 					continue
 				}
-				writeTextMessageAsync(conn, fetchPayload)
+				if err := conn.WriteMessagesAsync(websocket.TextMessage, [][]byte{fetchPayload}); err != nil {
+					finishDeviceFileTransfer(requestID)
+					transferTokensMu.Lock()
+					delete(transferTokens, token)
+					transferTokensMu.Unlock()
+					sendErr = err
+					deviceFailed = true
+				}
 			}
 
-			broadcastDeviceMessage(udid, "device.script.uploaded", nil)
+			if !deviceFailed {
+				broadcastDeviceMessage(udid, "device.script.uploaded", nil)
+			}
 		}
 	}
 
+	if sendErr != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(sendErr, errDeviceFileTransferBusy) {
+			status = http.StatusConflict
+		}
+		jsonError(c, status, sendErr.Error())
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(distribution.files)})
 }
 
@@ -1515,7 +1555,11 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				"large": len(distribution.largeFiles),
 			})
 
-			distribution.sender.sendSmallFilesToConn(conn, udid)
+			if err := distribution.sender.sendSmallFilesToConn(conn, udid); err != nil {
+				clearScriptStartSessionIfGeneration(udid, generation)
+				broadcastDeviceMessageWithDetail(udid, "device.script.start_transfer_prepare_failed", nil, err.Error())
+				continue
+			}
 
 			for _, planned := range plannedLargeFetches {
 				f := planned.file
@@ -1530,12 +1574,19 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				}
 				md5Hash := md5Info.hash
 
-				fetchPayload, err := prepareScriptFileFetch(udid, transferBaseURL, f, md5Hash, planned.requestID)
+				fetchPayload, token, err := prepareScriptFileFetch(udid, transferBaseURL, f, md5Hash, planned.requestID)
 				if err != nil {
 					largeTransferPrepareFailed = true
 					break
 				}
-				writeTextMessageAsync(conn, fetchPayload)
+				if err := conn.WriteMessagesAsync(websocket.TextMessage, [][]byte{fetchPayload}); err != nil {
+					finishDeviceFileTransfer(planned.requestID)
+					transferTokensMu.Lock()
+					delete(transferTokens, token)
+					transferTokensMu.Unlock()
+					largeTransferPrepareFailed = true
+					break
+				}
 			}
 
 			if largeTransferPrepareFailed {

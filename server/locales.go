@@ -364,6 +364,8 @@ var legacyMessageCodes = map[string]string{
 	"file or directory already exists":                              "error.entry.already_exists",
 	"failed to write file content":                                  "error.file.write_content_failed",
 	"failed to write file":                                          "error.file.write_failed",
+	"uploaded file size does not match expected length":             "error.transfer.size_mismatch",
+	"file transfer already in progress":                             "error.transfer.file_busy",
 	"failed to open":                                                "error.entry.open_failed",
 	"oldName and newName are required":                              "error.rename.names_required",
 	"failed to rename":                                              "error.entry.rename_failed",

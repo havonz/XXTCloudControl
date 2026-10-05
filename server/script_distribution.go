@@ -76,7 +76,10 @@ func prepareScriptDistribution(c *gin.Context, req scriptSendRequest) *scriptDis
 	}
 }
 
-func prepareScriptFileFetch(udid, baseURL string, file scriptFileData, md5Hash, requestID string) ([]byte, error) {
+func prepareScriptFileFetch(udid, baseURL string, file scriptFileData, md5Hash, requestID string) ([]byte, string, error) {
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
 	token := uuid.New().String()
 	body := gin.H{
 		"url":        fmt.Sprintf("%s/api/transfer/download/%s", baseURL, token),
@@ -85,12 +88,14 @@ func prepareScriptFileFetch(udid, baseURL string, file scriptFileData, md5Hash, 
 		"totalBytes": file.Size,
 		"timeout":    defaultTransferTimeoutSec,
 	}
-	if requestID != "" {
-		body["requestId"] = requestID
-	}
+	body["requestId"] = requestID
 	payload, err := json.Marshal(Message{Type: "transfer/fetch", Body: body})
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+	expiresAt := time.Now().Add(transferTokenTTLForTimeout(defaultTransferTimeoutSec))
+	if err := beginDeviceFileTransfer(udid, file.Path, requestID, "download", expiresAt); err != nil {
+		return nil, "", err
 	}
 	transferTokensMu.Lock()
 	transferTokens[token] = &TransferToken{
@@ -98,11 +103,11 @@ func prepareScriptFileFetch(udid, baseURL string, file scriptFileData, md5Hash, 
 		FilePath:   file.SourcePath,
 		TargetPath: file.Path,
 		DeviceSN:   udid,
-		ExpiresAt:  time.Now().Add(defaultTransferTokenTTL),
+		ExpiresAt:  expiresAt,
 		OneTime:    true,
 		TotalBytes: file.Size,
 		MD5:        md5Hash,
 	}
 	transferTokensMu.Unlock()
-	return payload, nil
+	return payload, token, nil
 }

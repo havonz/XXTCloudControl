@@ -303,6 +303,7 @@ func TestSingleFilePushKeepsProtocolAtSizeBoundary(t *testing.T) {
 			if err := json.Unmarshal(single.Body.Bytes(), &original); err != nil {
 				t.Fatal(err)
 			}
+			completeDeviceFileTransfer("a", "download", map[string]interface{}{"targetPath": "/res/source.bin", "success": true})
 			batch := decodeFilePushBatch(t, performJSONHandlerRequest(t, http.MethodPost, "/api/transfer/push-to-devices", request, pushFileToDevicesHandler))
 			expectedMethod := "file/put"
 			if size >= 128*1024 {

@@ -1335,7 +1335,24 @@ func handleMessage(conn *SafeConn, data Message) error {
 
 	case "transfer/fetch/complete":
 		if udid, ok := getDeviceUDIDByConn(conn); ok {
+			completeDeviceFileTransfer(udid, "download", data.Body)
 			handleTransferFetchCompletionForScriptStart(udid, data.Body)
+		}
+		return forwardDeviceMessageToControllers(conn, data)
+	case "transfer/send/complete":
+		if udid, ok := getDeviceUDIDByConn(conn); ok {
+			completeDeviceFileTransfer(udid, "upload", data.Body)
+		}
+		return forwardDeviceMessageToControllers(conn, data)
+	case "transfer/fetch", "transfer/send":
+		if data.Error != "" {
+			if udid, ok := getDeviceUDIDByConn(conn); ok {
+				kind := "download"
+				if data.Type == "transfer/send" {
+					kind = "upload"
+				}
+				completeDeviceFileTransfer(udid, kind, data.Body)
+			}
 		}
 		return forwardDeviceMessageToControllers(conn, data)
 

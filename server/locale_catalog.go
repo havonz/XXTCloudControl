@@ -3,6 +3,12 @@ package main
 // The array order follows supportedLocales. Keeping every locale in the same
 // row makes missing translations visible during review and easy to validate.
 var translationCatalog = map[string][supportedLocaleCount]string{
+	"error.transfer.size_mismatch": {
+		"文件接收不完整，请重试", "The received file is incomplete. Please retry.", "檔案接收不完整，請重試", "ファイルを完全に受信できませんでした。再試行してください。", "파일을 완전히 수신하지 못했습니다. 다시 시도하세요.", "Tệp nhận được chưa đầy đủ. Vui lòng thử lại.", "El archivo recibido está incompleto. Vuelve a intentarlo.", "O arquivo recebido está incompleto. Tente novamente.", "Файл получен не полностью. Повторите попытку.", "Le fichier reçu est incomplet. Réessayez.", "Die empfangene Datei ist unvollständig. Bitte erneut versuchen.",
+	},
+	"error.transfer.file_busy": {
+		"该文件正在传输，请完成后重试", "This file is being transferred. Please retry after it finishes.", "該檔案正在傳輸，請完成後重試", "このファイルは転送中です。完了後に再試行してください。", "이 파일을 전송하고 있습니다. 완료된 후 다시 시도하세요.", "Tệp này đang được truyền. Vui lòng thử lại sau khi hoàn tất.", "Este archivo se está transfiriendo. Vuelve a intentarlo cuando termine.", "Este arquivo está sendo transferido. Tente novamente após a conclusão.", "Этот файл передаётся. Повторите попытку после завершения.", "Ce fichier est en cours de transfert. Réessayez une fois terminé.", "Diese Datei wird gerade übertragen. Bitte nach Abschluss erneut versuchen.",
+	},
 	"error.unauthorized": {
 		"未授权", "Unauthorized", "未授權", "認証されていません", "인증되지 않았습니다", "Chưa được ủy quyền", "No autorizado", "Não autorizado", "Нет авторизации", "Non autorisé", "Nicht autorisiert",
 	},

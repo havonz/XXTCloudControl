@@ -21,15 +21,16 @@ import (
 
 // TransferToken represents a temporary file transfer token
 type TransferToken struct {
-	Type       string    // "download" or "upload"
-	FilePath   string    // Server file path (absolute)
-	TargetPath string    // Device target path (for download) or save path (for upload)
-	DeviceSN   string    // Target device serial number
-	ExpiresAt  time.Time // Token expiration time
-	OneTime    bool      // If true, token is invalidated after use
-	TotalBytes int64     // File size (for progress calculation)
-	MD5        string    // File MD5 hash (for download verification)
-	Category   string    // File category (scripts/files/reports)
+	Type             string    // "download" or "upload"
+	FilePath         string    // Server file path (absolute)
+	TargetPath       string    // Device target path (for download) or save path (for upload)
+	DeviceSN         string    // Target device serial number
+	ExpiresAt        time.Time // Token expiration time
+	OneTime          bool      // If true, token is invalidated after use
+	TotalBytes       int64     // File size (for progress calculation)
+	MD5              string    // File MD5 hash (for download verification)
+	Category         string    // File category (scripts/files/reports)
+	DeviceTransferID string
 	// 令牌与进行中的下载共同持有临时源文件，避免其他设备或过期清理提前删除它。
 	SharedSourceID string
 }
@@ -292,6 +293,15 @@ func cleanupExpiredTokens() {
 		}
 	}
 	sharedTempRefs.Unlock()
+
+	deviceFileTransfers.Lock()
+	for requestID, transfer := range deviceFileTransfers.byID {
+		if !transfer.expiresAt.IsZero() && !now.Before(transfer.expiresAt) {
+			delete(deviceFileTransfers.byPath, transfer.key)
+			delete(deviceFileTransfers.byID, requestID)
+		}
+	}
+	deviceFileTransfers.Unlock()
 }
 
 // createTransferTokenHandler handles POST /api/transfer/create-token
@@ -641,19 +651,18 @@ func transferUploadHandler(c *gin.Context) {
 		return
 	}
 
-	// Lookup token
-	transferTokensMu.RLock()
+	// 一次性上传令牌必须在同一个临界区内领取，避免并发请求同时覆盖目标。
+	transferTokensMu.Lock()
 	tokenInfo, exists := transferTokens[token]
-	transferTokensMu.RUnlock()
 
 	if !exists {
+		transferTokensMu.Unlock()
 		jsonError(c, http.StatusNotFound, "token not found or expired")
 		return
 	}
 
 	// Check expiration
 	if time.Now().After(tokenInfo.ExpiresAt) {
-		transferTokensMu.Lock()
 		delete(transferTokens, token)
 		transferTokensMu.Unlock()
 		jsonError(c, http.StatusGone, "token expired")
@@ -662,27 +671,27 @@ func transferUploadHandler(c *gin.Context) {
 
 	// Check type
 	if tokenInfo.Type != "upload" {
+		transferTokensMu.Unlock()
 		jsonError(c, http.StatusBadRequest, "token is not for upload")
 		return
 	}
 
 	// Invalidate one-time token
 	if tokenInfo.OneTime {
-		transferTokensMu.Lock()
 		delete(transferTokens, token)
-		transferTokensMu.Unlock()
 	}
+	transferTokensMu.Unlock()
 
 	// Get content length
 	contentLength := c.Request.ContentLength
-
-	// Create file
-	file, err := os.Create(tokenInfo.FilePath)
-	if err != nil {
-		jsonError(c, http.StatusInternalServerError, "failed to create file")
-		return
+	if tokenInfo.DeviceTransferID != "" {
+		deviceFileTransfers.Lock()
+		if transfer := deviceFileTransfers.byID[tokenInfo.DeviceTransferID]; transfer != nil {
+			transfer.expiresAt = time.Time{}
+		}
+		deviceFileTransfers.Unlock()
+		defer finishDeviceFileTransfer(tokenInfo.DeviceTransferID)
 	}
-	defer file.Close()
 
 	// Create progress reader
 	pr := &ProgressReader{
@@ -705,27 +714,30 @@ func transferUploadHandler(c *gin.Context) {
 
 	// Copy with progress tracking
 	hashWriter := md5.New()
-	written, err := io.Copy(io.MultiWriter(file, hashWriter), pr)
+	written, info, err := replaceUploadedFile(c.Request.Context(), tokenInfo.FilePath, io.TeeReader(pr, hashWriter), contentLength)
 	if err != nil {
 		log.Printf("❌ Upload failed: %s - %v", fileName, err)
+		if errors.Is(err, errUploadSizeMismatch) {
+			jsonError(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		jsonError(c, http.StatusInternalServerError, "failed to write file")
 		return
 	}
 
 	// MD5 is computed while streaming upload data to avoid a second full-file read.
 	md5Hash := hex.EncodeToString(hashWriter.Sum(nil))
-	if info, statErr := file.Stat(); statErr == nil {
-		md5Cache.Lock()
-		md5Cache.trimLocked(tokenInfo.FilePath)
-		md5Cache.generation++
-		md5Cache.entries[tokenInfo.FilePath] = md5CacheEntry{
-			size:       info.Size(),
-			modTime:    info.ModTime().UnixNano(),
-			hash:       md5Hash,
-			generation: md5Cache.generation,
-		}
-		md5Cache.Unlock()
+	// 使用本次写入的元数据，避免再次 Stat 时读到另一笔上传刚替换的文件。
+	md5Cache.Lock()
+	md5Cache.trimLocked(tokenInfo.FilePath)
+	md5Cache.generation++
+	md5Cache.entries[tokenInfo.FilePath] = md5CacheEntry{
+		size:       info.Size(),
+		modTime:    info.ModTime().UnixNano(),
+		hash:       md5Hash,
+		generation: md5Cache.generation,
 	}
+	md5Cache.Unlock()
 
 	debugLogf("✅ Upload completed: device %s → %s (%d bytes, MD5: %s)",
 		tokenInfo.DeviceSN, fileName, written, md5Hash)
@@ -877,7 +889,7 @@ func broadcastDeviceMessageWithDetail(udid string, messageCode string, messagePa
 }
 
 // sendFileDownloadCommand sends a file download command to a device
-func sendFileDownloadCommand(deviceSN string, downloadURL string, targetPath string, md5 string, totalBytes int64, timeout int) error {
+func sendFileDownloadCommand(deviceSN string, downloadURL string, targetPath string, md5 string, totalBytes int64, timeout int, requestID string) error {
 	mu.RLock()
 	conn, exists := deviceLinks[deviceSN]
 	mu.RUnlock()
@@ -894,6 +906,7 @@ func sendFileDownloadCommand(deviceSN string, downloadURL string, targetPath str
 			"md5":        md5,
 			"totalBytes": totalBytes,
 			"timeout":    timeout,
+			"requestId":  requestID,
 		},
 	}
 
@@ -906,7 +919,7 @@ func sendFileDownloadCommand(deviceSN string, downloadURL string, targetPath str
 }
 
 // sendFileUploadCommand sends a file upload command to a device
-func sendFileUploadCommand(deviceSN string, uploadURL string, sourcePath string, savePath string, timeout int) error {
+func sendFileUploadCommand(deviceSN string, uploadURL string, sourcePath string, savePath string, timeout int, requestID string) error {
 	mu.RLock()
 	conn, exists := deviceLinks[deviceSN]
 	mu.RUnlock()
@@ -922,6 +935,7 @@ func sendFileUploadCommand(deviceSN string, uploadURL string, sourcePath string,
 			"sourcePath": sourcePath,
 			"savePath":   savePath,
 			"timeout":    timeout,
+			"requestId":  requestID,
 		},
 	}
 
@@ -962,6 +976,21 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 		return
 	}
 
+	token := uuid.New().String()
+	requestID := uuid.NewString()
+	timeout := normalizeTransferTimeoutSeconds(req.Timeout)
+	expiresAt := time.Now().Add(transferTokenTTLForTimeout(timeout))
+	if err := beginDeviceFileTransfer(req.DeviceSN, req.SourcePath, requestID, "upload", expiresAt); err != nil {
+		jsonError(c, http.StatusConflict, err.Error())
+		return
+	}
+	transferDispatched := false
+	defer func() {
+		if !transferDispatched {
+			finishDeviceFileTransfer(requestID)
+		}
+	}()
+
 	// Create parent directory
 	parentDir := filepath.Dir(filePath)
 	if err := os.MkdirAll(parentDir, 0755); err != nil {
@@ -969,20 +998,16 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 		return
 	}
 
-	// Generate token
-	token := uuid.New().String()
-	timeout := normalizeTransferTimeoutSeconds(req.Timeout)
-	expiresAt := time.Now().Add(transferTokenTTLForTimeout(timeout))
-
 	transferTokensMu.Lock()
 	transferTokens[token] = &TransferToken{
-		Type:       "upload",
-		FilePath:   filePath,
-		TargetPath: req.SourcePath, // Store device source path for reference
-		DeviceSN:   req.DeviceSN,
-		ExpiresAt:  expiresAt,
-		OneTime:    true,
-		Category:   req.Category,
+		Type:             "upload",
+		FilePath:         filePath,
+		TargetPath:       req.SourcePath, // Store device source path for reference
+		DeviceSN:         req.DeviceSN,
+		ExpiresAt:        expiresAt,
+		OneTime:          true,
+		Category:         req.Category,
+		DeviceTransferID: requestID,
 	}
 	transferTokensMu.Unlock()
 
@@ -992,7 +1017,7 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 	uploadURL := transferBaseURL + uploadPath
 
 	// Send command to device
-	if err := sendFileUploadCommand(req.DeviceSN, uploadURL, req.SourcePath, req.Path, timeout); err != nil {
+	if err := sendFileUploadCommand(req.DeviceSN, uploadURL, req.SourcePath, req.Path, timeout, requestID); err != nil {
 		// Cleanup token on failure
 		transferTokensMu.Lock()
 		delete(transferTokens, token)
@@ -1002,6 +1027,7 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 	}
 
 	debugLogf("📥 Pull file initiated: device %s:%s → %s", req.DeviceSN, req.SourcePath, req.Path)
+	transferDispatched = true
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

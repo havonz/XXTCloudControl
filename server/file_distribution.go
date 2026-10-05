@@ -82,6 +82,18 @@ func prepareFilePushSource(c *gin.Context, req filePushRequest) *filePushSource 
 }
 
 func pushPreparedFileToDevice(source *filePushSource, req filePushRequest, deviceSN, baseURL string) (gin.H, int, error) {
+	timeout := normalizeTransferTimeoutSeconds(req.Timeout)
+	expiresAt := time.Now().Add(transferTokenTTLForTimeout(timeout))
+	requestID := uuid.NewString()
+	if err := beginDeviceFileTransfer(deviceSN, req.TargetPath, requestID, "download", expiresAt); err != nil {
+		return nil, http.StatusConflict, err
+	}
+	waitingForDevice := false
+	defer func() {
+		if !waitingForDevice {
+			finishDeviceFileTransfer(requestID)
+		}
+	}()
 	if source.smallPayload != nil {
 		mu.RLock()
 		conn := deviceLinks[deviceSN]
@@ -98,7 +110,6 @@ func pushPreparedFileToDevice(source *filePushSource, req filePushRequest, devic
 	}
 
 	token := uuid.New().String()
-	timeout := normalizeTransferTimeoutSeconds(req.Timeout)
 	transferTokensMu.Lock()
 	sharedSourceID := retainDownloadTempSource(source.path, req.SharedSourceID, req.SharedSourceTotal)
 	transferTokens[token] = &TransferToken{
@@ -106,7 +117,7 @@ func pushPreparedFileToDevice(source *filePushSource, req filePushRequest, devic
 		FilePath:       source.path,
 		TargetPath:     req.TargetPath,
 		DeviceSN:       deviceSN,
-		ExpiresAt:      time.Now().Add(transferTokenTTLForTimeout(timeout)),
+		ExpiresAt:      expiresAt,
 		OneTime:        true,
 		TotalBytes:     source.size,
 		MD5:            source.md5,
@@ -117,7 +128,7 @@ func pushPreparedFileToDevice(source *filePushSource, req filePushRequest, devic
 
 	downloadURL := baseURL + "/api/transfer/download/" + token
 	broadcastDeviceMessage(deviceSN, "device.transfer.download_file", map[string]any{"name": filepath.Base(req.Path)})
-	if err := sendFileDownloadCommand(deviceSN, downloadURL, req.TargetPath, source.md5, source.size, timeout); err != nil {
+	if err := sendFileDownloadCommand(deviceSN, downloadURL, req.TargetPath, source.md5, source.size, timeout, requestID); err != nil {
 		transferTokensMu.Lock()
 		info := transferTokens[token]
 		delete(transferTokens, token)
@@ -127,6 +138,7 @@ func pushPreparedFileToDevice(source *filePushSource, req filePushRequest, devic
 		}
 		return nil, http.StatusBadRequest, err
 	}
+	waitingForDevice = true
 	debugLogf("📤 Push file (large): %s → device %s:%s (%d bytes)", req.Path, deviceSN, req.TargetPath, source.size)
 	return gin.H{
 		"success": true, "method": "transfer/fetch", "token": token,
