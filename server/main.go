@@ -248,6 +248,7 @@ func main() {
 	// File transfer management routes (auth required)
 	r.POST("/api/transfer/create-token", createTransferTokenHandler)
 	r.POST("/api/transfer/push-to-device", pushFileToDeviceHandler)
+	r.POST("/api/transfer/push-to-devices", pushFileToDevicesHandler)
 	r.POST("/api/transfer/pull-from-device", pullFileFromDeviceHandler)
 
 	// Static file serving (NoRoute for SPA support)

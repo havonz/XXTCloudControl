@@ -26,15 +26,18 @@ describe('ServerFileBrowser file transfers', () => {
   let dispose: (() => void) | undefined;
   let rootFiles: ServerFileItem[];
   let directories: Map<string, ServerFileItem[] | Error>;
-  let pushed: Array<{ url: string; body: Record<string, string> }>;
-  let respondToPush: (body: Record<string, string>) => Promise<Response>;
+  let pushed: Array<{ url: string; body: Record<string, any> }>;
+  let respondToPush: (body: Record<string, any>) => Promise<Response>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     rootFiles = [file('sample.bin')];
     directories = new Map();
     pushed = [];
-    respondToPush = async () => Response.json({ success: true, token: 'download-token' });
+    respondToPush = async body => Response.json({
+      success: true,
+      results: body.deviceSNs.map((deviceSN: string) => ({ deviceSN, success: true })),
+    });
     vi.mocked(authFetch).mockImplementation(async (url, options) => {
       const parsed = new URL(String(url), 'http://localhost');
       if (parsed.pathname === '/api/config') return Response.json({ ui: { isLocal: false } });
@@ -44,7 +47,7 @@ describe('ServerFileBrowser file transfers', () => {
         if (contents instanceof Error) return Response.json({ error: contents.message }, { status: 500 });
         return Response.json({ files: contents || [] });
       }
-      if (parsed.pathname === '/api/transfer/push-to-device') {
+      if (parsed.pathname === '/api/transfer/push-to-devices') {
         const body = JSON.parse(options!.body as string);
         pushed.push({ url: String(url), body });
         return respondToPush(body);
@@ -59,17 +62,17 @@ describe('ServerFileBrowser file transfers', () => {
     vi.restoreAllMocks();
   });
 
-  async function mountAndSend() {
+  async function mountAndSend(selectedDevices = devices) {
     const host = document.createElement('div');
     document.body.appendChild(host);
     const [baseUrl, setBaseUrl] = createSignal('http://server-a');
     dispose = render(() => <I18nProvider defaultLocale="en-US">
-      <ServerFileBrowser isOpen onClose={() => {}} serverBaseUrl={baseUrl()} selectedDevices={devices} />
+      <ServerFileBrowser isOpen onClose={() => {}} serverBaseUrl={baseUrl()} selectedDevices={selectedDevices} />
     </I18nProvider>, host);
     await vi.waitFor(() => expect(host.textContent).toContain(rootFiles[0].name));
     button('common.select_mode').click();
     button('common.select_all').click();
-    button('files.send_to_devices', { count: 2 }).click();
+    button('files.send_to_devices', { count: selectedDevices.length }).click();
     button('common.send').click();
     return { setBaseUrl };
   }
@@ -90,15 +93,19 @@ describe('ServerFileBrowser file transfers', () => {
 
   it('部分设备失败时保留成功数量和失败原因，并继续后续文件', async () => {
     rootFiles = [file('first.bin'), file('second.bin')];
-    respondToPush = async body => body.deviceSN === 'a'
-      ? Response.json({ success: true })
-      : Response.json({ success: false, error: 'device offline' }, { status: 400 });
+    respondToPush = async body => Response.json({
+      success: true,
+      results: [...body.deviceSNs].reverse().map(deviceSN => ({
+        deviceSN, success: deviceSN === 'a', ...(deviceSN === 'b' ? { error: 'device offline' } : {}),
+      })),
+    });
     await mountAndSend();
     await vi.waitFor(() => expect(feedback.alert).toHaveBeenCalledOnce());
     expect(feedback.alert.mock.calls[0][0]).toContain('Sent 2 file request(s); 2 failed');
     expect(feedback.alert.mock.calls[0][0]).toContain('Device b');
     expect(feedback.alert.mock.calls[0][0]).toContain('device offline');
-    expect(pushed.map(request => request.body.path)).toEqual(['first.bin', 'first.bin', 'second.bin', 'second.bin']);
+    expect(pushed.map(request => request.body.path)).toEqual(['first.bin', 'second.bin']);
+    expect(pushed.every(request => request.body.deviceSNs.join(',') === 'a,b')).toBe(true);
     expect(feedback.showSuccess).not.toHaveBeenCalled();
   });
 
@@ -106,12 +113,13 @@ describe('ServerFileBrowser file transfers', () => {
     rootFiles = [file('first.bin'), file('second.bin')];
     let release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
+    const successfulResponse = respondToPush;
     respondToPush = async body => {
       if (body.path === 'first.bin') await pending;
-      return Response.json({ success: true });
+      return successfulResponse(body);
     };
     const { setBaseUrl } = await mountAndSend();
-    await vi.waitFor(() => expect(pushed).toHaveLength(2));
+    await vi.waitFor(() => expect(pushed).toHaveLength(1));
     setBaseUrl('http://server-b');
     release();
     await vi.waitFor(() => expect(feedback.showSuccess).toHaveBeenCalledWith('Sent 4 file request(s)'));
@@ -138,10 +146,29 @@ describe('ServerFileBrowser file transfers', () => {
     await mountAndSend();
     await vi.waitFor(() => expect(feedback.showSuccess).toHaveBeenCalledWith('Sent 4 file request(s)'));
     expect(pushed.map(request => request.body.targetPath)).toEqual([
-      '/lua/scripts/folder/file-link.bin', '/lua/scripts/folder/file-link.bin',
-      '/lua/scripts/folder/nested/deep.bin', '/lua/scripts/folder/nested/deep.bin',
+      '/lua/scripts/folder/file-link.bin', '/lua/scripts/folder/nested/deep.bin',
     ]);
     expect(vi.mocked(authFetch).mock.calls.some(([url]) => String(url).includes('dir-link'))).toBe(false);
     expect(feedback.alert).not.toHaveBeenCalled();
+  });
+
+  it('100 个文件发给 400 台设备只提交 100 个下发请求', async () => {
+    rootFiles = Array.from({ length: 100 }, (_, index) => file(`file-${index}.bin`));
+    const selected = Array.from({ length: 400 }, (_, index) => ({ udid: `device-${index}` } as Device));
+    await mountAndSend(selected);
+    await vi.waitFor(() => expect(feedback.showSuccess).toHaveBeenCalledWith('Sent 40000 file request(s)'));
+    expect(pushed).toHaveLength(100);
+    expect(pushed.map(request => request.body.path)).toEqual(rootFiles.map(item => item.name));
+    expect(pushed.every(request => request.body.deviceSNs.length === 400)).toBe(true);
+    expect(feedback.alert).not.toHaveBeenCalled();
+  });
+
+  it('缺失设备结果时不能把整批接受误认为该设备发送成功', async () => {
+    respondToPush = async () => Response.json({ success: true, results: [{ deviceSN: 'b', success: true }] });
+    await mountAndSend();
+    await vi.waitFor(() => expect(feedback.alert).toHaveBeenCalledOnce());
+    expect(feedback.alert.mock.calls[0][0]).toContain('Sent 1 file request(s); 1 failed');
+    expect(feedback.alert.mock.calls[0][0]).toContain('Device a');
+    expect(feedback.showSuccess).not.toHaveBeenCalled();
   });
 });

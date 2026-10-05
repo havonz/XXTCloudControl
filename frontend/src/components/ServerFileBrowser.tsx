@@ -34,7 +34,6 @@ import { createBackdropClose } from '../hooks/useBackdropClose';
 import styles from './ServerFileBrowser.module.css';
 import { authFetch, appendAuthQuery } from '../services/httpAuth';
 import { scanEntries, ScannedFile } from '../utils/fileUpload';
-import { runWithConcurrency } from '../utils/runWithConcurrency';
 import type { Device } from '../services/WebSocketService';
 import ContextMenu, { ContextMenuButton, ContextMenuDivider } from './ContextMenu';
 import { useI18n } from '../i18n';
@@ -777,38 +776,47 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         }
       }
       
-      // 发送所有文件到设备
-      // 语义保持：按 filesToSend 顺序逐个文件发送；
-      // 每个文件内部对多设备并发，提高吞吐但不改变多文件先后关系。
+      // 逐个文件等待批量结果，保持同一设备接收多个文件的先后顺序。
       for (const fileInfo of filesToSend) {
-        await runWithConcurrency(devices, 6, async (device) => {
-          const targetPath = targetDir + fileInfo.targetRelPath;
+        const targetPath = targetDir + fileInfo.targetRelPath;
+        let batchError: string | undefined;
+        let resultsByDevice = new Map<string, { success?: boolean; error?: string; errorCode?: string }>();
+        try {
+          const response = await authFetch(`${serverBaseUrl}/api/transfer/push-to-devices`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              deviceSNs: devices.map(device => device.udid),
+              category,
+              path: fileInfo.path,
+              targetPath,
+              serverBaseUrl,
+            }),
+          });
+          const data = await response.json().catch(() => null);
+          if (!response.ok || data?.success !== true || data.errorCode || data.error || !Array.isArray(data.results)) {
+            throw new Error(apiErrorMessage(data, t('transfer.push_failed')));
+          }
+          resultsByDevice = new Map(data.results
+            .filter((result: any) => typeof result?.deviceSN === 'string')
+            .map((result: any) => [result.deviceSN, result]));
+        } catch (err) {
+          batchError = (err as Error).message || t('transfer.push_failed');
+        }
 
-          try {
-            const response = await authFetch(`${serverBaseUrl}/api/transfer/push-to-device`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                deviceSN: device.udid,
-                category,
-                path: fileInfo.path,
-                targetPath: targetPath,
-                serverBaseUrl
-              })
-            });
-            const data = await response.json().catch(() => null);
-            if (!response.ok || data?.success !== true || data.errorCode || data.error) {
-              throw new Error(apiErrorMessage(data, t('transfer.push_failed')));
-            }
+        for (const device of devices) {
+          const result = resultsByDevice.get(device.udid);
+          if (!batchError && result?.success === true && !result.errorCode && !result.error) {
             sentCount++;
-          } catch (err) {
+          } else {
             failedCount++;
             // 大批量失败时只展示少量定位信息，完整数量仍计入汇总。
             if (failures.length < 5) {
-              failures.push(`${device.system?.name || device.udid} · ${targetPath}: ${(err as Error).message}`);
+              const message = batchError || apiErrorMessage(result, t('transfer.push_failed'));
+              failures.push(`${device.system?.name || device.udid} · ${targetPath}: ${message}`);
             }
           }
-        });
+        }
       }
       
       if (failedCount > 0) {
