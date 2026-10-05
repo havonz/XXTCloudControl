@@ -73,7 +73,7 @@ export class FileTransferService {
   }
 
   private createFanoutBatchId(): string {
-    const randomBytes = new Uint8Array(4);
+    const randomBytes = new Uint8Array(16);
     crypto.getRandomValues(randomBytes);
     const suffix = Array.from(randomBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
     return `${Date.now()}_${suffix}`;
@@ -132,14 +132,18 @@ export class FileTransferService {
       return [];
     }
 
-    const uploadResult = await this.uploadFileToServer(file, 'files', '_temp');
+    const batchId = this.createFanoutBatchId();
+    // 不同目录可能含有同名文件，每次上传独占源目录，直到所有设备完成下载。
+    const tempDir = `_temp/upload-${batchId}`;
+    const uploadResult = await this.uploadFileToServer(file, 'files', tempDir);
     if (!uploadResult.success || !uploadResult.path) {
+      await this.deleteTempFile('files', tempDir);
       const error = uploadResult.error || translate(getCurrentLocale(), 'transfer.server_upload_failed');
       return deviceSNs.map(() => ({ success: false, error }));
     }
 
     const sourcePath = uploadResult.path;
-    const sharedSourceId = deviceSNs.length > 1 ? this.createFanoutBatchId() : undefined;
+    const sharedSourceId = deviceSNs.length > 1 ? batchId : undefined;
 
     const pushResults = await runWithConcurrency(deviceSNs, 6, (deviceSN) => (
       this.pushToDevice(
@@ -148,10 +152,9 @@ export class FileTransferService {
       )
     ));
 
-    // If every push request failed, no transfer token was retained by backend.
-    // Delete uploaded temp file to avoid orphaned files.
-    if (!pushResults.some((result) => result.success)) {
-      await this.deleteTempFile('files', sourcePath);
+    // 小文件已通过 WebSocket 发完；只有持有下载令牌的设备还需要源文件。
+    if (!pushResults.some((result) => result.success && result.token)) {
+      await this.deleteTempFile('files', tempDir);
     }
 
     return pushResults;

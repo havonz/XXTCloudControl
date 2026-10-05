@@ -590,6 +590,8 @@
       "one": "Gửi đến thiết bị ({count})",
       "other": "Gửi đến thiết bị ({count})"
     },
+    "send_device_partial": "Đã gửi {success} yêu cầu tệp; {fail} yêu cầu thất bại.\n{errors}",
+    "send_device_failed": "Không thể gửi {count} yêu cầu tệp.\n{errors}",
     "send_device_success": {
       "one": "Đã gửi {count} yêu cầu truyền tệp",
       "other": "Đã gửi {count} yêu cầu truyền tệp"

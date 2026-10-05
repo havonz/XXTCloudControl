@@ -500,6 +500,8 @@
     "open_local_title": "オペレーティングシステムのファイルマネージャーで現在のディレクトリを開く",
     "send_to_device": "デバイスに送信",
     "send_to_devices": "デバイスに送信（{count}）",
+    "send_device_partial": "{success} 件のファイル送信要求を送信し、{fail} 件が失敗しました。\n{errors}",
+    "send_device_failed": "{count} 件のファイル送信要求に失敗しました。\n{errors}",
     "send_device_success": "{count} 件のファイル要求を送信しました",
     "send_to_cloud": "クラウドコントロールに送信",
     "sending_to_cloud": "送信中...",

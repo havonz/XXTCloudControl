@@ -590,6 +590,8 @@
       "one": "Enviar a dispositivo ({count})",
       "other": "Enviar a dispositivos ({count})"
     },
+    "send_device_partial": "Se enviaron {success} solicitudes de archivo; {fail} fallaron.\n{errors}",
+    "send_device_failed": "No se pudieron enviar {count} solicitudes de archivo.\n{errors}",
     "send_device_success": {
       "one": "Se envió {count} solicitud de archivo",
       "other": "Se enviaron {count} solicitudes de archivo"

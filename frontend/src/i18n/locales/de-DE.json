@@ -590,6 +590,8 @@
       "one": "An Gerät senden ({count})",
       "other": "An Geräte senden ({count})"
     },
+    "send_device_partial": "{success} Dateianfrage(n) gesendet; {fail} fehlgeschlagen.\n{errors}",
+    "send_device_failed": "{count} Dateianfrage(n) konnten nicht gesendet werden.\n{errors}",
     "send_device_success": {
       "one": "{count} Dateianforderung gesendet",
       "other": "{count} Dateianforderungen gesendet"

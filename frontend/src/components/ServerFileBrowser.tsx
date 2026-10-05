@@ -701,15 +701,24 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   // 发送选中文件到设备
   const handleSendToDevices = async () => {
-    const devices = props.selectedDevices || [];
-    const selectedFileNames = Array.from(selectedItems());
+    if (isSendingToDevices()) return;
+    const devices = [...(props.selectedDevices || [])];
+    const selectedFiles = Array.from(selectedItems())
+      .map(name => filesByName().get(name))
+      .filter((file): file is ServerFileItem => !!file);
+    const category = currentCategory();
+    const sourceDir = currentPath();
+    const targetDir = targetDevicePath();
+    const serverBaseUrl = props.serverBaseUrl;
     
-    if (selectedFileNames.length === 0 || devices.length === 0) return;
+    if (selectedFiles.length === 0 || devices.length === 0) return;
     
     setIsSendingToDevices(true);
     setShowSendToDeviceModal(false);
     
     let sentCount = 0;
+    let failedCount = 0;
+    const failures: string[] = [];
     
     // 递归获取目录中的所有文件
     const getAllFilesInDir = async (
@@ -717,37 +726,36 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       basePath: string
     ): Promise<Array<{path: string, targetRelPath: string}>> => {
       const result: Array<{path: string, targetRelPath: string}> = [];
+      let entries: ServerFileItem[];
       
       try {
         const params = new URLSearchParams({
-          category: currentCategory(),
+          category,
           path: dirPath,
           meta: '1',
         });
-        const response = await authFetch(`${props.serverBaseUrl}/api/server-files/list?${params}`);
-        const data = await response.json();
-        
-        if (data.files) {
-          for (const file of data.files as ServerFileItem[]) {
-            const filePath = dirPath ? `${dirPath}/${file.name}` : file.name;
-            const relPath = basePath ? `${basePath}/${file.name}` : file.name;
-            
-            if (file.type === 'dir') {
-              // 统一规则：遍历中遇到目录符号链接直接忽略，不继续深入。
-              if (file.isSymlink === true) {
-                continue;
-              }
-              // 递归处理子目录
-              const subFiles = await getAllFilesInDir(filePath, relPath);
-              result.push(...subFiles);
-            } else {
-              // 文件（含文件符号链接）都按文件发送，后端会读取目标内容。
-              result.push({ path: filePath, targetRelPath: relPath });
-            }
-          }
+        const response = await authFetch(`${serverBaseUrl}/api/server-files/list?${params}`);
+        const data = await response.json().catch(() => null);
+        if (!response.ok || data?.success === false || data?.errorCode || data?.error || !Array.isArray(data?.files)) {
+          throw new Error(apiErrorMessage(data, t('common.unknown_error')));
         }
+        entries = data.files;
       } catch (err) {
-        console.error(`Failed to list directory ${dirPath}:`, err);
+        throw new Error(`${dirPath}: ${(err as Error).message}`);
+      }
+
+      for (const file of entries) {
+        const filePath = dirPath ? `${dirPath}/${file.name}` : file.name;
+        const relPath = basePath ? `${basePath}/${file.name}` : file.name;
+
+        if (file.type === 'dir') {
+          // 遍历中跳过目录符号链接，避免循环引用和重复发送。
+          if (file.isSymlink === true) continue;
+          const subFiles = await getAllFilesInDir(filePath, relPath);
+          result.push(...subFiles);
+        } else {
+          result.push({ path: filePath, targetRelPath: relPath });
+        }
       }
       
       return result;
@@ -757,11 +765,9 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       // 收集所有需要发送的文件
       const filesToSend: Array<{path: string, targetRelPath: string}> = [];
       
-      for (const fileName of selectedFileNames) {
-        const filePath = currentPath() ? `${currentPath()}/${fileName}` : fileName;
-        const file = filesByName().get(fileName);
-        
-        if (!file) continue;
+      for (const file of selectedFiles) {
+        const fileName = file.name;
+        const filePath = sourceDir ? `${sourceDir}/${fileName}` : fileName;
         
         if (file.type === 'dir') {
           const dirFiles = await getAllFilesInDir(filePath, fileName);
@@ -776,28 +782,45 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       // 每个文件内部对多设备并发，提高吞吐但不改变多文件先后关系。
       for (const fileInfo of filesToSend) {
         await runWithConcurrency(devices, 6, async (device) => {
-          const targetPath = targetDevicePath() + fileInfo.targetRelPath;
+          const targetPath = targetDir + fileInfo.targetRelPath;
 
           try {
-            await authFetch(`${props.serverBaseUrl}/api/transfer/push-to-device`, {
+            const response = await authFetch(`${serverBaseUrl}/api/transfer/push-to-device`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 deviceSN: device.udid,
-                category: currentCategory(),
+                category,
                 path: fileInfo.path,
                 targetPath: targetPath,
-                serverBaseUrl: props.serverBaseUrl
+                serverBaseUrl
               })
             });
+            const data = await response.json().catch(() => null);
+            if (!response.ok || data?.success !== true || data.errorCode || data.error) {
+              throw new Error(apiErrorMessage(data, t('transfer.push_failed')));
+            }
             sentCount++;
           } catch (err) {
-            console.error(`Failed to push ${fileInfo.path} to ${device.udid}:`, err);
+            failedCount++;
+            // 大批量失败时只展示少量定位信息，完整数量仍计入汇总。
+            if (failures.length < 5) {
+              failures.push(`${device.system?.name || device.udid} · ${targetPath}: ${(err as Error).message}`);
+            }
           }
         });
       }
       
-      toast.showSuccess(t('files.send_device_success', { count: sentCount }));
+      if (failedCount > 0) {
+        await dialog.alert(t(sentCount > 0 ? 'files.send_device_partial' : 'files.send_device_failed', {
+          success: sentCount,
+          fail: failedCount,
+          count: failedCount,
+          errors: failures.join('\n'),
+        }));
+      } else {
+        toast.showSuccess(t('files.send_device_success', { count: sentCount }));
+      }
     } catch (err) {
       await dialog.alert(t('files.send_failed', { msg: (err as Error).message }));
     } finally {

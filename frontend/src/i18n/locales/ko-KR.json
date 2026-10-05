@@ -500,6 +500,8 @@
     "open_local_title": "운영 체제의 파일 관리자에서 현재 디렉터리 열기",
     "send_to_device": "기기로 전송",
     "send_to_devices": "기기로 전송({count})",
+    "send_device_partial": "파일 전송 요청 {success}개를 보냈으며 {fail}개가 실패했습니다.\n{errors}",
+    "send_device_failed": "파일 전송 요청 {count}개가 실패했습니다.\n{errors}",
     "send_device_success": "파일 전송 요청 {count}건을 보냈습니다",
     "send_to_cloud": "클라우드 제어로 전송",
     "sending_to_cloud": "전송 중...",

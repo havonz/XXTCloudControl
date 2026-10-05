@@ -31,8 +31,7 @@ type TransferToken struct {
 	TotalBytes int64     // File size (for progress calculation)
 	MD5        string    // File MD5 hash (for download verification)
 	Category   string    // File category (scripts/files/reports)
-	// SharedSourceID links multiple one-time tokens to one temp source file.
-	// When all related tokens are consumed/expired, the temp file is deleted once.
+	// 令牌与进行中的下载共同持有临时源文件，避免其他设备或过期清理提前删除它。
 	SharedSourceID string
 }
 
@@ -192,6 +191,18 @@ func registerSharedTempRef(sharedID, filePath string, total int) {
 	sharedTempRefs.Unlock()
 }
 
+func retainDownloadTempSource(filePath, sharedID string, total int) string {
+	if !isTempFilePath(filePath) {
+		return sharedID
+	}
+	if sharedID == "" {
+		// 单设备和直接创建的下载令牌也要持有引用，过期与下载结束走同一条回收路径。
+		sharedID = "temp-source:" + filepath.Clean(filePath)
+	}
+	registerSharedTempRef(sharedID, filePath, total)
+	return sharedID
+}
+
 func removeTempFileWithRetry(filePath string) {
 	if filePath == "" {
 		return
@@ -201,6 +212,11 @@ func removeTempFileWithRetry(filePath string) {
 		if err == nil || os.IsNotExist(err) {
 			if err == nil {
 				debugLogf("🧹 Cleaned temp file: %s", filepath.Base(filePath))
+			}
+			parent := filepath.Dir(filePath)
+			if filepath.Base(filepath.Dir(parent)) == "_temp" && strings.HasPrefix(filepath.Base(parent), "upload-") {
+				// 每次上传的隔离目录只在为空时删除，不能连带移除仍被使用的文件。
+				_ = os.Remove(parent)
 			}
 			return
 		}
@@ -370,16 +386,21 @@ func createTransferTokenHandler(c *gin.Context) {
 
 	// Store token
 	transferTokensMu.Lock()
+	sharedSourceID := ""
+	if req.Type == "download" {
+		sharedSourceID = retainDownloadTempSource(filePath, "", 0)
+	}
 	transferTokens[token] = &TransferToken{
-		Type:       req.Type,
-		FilePath:   filePath,
-		TargetPath: req.TargetPath,
-		DeviceSN:   req.DeviceSN,
-		ExpiresAt:  expiresAt,
-		OneTime:    oneTime,
-		TotalBytes: fileSize,
-		MD5:        fileMD5,
-		Category:   req.Category,
+		Type:           req.Type,
+		FilePath:       filePath,
+		TargetPath:     req.TargetPath,
+		DeviceSN:       req.DeviceSN,
+		ExpiresAt:      expiresAt,
+		OneTime:        oneTime,
+		TotalBytes:     fileSize,
+		MD5:            fileMD5,
+		Category:       req.Category,
+		SharedSourceID: sharedSourceID,
 	}
 	transferTokensMu.Unlock()
 
@@ -506,27 +527,22 @@ func transferDownloadHandler(c *gin.Context) {
 		return
 	}
 
-	// Lookup token
-	transferTokensMu.RLock()
+	// 领取令牌和保留下载引用必须一起完成，避免过期清理抢先释放正在使用的源文件。
+	transferTokensMu.Lock()
 	tokenInfo, exists := transferTokens[token]
-	transferTokensMu.RUnlock()
 
 	if !exists {
+		transferTokensMu.Unlock()
 		jsonError(c, http.StatusNotFound, "token not found or expired")
 		return
 	}
 
 	// Check expiration
 	if time.Now().After(tokenInfo.ExpiresAt) {
-		var sharedID string
-		transferTokensMu.Lock()
-		if info, ok := transferTokens[token]; ok {
-			delete(transferTokens, token)
-			sharedID = info.SharedSourceID
-		}
+		delete(transferTokens, token)
 		transferTokensMu.Unlock()
-		if sharedID != "" {
-			releaseSharedTempRef(sharedID)
+		if tokenInfo.SharedSourceID != "" {
+			releaseSharedTempRef(tokenInfo.SharedSourceID)
 		}
 		jsonError(c, http.StatusGone, "token expired")
 		return
@@ -534,32 +550,28 @@ func transferDownloadHandler(c *gin.Context) {
 
 	// Check type
 	if tokenInfo.Type != "download" {
+		transferTokensMu.Unlock()
 		jsonError(c, http.StatusBadRequest, "token is not for download")
 		return
 	}
 
-	// Invalidate one-time token
-	releaseSharedID := ""
+	releaseSharedID := tokenInfo.SharedSourceID
 	if tokenInfo.OneTime {
-		transferTokensMu.Lock()
-		if info, ok := transferTokens[token]; ok {
-			delete(transferTokens, token)
-			releaseSharedID = info.SharedSourceID
-		}
-		transferTokensMu.Unlock()
+		delete(transferTokens, token)
+	} else if releaseSharedID != "" {
+		// 可重复使用的令牌本身与本次下载分别持有引用，令牌过期不应中断下载。
+		registerSharedTempRef(releaseSharedID, tokenInfo.FilePath, 0)
+	}
+	transferTokensMu.Unlock()
+	if releaseSharedID != "" {
+		defer releaseSharedTempRef(releaseSharedID)
 	}
 
 	// Open file
 	file, err := os.Open(tokenInfo.FilePath)
 	if err != nil {
-		if releaseSharedID != "" {
-			releaseSharedTempRef(releaseSharedID)
-		}
 		jsonError(c, http.StatusInternalServerError, "failed to open file")
 		return
-	}
-	if releaseSharedID != "" {
-		defer releaseSharedTempRef(releaseSharedID)
 	}
 	defer file.Close()
 
@@ -1021,9 +1033,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 	md5Hash, _ := md5Cache.get(filePath, info)
 
 	transferTokensMu.Lock()
-	if req.SharedSourceID != "" {
-		registerSharedTempRef(req.SharedSourceID, filePath, req.SharedSourceTotal)
-	}
+	sharedSourceID := retainDownloadTempSource(filePath, req.SharedSourceID, req.SharedSourceTotal)
 	transferTokens[token] = &TransferToken{
 		Type:           "download",
 		FilePath:       filePath,
@@ -1034,7 +1044,7 @@ func pushFileToDeviceHandler(c *gin.Context) {
 		TotalBytes:     info.Size(),
 		MD5:            md5Hash,
 		Category:       req.Category,
-		SharedSourceID: req.SharedSourceID,
+		SharedSourceID: sharedSourceID,
 	}
 	transferTokensMu.Unlock()
 

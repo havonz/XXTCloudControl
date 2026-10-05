@@ -500,6 +500,8 @@
     "open_local_title": "Open the current directory in the operating system file manager",
     "send_to_device": "Send to Device",
     "send_to_devices": "Send to Devices ({count})",
+    "send_device_partial": "Sent {success} file request(s); {fail} failed.\n{errors}",
+    "send_device_failed": "Failed to send {count} file request(s).\n{errors}",
     "send_device_success": "Sent {count} file request(s)",
     "send_to_cloud": "Send to Cloud",
     "sending_to_cloud": "Sending...",

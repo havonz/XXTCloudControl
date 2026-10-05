@@ -500,6 +500,8 @@
     "open_local_title": "在作業系統的檔案管理器中開啟目前目錄",
     "send_to_device": "傳送至裝置",
     "send_to_devices": "傳送至裝置（{count}）",
+    "send_device_partial": "已傳送 {success} 個檔案請求，{fail} 個失敗。\n{errors}",
+    "send_device_failed": "{count} 個檔案請求傳送失敗。\n{errors}",
     "send_device_success": "已傳送 {count} 個檔案要求",
     "send_to_cloud": "傳送至雲控",
     "sending_to_cloud": "傳送中...",

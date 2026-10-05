@@ -500,6 +500,8 @@
     "open_local_title": "Abrir a pasta atual no gerenciador de arquivos do sistema operacional",
     "send_to_device": "Enviar ao dispositivo",
     "send_to_devices": "Enviar aos dispositivos ({count})",
+    "send_device_partial": "{success} solicitação(ões) de arquivo enviada(s); {fail} falharam.\n{errors}",
+    "send_device_failed": "Falha ao enviar {count} solicitação(ões) de arquivo.\n{errors}",
     "send_device_success": "{count} solicitações de arquivo enviadas",
     "send_to_cloud": "Enviar ao controle em nuvem",
     "sending_to_cloud": "Enviando...",

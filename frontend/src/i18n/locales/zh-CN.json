@@ -500,6 +500,8 @@
     "open_local_title": "在操作系统的文件资源管理器中打开当前目录",
     "send_to_device": "发送到设备",
     "send_to_devices": "发送到设备 ({count})",
+    "send_device_partial": "已发送 {success} 个文件请求，{fail} 个失败。\n{errors}",
+    "send_device_failed": "{count} 个文件请求发送失败。\n{errors}",
     "send_device_success": "已发送 {count} 个文件请求",
     "send_to_cloud": "发送到云控",
     "sending_to_cloud": "发送中...",
