@@ -363,37 +363,31 @@ func serverFilesDownloadHandler(c *gin.Context) {
 	c.File(targetPath)
 }
 
-// serverFilesDeleteHandler handles DELETE /api/server-files/delete
-func serverFilesDeleteHandler(c *gin.Context) {
-	category := c.Query("category")
-	subPath := c.Query("path")
-
+func deleteServerFile(category, subPath string) (int, error) {
 	if category == "" || subPath == "" {
-		jsonError(c, http.StatusBadRequest, "category and path are required")
-		return
+		return http.StatusBadRequest, fmt.Errorf("category and path are required")
 	}
 
 	targetPath, err := validatePath(category, subPath)
 	if err != nil {
-		jsonError(c, http.StatusBadRequest, err.Error())
-		return
+		return http.StatusBadRequest, err
 	}
 
 	baseDir := filepath.Join(serverConfig.DataDir, category)
-	absBaseDir, _ := filepath.Abs(baseDir)
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
 	if targetPath == absBaseDir {
-		jsonError(c, http.StatusBadRequest, "cannot delete root category directory")
-		return
+		return http.StatusBadRequest, fmt.Errorf("cannot delete root category directory")
 	}
 
 	info, err := os.Lstat(targetPath)
 	if os.IsNotExist(err) {
-		jsonError(c, http.StatusNotFound, "file or directory not found")
-		return
+		return http.StatusNotFound, fmt.Errorf("file or directory not found")
 	}
 	if err != nil {
-		jsonError(c, http.StatusInternalServerError, err.Error())
-		return
+		return http.StatusInternalServerError, err
 	}
 
 	// Never recurse into symlink targets; remove the symlink itself only.
@@ -406,17 +400,64 @@ func serverFilesDeleteHandler(c *gin.Context) {
 	}
 
 	if err != nil {
-		jsonError(c, http.StatusInternalServerError, "failed to delete")
-		return
+		return http.StatusInternalServerError, fmt.Errorf("failed to delete")
 	}
 
 	debugLogf("🗑️ Deleted: %s/%s", category, subPath)
+	return http.StatusOK, nil
+}
+
+// serverFilesDeleteHandler handles DELETE /api/server-files/delete
+func serverFilesDeleteHandler(c *gin.Context) {
+	category := c.Query("category")
+	subPath := c.Query("path")
+	if status, err := deleteServerFile(category, subPath); err != nil {
+		jsonError(c, status, err.Error())
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
 		"path":     subPath,
 		"category": category,
 	})
+}
+
+func serverFilesBatchDeleteHandler(c *gin.Context) {
+	var req struct {
+		Category string   `json:"category"`
+		Path     string   `json:"path"`
+		Items    []string `json:"items"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Items) == 0 {
+		jsonError(c, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if _, err := validatePath(req.Category, req.Path); err != nil {
+		jsonError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	clearTransferRequestDeadlines(c)
+	successCount := 0
+	var failures []serverFilesBatchFailure
+	for _, item := range req.Items {
+		if err := c.Request.Context().Err(); err != nil {
+			failures = append(failures, buildServerFilesBatchFailure(item, err))
+			continue
+		}
+		// 只接受当前目录的直接子项，不能通过单个选中项进入其他目录或删除分类根目录。
+		if err := validateFileName(item); err != nil {
+			failures = append(failures, buildServerFilesBatchFailure(item, err))
+			continue
+		}
+		if _, err := deleteServerFile(req.Category, filepath.Join(req.Path, item)); err != nil {
+			failures = append(failures, buildServerFilesBatchFailure(item, err))
+			continue
+		}
+		successCount++
+	}
+	respondServerFilesBatch(c, len(req.Items), successCount, failures)
 }
 
 // serverFilesCreateHandler handles POST /api/server-files/create

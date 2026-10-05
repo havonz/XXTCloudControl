@@ -84,6 +84,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [error, setError] = createSignal('');
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isUploading, setIsUploading] = createSignal(false);
+  const [isDeleting, setIsDeleting] = createSignal(false);
   const [showHidden, setShowHidden] = createSignal(false);
   const [isLocal, setIsLocal] = createSignal(false);
 
@@ -662,40 +663,55 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     });
   };
 
-  const handleDelete = async (file: ServerFileItem) => {
-    const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
-    if (!await dialog.confirm(getDeleteConfirmMessage(file))) return;
-    
+  const deleteFiles = async (items: string[], confirmation: string) => {
+    if (isDeleting() || items.length === 0) return;
+    // 确认框和网络请求期间都可能切换目录，删除目标必须固定在发起操作的那一刻。
+    const category = currentCategory();
+    const path = currentPath();
+    const serverBaseUrl = props.serverBaseUrl;
+    const requestedNames = new Set(items);
+    let submitted = false;
+    setIsDeleting(true);
+
     try {
-      const params = new URLSearchParams({ category: currentCategory(), path: filePath });
-      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
-      const data = await response.json();
-      if (!response.ok || data.errorCode || data.error) {
-        await dialog.alert(t('files.delete_failed', { msg: apiErrorMessage(data, t('common.unknown_error')) }));
+      if (!await dialog.confirm(confirmation)) return;
+      submitted = true;
+      const response = await authFetch(`${serverBaseUrl}/api/server-files/batch-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, path, items }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || data?.errorCode || data?.error || !Array.isArray(data?.errorItems)
+        || !Number.isInteger(data.successCount) || data.successCount < 0 || data.successCount > items.length
+        || data.totalCount !== items.length || data.errorItems.length !== items.length - data.successCount) {
+        throw new Error(apiErrorMessage(data, t('common.unknown_error')));
       }
-      else loadFiles();
+      const failedNames = new Set<string>(data.errorItems.map((item: any) => item?.item));
+      if (failedNames.size !== data.errorItems.length || [...failedNames].some(name => !requestedNames.has(name))
+        || data.success !== (failedNames.size === 0)) {
+        throw new Error(t('common.unknown_error'));
+      }
+
+      if (props.serverBaseUrl === serverBaseUrl && currentCategory() === category && currentPath() === path) {
+        // 只取消已确认删除项的选中状态，保留失败项及操作期间新增的选择。
+        setSelectedItems(current => new Set([...current].filter(name => !requestedNames.has(name) || failedNames.has(name))));
+      }
+      if (failedNames.size > 0) {
+        const errors = localizeApiErrorItems(data, t, t('common.unknown_error')).slice(0, 5).join('\n');
+        await dialog.alert(data.successCount > 0
+          ? t('files.partial_failed', { success: data.successCount, total: items.length, errors })
+          : t('files.delete_failed', { msg: errors }));
+      }
     } catch (err) {
       await dialog.alert(t('files.delete_failed', { msg: (err as Error).message }));
-    }
-  };
-
-  const handleBatchDelete = async () => {
-    const selected = selectedItems();
-    if (selected.size === 0) return;
-    if (!await dialog.confirm(getBatchDeleteConfirmMessage(selected))) return;
-    
-    for (const name of selected) {
-      const filePath = currentPath() ? `${currentPath()}/${name}` : name;
-      try {
-        const params = new URLSearchParams({ category: currentCategory(), path: filePath });
-        await authFetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
-      } catch (err) {
-        console.error('Delete failed:', name, err);
+    } finally {
+      if (submitted && props.isOpen && props.serverBaseUrl === serverBaseUrl
+        && currentCategory() === category && currentPath() === path) {
+        await loadFiles(category, path);
       }
+      setIsDeleting(false);
     }
-
-    setSelectedItems(new Set<string>());
-    loadFiles();
   };
 
   // 发送选中文件到设备
@@ -1189,7 +1205,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 
                 <div class={styles.selectDivider} />
                 
-                <button class={styles.deleteAction} onClick={handleBatchDelete} disabled={selectedItems().size === 0}>
+                <button
+                  class={styles.deleteAction}
+                  onClick={() => void deleteFiles([...selectedItems()], getBatchDeleteConfirmMessage(selectedItems()))}
+                  disabled={isDeleting() || selectedItems().size === 0}
+                >
                   <IconTrash size={14} />
                   <span>{t('common.delete')}</span>
                 </button>
@@ -1488,7 +1508,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
             </ContextMenuButton>
           </Show>
           <ContextMenuDivider />
-          <ContextMenuButton icon={<IconTrash size={14} />} danger onClick={() => { handleDelete(contextMenuFile()!); closeContextMenu(); }}>
+          <ContextMenuButton icon={<IconTrash size={14} />} danger disabled={isDeleting()} onClick={() => {
+            const file = contextMenuFile()!;
+            void deleteFiles([file.name], getDeleteConfirmMessage(file));
+            closeContextMenu();
+          }}>
             {t('common.delete')}
           </ContextMenuButton>
         </>
