@@ -252,7 +252,7 @@ describe('ControlHttpClient response routing', () => {
     const incoming = httpResponse(sent[1].body.requestId, 'b', { code: 0, data: { name: '设备乙' } });
     (service as any).handleMessage(incoming);
     await expect(secondRequest).resolves.toMatchObject({ body: { code: 0, data: { name: '设备乙' } } });
-    expect(observer).toHaveBeenCalledWith(incoming);
+    expect(observer).toHaveBeenCalledWith(incoming, false);
 
     const disconnected = expect(firstRequest).rejects.toThrow('WebSocket disconnected');
     (service as any).notifyStatusChange('disconnected');

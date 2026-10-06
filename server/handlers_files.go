@@ -5,6 +5,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -183,7 +184,12 @@ func serverFilesListHandler(c *gin.Context) {
 
 	info, err := os.Stat(targetPath)
 	if os.IsNotExist(err) {
-		c.JSON(http.StatusOK, gin.H{"files": []ServerFileItem{}})
+		// 未初始化的分类仍显示为空，但扫描途中消失的子目录不能被当成空目录而漏发。
+		if path.Clean("/"+subPath) == "/" {
+			c.JSON(http.StatusOK, gin.H{"files": []ServerFileItem{}, "path": subPath, "category": category})
+		} else {
+			jsonError(c, http.StatusNotFound, "file not found")
+		}
 		return
 	}
 	if err != nil {
@@ -197,6 +203,10 @@ func serverFilesListHandler(c *gin.Context) {
 	}
 
 	entries, err := os.ReadDir(targetPath)
+	if os.IsNotExist(err) {
+		jsonError(c, http.StatusNotFound, "file not found")
+		return
+	}
 	if err != nil {
 		jsonError(c, http.StatusInternalServerError, err.Error())
 		return
@@ -349,7 +359,8 @@ func serverFilesDownloadHandler(c *gin.Context) {
 	}
 
 	c.Header("Content-Type", mimeType)
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	// 部分浏览器会再次解码普通 filename 中的百分号，扩展参数才能保留原始名称。
+	c.Header("Content-Disposition", "attachment; filename*=UTF-8''"+strings.ReplaceAll(url.QueryEscape(fileName), "+", "%20"))
 	// Large browser downloads can legitimately exceed the server global WriteTimeout.
 	// Clear per-request deadlines for this response to avoid mid-transfer truncation.
 	clearTransferRequestDeadlines(c)

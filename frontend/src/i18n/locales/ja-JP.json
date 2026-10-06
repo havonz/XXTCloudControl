@@ -470,6 +470,8 @@
     "clipboard_write_failed": "クリップボードへの書き込みに失敗しました"
   },
   "files": {
+    "invalid_response": "デバイスから無効なファイルデータが返されました",
+    "directory_cycle": "循環するディレクトリリンク: {path}",
     "server_title": "サーバーファイル",
     "device_title": "デバイスファイルブラウザー - {name}",
     "scripts_root": "スクリプトディレクトリ",

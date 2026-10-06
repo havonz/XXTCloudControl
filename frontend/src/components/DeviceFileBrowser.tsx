@@ -34,13 +34,9 @@ import ContextMenu, { ContextMenuButton, ContextMenuDivider } from './ContextMen
 import { debugLog } from '../utils/debugLogger';
 import { useI18n } from '../i18n';
 import { runWithConcurrency } from '../utils/runWithConcurrency';
+import type { DeviceFileEntry } from '../services/WebSocketService';
 
-export interface FileItem {
-  name: string;
-  type: 'file' | 'directory';
-  path?: string;
-  size?: number;
-}
+export type FileItem = DeviceFileEntry;
 
 // Files larger than 128KB should use HTTP transfer instead of WebSocket
 const LARGE_FILE_THRESHOLD = 128 * 1024;
@@ -54,18 +50,17 @@ export interface DeviceFileBrowserProps {
   onListFilesAsync?: (deviceUdid: string, path: string) => Promise<FileItem[]>;
   onDeleteFile: (deviceUdid: string, path: string) => void;
   onCreateDirectory: (deviceUdid: string, path: string) => void;
-  onUploadFile: (deviceUdid: string, path: string, file: File) => void;
+  onUploadFile: (deviceUdid: string, path: string, file: File) => Promise<void>;
   onUploadLargeFile?: (deviceUdid: string, path: string, file: File) => Promise<void>; // For files > 128KB
   onDownloadFile: (deviceUdid: string, path: string) => void;
   onDownloadLargeFile?: (deviceUdid: string, path: string, fileName: string) => Promise<void>; // For files > 128KB  
   onMoveFile: (deviceUdid: string, fromPath: string, toPath: string) => void;
   onCopyFile: (deviceUdid: string, fromPath: string, toPath: string) => void;
-  onReadFile: (deviceUdid: string, path: string) => void;
+  onReadFile: (deviceUdid: string, path: string) => Promise<string>;
   onSelectScript: (deviceUdid: string, scriptName: string) => void;
   selectedScript: string | null | undefined;
   files: FileItem[];
   isLoading: boolean;
-  fileContent?: { path: string; content: string } | null;
   onPullFileFromDevice?: (deviceUdid: string, sourcePath: string, category: 'scripts' | 'files' | 'reports', targetPath: string) => Promise<{success: boolean; error?: string}>;
 }
 
@@ -80,7 +75,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isUploading, setIsUploading] = createSignal(false);
   const mainBackdropClose = createBackdropClose(() => props.onClose());
-  const editorBackdropClose = createBackdropClose(() => setShowEditorModal(false));
+  const editorBackdropClose = createBackdropClose(() => closeEditor());
   let dragCounter = 0;
   let listRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
@@ -95,9 +90,17 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   // 编辑器弹窗
   const [showEditorModal, setShowEditorModal] = createSignal(false);
   const [editorFileName, setEditorFileName] = createSignal('');
-  const [editorFilePath, setEditorFilePath] = createSignal('');
   const [editorContent, setEditorContent] = createSignal('');
   const [editorSaving, setEditorSaving] = createSignal(false);
+  const [editorLoading, setEditorLoading] = createSignal(false);
+  let editorRequest: { deviceUdid: string; path: string; directory: string } | null = null;
+
+  const closeEditor = () => {
+    editorRequest = null;
+    setEditorLoading(false);
+    setEditorSaving(false);
+    setShowEditorModal(false);
+  };
 
   // 右键菜单
   const [contextMenuFile, setContextMenuFile] = createSignal<FileItem | null>(null);
@@ -119,14 +122,6 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   
   const toast = useToast();
 
-  // 监听文件内容更新
-  createEffect(() => {
-    const content = props.fileContent;
-    if (content && showEditorModal() && editorFilePath() === content.path) {
-      setEditorContent(content.content);
-    }
-  });
-
   // 当组件打开时，加载默认目录
   createEffect(on([() => props.isOpen, () => props.deviceUdid], ([isOpen, deviceUdid]) => {
     // 组件关闭后会保留实例，旧设备的扫描、编辑器和剪贴板不能带到下一台设备。
@@ -134,7 +129,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     setShowSendToCloudModal(false);
     setSendToCloudPendingItems([]);
     setIsScanning(false);
-    setShowEditorModal(false);
+    closeEditor();
     setContextMenuFile(null);
     setClipboard(null);
     if (isOpen) {
@@ -196,7 +191,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
       if (contextMenuFile()) {
         setContextMenuFile(null);
       } else if (showEditorModal()) {
-        setShowEditorModal(false);
+        closeEditor();
       } else if (props.isOpen) {
         props.onClose();
       }
@@ -241,6 +236,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   onCleanup(() => {
     disposed = true;
     sendToCloudTarget = null;
+    editorRequest = null;
     if (listRefreshTimer) {
       clearTimeout(listRefreshTimer);
       listRefreshTimer = null;
@@ -357,40 +353,49 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   };
 
   // 编辑文件
-  const handleEditFile = (file: FileItem) => {
+  const handleEditFile = async (file: FileItem) => {
     const fullPath = currentPath() === '/' 
       ? `/${file.name}` 
       : `${currentPath()}/${file.name}`;
-    
+    const request = { deviceUdid: props.deviceUdid, path: fullPath, directory: currentPath() };
+    const readFile = props.onReadFile;
+    closeEditor();
+    editorRequest = request;
     setEditorFileName(file.name);
-    setEditorFilePath(fullPath);
     setEditorContent(t('common.loading'));
+    setEditorLoading(true);
     setShowEditorModal(true);
-    
-    // 请求文件内容
-    props.onReadFile(props.deviceUdid, fullPath);
+    try {
+      const content = await readFile(request.deviceUdid, request.path);
+      // 同一文件也可能被关闭后重新打开，路径相等不足以认定回包仍属于当前编辑器。
+      if (editorRequest === request) setEditorContent(content);
+    } catch (error) {
+      if (editorRequest !== request) return;
+      closeEditor();
+      dialog.alert(t('files.read_failed', { msg: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      if (editorRequest === request) setEditorLoading(false);
+    }
   };
 
   // 保存文件
   const handleSaveFile = async () => {
-    const path = editorFilePath();
-    if (!path) return;
+    const request = editorRequest;
+    if (!request || editorLoading() || editorSaving()) return;
 
     setEditorSaving(true);
-    
-    const content = editorContent();
-    
-    // 创建一个带内容的虚拟文件进行上传
-    const blob = new Blob([content], { type: 'text/plain' });
-    const file = new File([blob], editorFileName(), { type: 'text/plain' });
-    
-    props.onUploadFile(props.deviceUdid, path, file);
-
-    scheduleListRefresh(800);
-    setTimeout(() => {
-      setEditorSaving(false);
-      setShowEditorModal(false);
-    }, 800);
+    const file = new File([editorContent()], editorFileName(), { type: 'text/plain' });
+    try {
+      await props.onUploadFile(request.deviceUdid, request.path, file);
+      scheduleListRefresh(0, request.deviceUdid, request.directory);
+      if (editorRequest === request) closeEditor();
+    } catch (error) {
+      if (editorRequest === request) {
+        toast.showError(t('files.save_failed', { msg: error instanceof Error ? error.message : String(error) }));
+      }
+    } finally {
+      if (editorRequest === request) setEditorSaving(false);
+    }
   };
 
   const handleCreateFolder = async () => {
@@ -433,10 +438,12 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     
     // 创建空文件（模拟上传一个空 Blob）
     const emptyFile = new File([], name, { type: 'text/plain' });
-    uploadFile(deviceUdid, filePath, emptyFile);
-
-    // 刷新当前目录
-    scheduleListRefresh(1000, deviceUdid, directory);
+    try {
+      await uploadFile(deviceUdid, filePath, emptyFile);
+      scheduleListRefresh(0, deviceUdid, directory);
+    } catch (error) {
+      toast.showError(t('files.upload_failed', { msg: error instanceof Error ? error.message : String(error) }));
+    }
   };
 
 
@@ -484,7 +491,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
           debugLog('transfer', `📤 Large file detected (${file.size} bytes), using HTTP transfer`);
           await uploadLargeFile(deviceUdid, fullPath, file);
         } else {
-          uploadFile(deviceUdid, fullPath, file);
+          await uploadFile(deviceUdid, fullPath, file);
         }
       }
       if (scannedFiles.length > 0) scheduleListRefresh(2000, deviceUdid, directory);
@@ -600,25 +607,37 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     setIsScanning(directories.length > 0);
     setShowSendToCloudModal(true);
 
-    const scanDirectory = async (directory: string, relativePath: string): Promise<void> => {
+    const ancestorDirectories = new Set<string>();
+    const scanDirectory = async (directory: string, relativePath: string, entry: FileItem): Promise<void> => {
       if (sendToCloudTarget !== target) return;
-      const files = await listFiles!(target.deviceUdid, directory);
-      if (sendToCloudTarget !== target) return;
-      for (const file of files) {
+      const identity = Number.isSafeInteger(entry.dev) && Number.isSafeInteger(entry.ino) && (entry.ino ?? 0) > 0
+        ? `${entry.dev}:${entry.ino}` : null;
+      if (identity && ancestorDirectories.has(identity)) {
+        throw new Error(t('files.directory_cycle', { path: relativePath }));
+      }
+      // 不同分支可以合法引用同一目录，只检查当前祖先链，避免误判目录别名。
+      if (identity) ancestorDirectories.add(identity);
+      try {
+        const files = await listFiles!(target.deviceUdid, directory);
         if (sendToCloudTarget !== target) return;
-        const name = `${relativePath}/${file.name}`;
-        if (file.type === 'directory') {
-          await scanDirectory(`${directory}/${file.name}`, name);
-        } else {
-          allFiles.push(name);
+        for (const file of files) {
+          if (sendToCloudTarget !== target) return;
+          const name = `${relativePath}/${file.name}`;
+          if (file.type === 'directory') {
+            await scanDirectory(`${directory}/${file.name}`, name, file);
+          } else {
+            allFiles.push(name);
+          }
         }
+      } finally {
+        if (identity) ancestorDirectories.delete(identity);
       }
     };
 
     try {
       for (const directory of directories) {
         const path = target.path === '/' ? `/${directory.name}` : `${target.path}/${directory.name}`;
-        await scanDirectory(path, directory.name);
+        await scanDirectory(path, directory.name, directory);
         if (sendToCloudTarget !== target) return;
         setSendToCloudPendingItems([...allFiles]);
       }
@@ -986,18 +1005,19 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
         <div class={styles.editorModal} onMouseDown={(e) => e.stopPropagation()}>
           <div class={styles.editorHeader}>
             <h3>{t('files.edit_title', { name: editorFileName() })}</h3>
-            <button class={styles.closeButton} onClick={() => setShowEditorModal(false)}>
+            <button class={styles.closeButton} onClick={closeEditor}>
               <IconXmark size={16} />
             </button>
           </div>
           <textarea 
             class={styles.editorTextarea} 
             value={editorContent()} 
+            readOnly={editorLoading() || editorSaving()}
             onInput={(e) => setEditorContent(e.currentTarget.value)} 
           />
           <div class={styles.editorFooter}>
-            <button class={styles.cancelBtn} onClick={() => setShowEditorModal(false)}>{t('common.cancel')}</button>
-            <button class={styles.confirmBtn} onClick={handleSaveFile} disabled={editorSaving()}>
+            <button class={styles.cancelBtn} onClick={closeEditor}>{t('common.cancel')}</button>
+            <button class={styles.confirmBtn} onClick={handleSaveFile} disabled={editorSaving() || editorLoading()}>
               {editorSaving() ? t('files.saving') : t('common.save')}
             </button>
           </div>

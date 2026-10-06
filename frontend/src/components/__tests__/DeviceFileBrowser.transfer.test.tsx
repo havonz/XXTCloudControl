@@ -64,7 +64,7 @@ describe('DeviceFileBrowser operation targets', () => {
     const [entries, setEntries] = createSignal(files);
     const props = {
       onListFiles: vi.fn(), onDeleteFile: vi.fn(), onCreateDirectory: vi.fn(),
-      onUploadFile: vi.fn(), onDownloadFile: vi.fn(), onMoveFile: vi.fn(),
+      onUploadFile: vi.fn(async () => {}), onDownloadFile: vi.fn(), onMoveFile: vi.fn(),
       onCopyFile: vi.fn(), onReadFile: vi.fn(), onSelectScript: vi.fn(),
       ...overrides,
     };
@@ -261,5 +261,111 @@ describe('DeviceFileBrowser operation targets', () => {
     vi.mocked(scanEntries).mockResolvedValueOnce([{ file: content, relativePath: 'retry.txt' }]);
     drop();
     await vi.waitFor(() => expect(props.onUploadFile).toHaveBeenCalledWith('device-a', '/lua/scripts/retry.txt', content));
+  });
+
+  it('拖拽小文件收到失败回执后停止本批并允许重试', async () => {
+    const pending = deferred<void>();
+    const upload = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue(undefined);
+    const { host } = await mount([file('existing.txt')], { onUploadFile: upload });
+    const first = new File(['first'], 'first.txt');
+    const second = new File(['second'], 'second.txt');
+    vi.mocked(scanEntries).mockResolvedValue([{ file: first, relativePath: 'first.txt' }, { file: second, relativePath: 'second.txt' }]);
+    const drop = () => {
+      const event = new Event('drop', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', { value: { items: [] } });
+      host.querySelector('[class*="mainFileList"]')!.dispatchEvent(event);
+    };
+    drop();
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+    pending.reject(new Error('file is busy'));
+    await vi.waitFor(() => expect(feedback.showError).toHaveBeenCalledWith('Upload failed: file is busy'));
+    expect(upload).toHaveBeenCalledOnce();
+    drop();
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(3));
+  });
+
+  it('创建空文件失败会提示，成功回执后才刷新目录', async () => {
+    const pending = deferred<void>();
+    const upload = vi.fn().mockRejectedValueOnce(new Error('permission denied')).mockReturnValueOnce(pending.promise);
+    const { props } = await mount([file('existing.txt')], { onUploadFile: upload });
+    feedback.prompt.mockResolvedValue('created.txt');
+    button('common.new_file').click();
+    await vi.waitFor(() => expect(feedback.showError).toHaveBeenCalledWith('Upload failed: permission denied'));
+    expect(props.onListFiles).toHaveBeenCalledOnce();
+    button('common.new_file').click();
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+    expect(props.onListFiles).toHaveBeenCalledOnce();
+    pending.resolve();
+    await vi.waitFor(() => expect(props.onListFiles).toHaveBeenCalledTimes(2));
+  });
+
+  it('目录链接指向自身时停止扫描，不保留已收集的部分文件', async () => {
+    const root = { ...file('folder', 'directory'), dev: 1, ino: 42 };
+    let calls = 0;
+    const list = vi.fn(async () => {
+      if (++calls > 20) throw new Error('test stopped repeated scans');
+      return [file('payload.txt'), { ...root, name: 'loop' }];
+    });
+    const pull = vi.fn(async () => ({ success: true }));
+    await mount([root, file('loose.txt')], { onListFilesAsync: list, onPullFileFromDevice: pull });
+    selectAndPrepareSend();
+    await vi.waitFor(() => expect(feedback.alert).toHaveBeenCalledOnce());
+    expect(feedback.alert).toHaveBeenCalledWith('Load failed: Circular directory link: folder/loop');
+    expect(list).toHaveBeenCalledOnce();
+    expect(document.querySelector('[data-testid="send-dialog"]')).toBeNull();
+    expect(pull).not.toHaveBeenCalled();
+  });
+
+  it('多层目录返回祖先时停止，移除循环后可以重新扫描和发送', async () => {
+    const root = { ...file('folder', 'directory'), dev: 1, ino: 10 };
+    let circular = true;
+    const list = vi.fn(async (_device: string, path: string) => {
+      if (path === '/lua/scripts/folder') return [{ ...file('child', 'directory'), dev: 1, ino: 20 }];
+      if (path === '/lua/scripts/folder/child') return circular ? [{ ...root, name: 'parent' }] : [file('actual.txt')];
+      throw new Error('followed a circular directory');
+    });
+    const pull = vi.fn(async () => ({ success: true }));
+    await mount([root], { onListFilesAsync: list, onPullFileFromDevice: pull });
+    selectAndPrepareSend();
+    await vi.waitFor(() => expect(feedback.alert).toHaveBeenCalledWith('Load failed: Circular directory link: folder/child/parent'));
+    expect(list).toHaveBeenCalledTimes(2);
+    circular = false;
+    button('files.send_to_cloud').click();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="scan-count"]')?.textContent).toBe('1'));
+    document.querySelector<HTMLButtonElement>('[data-testid="confirm-send"]')!.click();
+    await vi.waitFor(() => expect(pull).toHaveBeenCalledWith('device-a', '/lua/scripts/folder/child/actual.txt', 'files', 'backup/folder/child/actual.txt'));
+  });
+
+  it('不同分支的目录别名以及不同磁盘的相同 inode 不被误当作循环', async () => {
+    const root = { ...file('folder', 'directory'), dev: 1, ino: 10 };
+    const list = vi.fn(async (_device: string, path: string) => path === '/lua/scripts/folder' ? [
+      { ...file('left', 'directory'), dev: 1, ino: 20 },
+      { ...file('right', 'directory'), dev: 1, ino: 20 },
+      { ...file('other-volume', 'directory'), dev: 2, ino: 10 },
+    ] : [file('payload.txt')]);
+    const pull = vi.fn(async (_device: string, _source: string) => ({ success: true }));
+    await mount([root], { onListFilesAsync: list, onPullFileFromDevice: pull });
+    selectAndPrepareSend();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="scan-count"]')?.textContent).toBe('3'));
+    document.querySelector<HTMLButtonElement>('[data-testid="confirm-send"]')!.click();
+    await vi.waitFor(() => expect(pull).toHaveBeenCalledTimes(3));
+    expect(pull.mock.calls.map(([, source]) => source)).toEqual([
+      '/lua/scripts/folder/left/payload.txt', '/lua/scripts/folder/right/payload.txt', '/lua/scripts/folder/other-volume/payload.txt',
+    ]);
+    expect(feedback.alert).not.toHaveBeenCalled();
+  });
+
+  it.each([{}, { dev: 0, ino: 0 }, { dev: 1, ino: Number.MAX_SAFE_INTEGER + 1 }])('目录标识缺失或不可靠时仍可扫描普通子目录：%j', async identity => {
+    const root = { ...file('folder', 'directory'), ...identity };
+    const list = vi.fn(async (_device: string, path: string) => path === '/lua/scripts/folder'
+      ? [{ ...file('child', 'directory'), ...identity }] : [file('payload.txt')]);
+    const pull = vi.fn(async () => ({ success: true }));
+    await mount([root], { onListFilesAsync: list, onPullFileFromDevice: pull });
+    selectAndPrepareSend();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="scan-count"]')?.textContent).toBe('1'));
+    expect(list).toHaveBeenCalledTimes(2);
+    document.querySelector<HTMLButtonElement>('[data-testid="confirm-send"]')!.click();
+    await vi.waitFor(() => expect(pull).toHaveBeenCalledWith('device-a', '/lua/scripts/folder/child/payload.txt', 'files', 'backup/folder/child/payload.txt'));
+    expect(feedback.alert).not.toHaveBeenCalled();
   });
 });

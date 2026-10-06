@@ -554,6 +554,8 @@
     "clipboard_write_failed": "Impossible d’écrire dans le presse-papiers"
   },
   "files": {
+    "invalid_response": "L’appareil a renvoyé des données de fichier non valides",
+    "directory_cycle": "Lien de dossier circulaire : {path}",
     "server_title": "Fichiers du serveur",
     "device_title": "Fichiers de l’appareil – {name}",
     "scripts_root": "Scripts",

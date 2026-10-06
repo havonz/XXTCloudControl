@@ -470,6 +470,8 @@
     "clipboard_write_failed": "Não foi possível gravar na área de transferência"
   },
   "files": {
+    "invalid_response": "O dispositivo retornou dados de arquivo inválidos",
+    "directory_cycle": "Link circular de diretório: {path}",
     "server_title": "Arquivos do servidor",
     "device_title": "Explorador de arquivos do dispositivo — {name}",
     "scripts_root": "Pasta de scripts",

@@ -554,6 +554,8 @@
     "clipboard_write_failed": "Không thể ghi vào bảng nhớ tạm"
   },
   "files": {
+    "invalid_response": "Thiết bị trả về dữ liệu tệp không hợp lệ",
+    "directory_cycle": "Liên kết thư mục vòng lặp: {path}",
     "server_title": "Tệp máy chủ",
     "device_title": "Trình duyệt tệp thiết bị - {name}",
     "scripts_root": "Tập lệnh",

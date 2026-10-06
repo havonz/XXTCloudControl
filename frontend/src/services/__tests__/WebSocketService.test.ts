@@ -351,6 +351,103 @@ describe('WebSocketService script message updates', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('文件请求只接受匹配请求 ID、类型和设备的回包', async () => {
+    vi.useFakeTimers();
+    const service = new WebSocketService('ws://127.0.0.1:46980/api/ws', 'password');
+    service.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'control/devices', body: {} }) });
+    const pending = service.listFilesAsync('device-a', '/res');
+    const request = JSON.parse(socket.sent.at(-1)!);
+    const requestId = request.body.requestId;
+    for (const message of [
+      { type: 'file/list', requestId, udid: 'device-b', body: [] },
+      { type: 'file/get', requestId, udid: 'device-a', body: 'wrong type' },
+      { type: 'file/list', udid: 'device-a', body: [] },
+    ]) socket.onmessage?.({ data: JSON.stringify(message) });
+    expect((service as any).pendingRequestsById.size).toBe(1);
+    socket.onmessage?.({ data: JSON.stringify({ type: 'file/list', requestId, udid: 'device-a', body: [
+      { name: 'folder', type: 'dir', modification: 123, dev: 1, ino: 42 }, { name: 'payload', type: 'file', size: 24 },
+    ] }) });
+    await expect(pending).resolves.toEqual([
+      { name: 'folder', type: 'directory', modification: 123, dev: 1, ino: 42 }, { name: 'payload', type: 'file', size: 24 },
+    ]);
+    expect((service as any).pendingRequestsById.size).toBe(0);
+    service.disconnect();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('文件列表错误和无效回包不会被当作空目录，空文件内容仍有效', async () => {
+    vi.useFakeTimers();
+    const service = new WebSocketService('ws://127.0.0.1:46980/api/ws', 'password');
+    service.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'control/devices', body: {} }) });
+    for (const reply of [
+      { error: 'permission denied' }, { body: {} }, { body: [{ size: 123 }] },
+    ]) {
+      const pending = service.listFilesAsync('device-a', '/res');
+      const request = JSON.parse(socket.sent.at(-1)!);
+      socket.onmessage?.({ data: JSON.stringify({ type: 'file/list', requestId: request.body.requestId, udid: 'device-a', ...reply }) });
+      await expect(pending).rejects.toThrow('error' in reply ? 'permission denied' : 'The device returned invalid file data');
+    }
+    const empty = service.getFileAsync('device-a', '/res/empty');
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.onmessage?.({ data: JSON.stringify({ type: 'file/get', requestId: request.body.requestId, udid: 'device-a', body: '' }) });
+    await expect(empty).resolves.toBe('');
+    service.disconnect();
+  });
+
+  it('写文件等待对应设备回执，并把已处理标记交给消息监听者', async () => {
+    vi.useFakeTimers();
+    const service = new WebSocketService('ws://127.0.0.1:46980/api/ws', 'password');
+    service.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'control/devices', body: {} }) });
+    const messages = vi.fn();
+    service.onMessage(messages);
+    const saved = service.putFileAsync('device-a', '/res/empty.lua', '');
+    const request = JSON.parse(socket.sent.at(-1)!);
+    expect(request.body.body).toEqual({ path: '/res/empty.lua', data: '' });
+    const foreign = { type: 'file/put', requestId: request.body.requestId, udid: 'device-b', body: { path: '/res/empty.lua' } };
+    socket.onmessage?.({ data: JSON.stringify(foreign) });
+    expect(messages).toHaveBeenLastCalledWith(foreign, false);
+    expect((service as any).pendingRequestsById.size).toBe(1);
+    const accepted = { ...foreign, udid: 'device-a' };
+    socket.onmessage?.({ data: JSON.stringify(accepted) });
+    await expect(saved).resolves.toBeUndefined();
+    expect(messages).toHaveBeenLastCalledWith(accepted, true);
+    expect((service as any).pendingRequestsById.size).toBe(0);
+    service.disconnect();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('写文件被拒绝或超时会失败并释放等待回执的状态', async () => {
+    vi.useFakeTimers();
+    const service = new WebSocketService('ws://127.0.0.1:46980/api/ws', 'password');
+    service.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'control/devices', body: {} }) });
+    const rejected = service.putFileAsync('device-a', '/res/file.lua', 'ZGF0YQ==');
+    const rejection = expect(rejected).rejects.toThrow('This file is being transferred');
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.onmessage?.({ data: JSON.stringify({ type: 'file/put', requestId: request.body.requestId, udid: 'device-a',
+      error: 'file transfer already in progress', errorCode: 'error.transfer.file_busy' }) });
+    await rejection;
+    expect((service as any).pendingRequestsById.size).toBe(0);
+    const pending = service.putFileAsync('device-a', '/res/file.lua', 'ZGF0YQ==');
+    const expired = expect(pending).rejects.toThrow('file/put');
+    await vi.advanceTimersByTimeAsync(10000);
+    await expired;
+    expect((service as any).pendingRequestsById.size).toBe(0);
+    service.disconnect();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('触控命令按 finger 附加单调递增 touchTs', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-28T00:00:00.000Z'));

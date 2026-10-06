@@ -873,8 +873,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 
 		for _, udid := range cmdBody.Devices {
 			if deviceConn, exists := deviceConns[udid]; exists {
-				if cmdMsg.Type == "file/put" {
-					forwardDeviceFilePut(conn, deviceConn, udid, cmdMsg, cmdBytes)
+				switch cmdMsg.Type {
+				case "file/put", "file/delete", "file/move", "file/copy":
+					forwardDeviceFileMutation(conn, deviceConn, udid, cmdMsg, cmdBytes)
 					continue
 				}
 				if messageCode != "" {
@@ -921,8 +922,9 @@ func handleMessage(conn *SafeConn, data Message) error {
 			if deviceConn, exists := deviceConns[udid]; exists {
 				for i, payload := range commandPayloads {
 					command := cmdsBody.Commands[i]
-					if command.Type == "file/put" {
-						forwardDeviceFilePut(conn, deviceConn, udid, Message{Type: command.Type, Body: command.Body}, payload)
+					switch command.Type {
+					case "file/put", "file/delete", "file/move", "file/copy":
+						forwardDeviceFileMutation(conn, deviceConn, udid, Message{Type: command.Type, Body: command.Body}, payload)
 						continue
 					}
 					messageCode := commandNames[i]

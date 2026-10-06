@@ -470,6 +470,8 @@
     "clipboard_write_failed": "클립보드에 쓰지 못했습니다"
   },
   "files": {
+    "invalid_response": "기기에서 잘못된 파일 데이터를 반환했습니다",
+    "directory_cycle": "순환 디렉터리 링크: {path}",
     "server_title": "서버 파일",
     "device_title": "기기 파일 탐색기 - {name}",
     "scripts_root": "스크립트 디렉터리",

@@ -470,6 +470,8 @@
     "clipboard_write_failed": "写入剪贴板失败"
   },
   "files": {
+    "invalid_response": "设备返回的文件数据无效",
+    "directory_cycle": "目录存在循环链接：{path}",
     "server_title": "服务器文件",
     "device_title": "设备文件浏览器 - {name}",
     "scripts_root": "脚本目录",

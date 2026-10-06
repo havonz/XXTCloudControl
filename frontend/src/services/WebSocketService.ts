@@ -2,6 +2,7 @@ import { AuthService } from './AuthService';
 import { debugLog } from '../utils/debugLogger';
 import type { RemoteWheelSettings } from '../utils/remoteWheel';
 import { getCurrentLocale, translate } from '../i18n';
+import { localizeApiError } from '../utils/apiError';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 export type AuthFailureKind = 'authentication' | 'connection';
@@ -27,6 +28,15 @@ export interface Device {
   system?: any;
   scriptStart?: ScriptStartState;
   [key: string]: any;
+}
+
+export interface DeviceFileEntry {
+  name: string;
+  type: 'file' | 'directory';
+  path?: string;
+  size?: number;
+  dev?: number;
+  ino?: number;
 }
 
 export interface DeviceMessageUpdate {
@@ -69,6 +79,7 @@ interface PendingRequest<T = any> {
   reject: (reason?: any) => void;
   timeout: ReturnType<typeof setTimeout>;
   type: string; // The expected response type
+  deviceUdids: Set<string>;
 }
 
 interface SendAuthenticatedMessageOptions {
@@ -98,7 +109,7 @@ export class WebSocketService {
   private authAttemptToken = 0;
   private shouldReconnect = true;
   private statusCallbacks: ((status: ConnectionStatus) => void)[] = [];
-  private messageCallbacks: ((message: any) => void)[] = [];
+  private messageCallbacks: ((message: any, responseHandled?: boolean) => void)[] = [];
   private deviceCallbacks: ((devices: Device[]) => void)[] = [];
   private authCallbacks: ((success: boolean, error?: string, failure?: AuthFailure) => void)[] = [];
   
@@ -457,7 +468,8 @@ export class WebSocketService {
         resolve,
         reject,
         timeout,
-        type: commandType
+        type: commandType,
+        deviceUdids: new Set(deviceUdids),
       });
 
       // 发送消息
@@ -557,32 +569,36 @@ export class WebSocketService {
 
   // 列出文件目录 (Promise 版本，用于递归扫描)
   // 使用 sendCommandAsync 实现精确的 requestId 匹配
-  async listFilesAsync(deviceUdid: string, path: string): Promise<Array<{name: string; type: 'file' | 'directory'; size?: number}>> {
-    try {
-      const response = await this.sendCommandAsync(
-        [deviceUdid],
-        'file/list',
-        { path: path.trim() },
-        10000
-      );
-      
-      // 转换文件类型格式
-      if (response.body && Array.isArray(response.body)) {
-        return response.body.map((f: any) => ({
-          name: f.name,
-          type: f.type === 'dir' ? 'directory' as const : 'file' as const,
-          size: f.size
-        }));
-      }
-      
-      // 如果有错误，返回空数组
-      if (response.error) {
-        console.warn(`listFilesAsync 失败: ${response.error}`);
-      }
-      return [];
-    } catch (error) {
-      console.error('获取文件列表失败:', error);
-      return [];
+  async listFilesAsync(deviceUdid: string, path: string): Promise<DeviceFileEntry[]> {
+    const response = await this.sendCommandAsync([deviceUdid], 'file/list', { path: path.trim() });
+    if (response.error) {
+      throw new Error(localizeApiError(response, serviceText, serviceText('files.invalid_response')).message);
+    }
+    // 读取失败不能伪装成空目录，否则递归发送会漏掉文件却报告成功。
+    if (!Array.isArray(response.body) || response.body.some((entry: any) => !entry || typeof entry.name !== 'string')) {
+      throw new Error(serviceText('files.invalid_response'));
+    }
+    return response.body.map((entry: any) => ({
+      ...entry,
+      type: entry.type === 'dir' || entry.type === 'directory' ? 'directory' : 'file',
+    }));
+  }
+
+  async getFileAsync(deviceUdid: string, path: string): Promise<string> {
+    const response = await this.sendCommandAsync([deviceUdid], 'file/get', { path: path.trim() });
+    if (response.error) {
+      throw new Error(localizeApiError(response, serviceText, serviceText('files.invalid_response')).message);
+    }
+    if (typeof response.body !== 'string') {
+      throw new Error(serviceText('files.invalid_response'));
+    }
+    return response.body;
+  }
+
+  async putFileAsync(deviceUdid: string, path: string, data: string): Promise<void> {
+    const response = await this.sendCommandAsync([deviceUdid], 'file/put', { path: path.trim(), data });
+    if (response.error) {
+      throw new Error(localizeApiError(response, serviceText, serviceText('transfer.upload_failed')).message);
     }
   }
 
@@ -721,11 +737,12 @@ export class WebSocketService {
   }
 
   private handleMessage(message: any): void {
-
+    let responseHandled = false;
     // 首先检查是否有匹配的 pending request（基于 requestId）
     if (message.requestId) {
       const pending = this.pendingRequestsById.get(message.requestId);
-      if (pending) {
+      if (pending && message.type === pending.type && pending.deviceUdids.has(message.udid)) {
+        responseHandled = true;
         // 清除超时
         clearTimeout(pending.timeout);
         this.pendingRequestsById.delete(message.requestId);
@@ -745,7 +762,7 @@ export class WebSocketService {
 
     if (message.type === 'script/start/state' && message.body?.udid) {
       this.updateScriptStartState(message.body.udid, message.body);
-      this.notifyMessage(message);
+      this.notifyMessage(message, responseHandled);
       return;
     }
     
@@ -861,12 +878,12 @@ export class WebSocketService {
       debugLog('ws', '文件操作响应:', message);
 
       // 文件操作响应转发给回调处理
-      this.notifyMessage(message);
+      this.notifyMessage(message, responseHandled);
       return;
     }
 
     // 其他消息转发给回调
-    this.notifyMessage(message);
+    this.notifyMessage(message, responseHandled);
   }
 
   private clearStoredPasswordAndReturnToLogin(): void {
@@ -1214,7 +1231,7 @@ export class WebSocketService {
     };
   }
 
-  onMessage(callback: (message: any) => void): () => void {
+  onMessage(callback: (message: any, responseHandled?: boolean) => void): () => void {
     this.messageCallbacks.push(callback);
     return () => {
       this.messageCallbacks = this.messageCallbacks.filter(cb => cb !== callback);
@@ -1313,8 +1330,8 @@ export class WebSocketService {
     this.statusCallbacks.forEach(callback => callback(status));
   }
 
-  private notifyMessage(message: any): void {
-    this.messageCallbacks.forEach(callback => callback(message));
+  private notifyMessage(message: any, responseHandled = false): void {
+    this.messageCallbacks.forEach(callback => callback(message, responseHandled));
   }
 
   private notifyDeviceLogWatchers(udid: string, chunk: string): void {

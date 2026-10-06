@@ -470,6 +470,8 @@
     "clipboard_write_failed": "寫入剪貼簿失敗"
   },
   "files": {
+    "invalid_response": "裝置回傳的檔案資料無效",
+    "directory_cycle": "目錄存在循環連結：{path}",
     "server_title": "伺服器檔案",
     "device_title": "裝置檔案瀏覽器 - {name}",
     "scripts_root": "腳本目錄",

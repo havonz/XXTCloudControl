@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -162,6 +164,88 @@ func TestServerFilesListHandler_MetaParam(t *testing.T) {
 		if resp.Files[0].ModTime == "" {
 			t.Fatalf("expected modTime when meta=1")
 		}
+	}
+}
+
+func TestServerFilesListHandler_MissingDirectoryIsNotEmpty(t *testing.T) {
+	dataDir := setupFileHandlersTestDataDir(t)
+	root := filepath.Join(dataDir, "files")
+	vanished := filepath.Join(root, "folder", "vanished")
+	if err := os.MkdirAll(vanished, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "empty"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	listed := performJSONHandlerRequest(t, http.MethodGet, "/api/server-files/list?category=files&path=folder", nil, serverFilesListHandler)
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), "vanished") {
+		t.Fatalf("parent did not list the child: %d %s", listed.Code, listed.Body)
+	}
+	if err := os.Remove(vanished); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"folder/vanished", "missing", "broken-link"} {
+		t.Run(path, func(t *testing.T) {
+			if path == "broken-link" {
+				createSymlinkOrSkip(t, vanished, filepath.Join(root, path))
+			}
+			response := performJSONHandlerRequest(t, http.MethodGet, "/api/server-files/list?category=files&path="+url.QueryEscape(path), nil, serverFilesListHandler)
+			if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"errorCode":"error.file.not_found"`) {
+				t.Fatalf("missing directory was treated as empty: %d %s", response.Code, response.Body)
+			}
+		})
+	}
+	response := performJSONHandlerRequest(t, http.MethodGet, "/api/server-files/list?category=files&path=empty", nil, serverFilesListHandler)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"files":[]`) {
+		t.Fatalf("existing empty directory failed: %d %s", response.Code, response.Body)
+	}
+}
+
+func TestServerFilesListHandler_UninitializedCategoryRootRemainsEmpty(t *testing.T) {
+	dataDir := setupFileHandlersTestDataDir(t)
+	if err := os.Remove(filepath.Join(dataDir, "reports")); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"", "/", "."} {
+		response := performJSONHandlerRequest(t, http.MethodGet, "/api/server-files/list?category=reports&path="+url.QueryEscape(path), nil, serverFilesListHandler)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"files":[]`) {
+			t.Fatalf("uninitialized category root failed: %d %s", response.Code, response.Body)
+		}
+	}
+}
+
+func TestServerFilesDownloadHandlerPreservesSpecialFilenames(t *testing.T) {
+	dataDir := setupFileHandlersTestDataDir(t)
+	directory := "folder #+%"
+	if err := os.MkdirAll(filepath.Join(dataDir, "files", directory), 0755); err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	router.GET("/api/server-files/download/*path", serverFilesDownloadHandler)
+	for _, name := range []string{"plain.txt", "report#1.txt", "literal%23.txt", "报告 ? 50%+雪.txt", `quote";name.txt`} {
+		t.Run(name, func(t *testing.T) {
+			if runtime.GOOS == "windows" && strings.ContainsAny(name, `:*?"<>|`) {
+				t.Skip("filename is not supported by Windows")
+			}
+			content := []byte("contents of " + name)
+			if err := os.WriteFile(filepath.Join(dataDir, "files", directory, name), content, 0644); err != nil {
+				t.Fatal(err)
+			}
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/api/server-files/download/files/"+url.PathEscape(directory)+"/"+url.PathEscape(name), nil)
+			router.ServeHTTP(response, request)
+			if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), content) {
+				t.Fatalf("encoded path downloaded the wrong file: %d %s", response.Code, response.Body)
+			}
+			header := response.Header().Get("Content-Disposition")
+			if !strings.Contains(header, "filename*=UTF-8''") {
+				t.Fatalf("filename still uses ambiguous legacy encoding: %s", header)
+			}
+			kind, params, err := mime.ParseMediaType(header)
+			if err != nil || kind != "attachment" || params["filename"] != name {
+				t.Fatalf("download filename changed: kind=%s filename=%q error=%v", kind, params["filename"], err)
+			}
+		})
 	}
 }
 

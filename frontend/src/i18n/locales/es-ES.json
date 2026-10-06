@@ -554,6 +554,8 @@
     "clipboard_write_failed": "No se pudo escribir en el portapapeles"
   },
   "files": {
+    "invalid_response": "El dispositivo devolvió datos de archivo no válidos",
+    "directory_cycle": "Enlace circular de directorio: {path}",
     "server_title": "Archivos del servidor",
     "device_title": "Explorador de archivos del dispositivo - {name}",
     "scripts_root": "Scripts",

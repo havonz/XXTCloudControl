@@ -615,6 +615,8 @@
     "clipboard_write_failed": "Не удалось записать в буфер обмена"
   },
   "files": {
+    "invalid_response": "Устройство вернуло некорректные данные файла",
+    "directory_cycle": "Циклическая ссылка на папку: {path}",
     "server_title": "Файлы сервера",
     "device_title": "Файлы устройства — {name}",
     "scripts_root": "Каталог скриптов",

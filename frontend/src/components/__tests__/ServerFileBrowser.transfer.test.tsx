@@ -25,7 +25,7 @@ function button(key: string, vars?: Record<string, unknown>) {
 describe('ServerFileBrowser file transfers', () => {
   let dispose: (() => void) | undefined;
   let rootFiles: ServerFileItem[];
-  let directories: Map<string, ServerFileItem[] | Error>;
+  let directories: Map<string, ServerFileItem[] | Error | Response>;
   let pushed: Array<{ url: string; body: Record<string, any> }>;
   let respondToPush: (body: Record<string, any>) => Promise<Response>;
 
@@ -45,6 +45,7 @@ describe('ServerFileBrowser file transfers', () => {
         const path = parsed.searchParams.get('path') || '';
         const contents = path ? directories.get(path) : rootFiles;
         if (contents instanceof Error) return Response.json({ error: contents.message }, { status: 500 });
+        if (contents instanceof Response) return contents.clone();
         return Response.json({ files: contents || [] });
       }
       if (parsed.pathname === '/api/transfer/push-to-devices') {
@@ -139,6 +140,18 @@ describe('ServerFileBrowser file transfers', () => {
     expect(feedback.showSuccess).not.toHaveBeenCalled();
   });
 
+  it('扫描期间目录消失时报告缺失目录，不发送已经收集的部分文件', async () => {
+    rootFiles = [file('folder', 'dir'), file('loose.bin')];
+    directories.set('folder', [file('inside.bin'), file('vanished', 'dir')]);
+    directories.set('folder/vanished', Response.json({ error: 'file not found', errorCode: 'error.file.not_found' }, { status: 404 }));
+    await mountAndSend();
+    await vi.waitFor(() => expect(feedback.alert).toHaveBeenCalledOnce());
+    expect(feedback.alert.mock.calls[0][0]).toContain('folder/vanished');
+    expect(pushed).toHaveLength(0);
+    expect(feedback.showSuccess).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(button('files.send_to_devices', { count: 2 }).disabled).toBe(false));
+  });
+
   it('保留目录相对路径及符号链接规则', async () => {
     rootFiles = [file('folder', 'dir')];
     directories.set('folder', [file('file-link.bin', 'file', true), file('nested', 'dir'), file('dir-link', 'dir', true)]);
@@ -171,4 +184,19 @@ describe('ServerFileBrowser file transfers', () => {
     expect(feedback.alert.mock.calls[0][0]).toContain('Device a');
     expect(feedback.showSuccess).not.toHaveBeenCalled();
   });
+
+  it('二十万个目录文件可以完整收集和发送，不触发数组展开上限', async () => {
+    rootFiles = [file('folder', 'dir')];
+    directories.set('folder', [file('nested', 'dir')]);
+    const count = 200000;
+    directories.set('folder/nested', Array.from({ length: count }, (_, index) => file(`file-${index}.bin`)));
+    const response = { ok: true, json: async () => ({ success: true, results: [{ deviceSN: 'a', success: true }] }) } as Response;
+    respondToPush = async () => response;
+    await mountAndSend([devices[0]]);
+    await vi.waitFor(() => expect(feedback.showSuccess).toHaveBeenCalledWith(`Sent ${count} file request(s)`), { timeout: 15000 });
+    expect(pushed).toHaveLength(count);
+    expect(pushed[0].body.path).toBe('folder/nested/file-0.bin');
+    expect(pushed[count - 1].body.targetPath).toBe(`/lua/scripts/folder/nested/file-${count - 1}.bin`);
+    expect(feedback.alert).not.toHaveBeenCalled();
+  }, 20000);
 });

@@ -1,4 +1,4 @@
-import { batch, createSignal, createEffect, For, Show, onCleanup, createMemo } from 'solid-js';
+import { batch, createSignal, createEffect, For, Show, onCleanup, createMemo, on } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { Select, createListCollection } from '@ark-ui/solid';
 import { FaSolidSquareArrowUpRight } from 'solid-icons/fa';
@@ -58,9 +58,17 @@ type LanControlArchiveMeta = {
   maxXXTLCVersion?: string;
 };
 
-type LanControlArchiveSource =
-  | { kind: 'managed'; category: 'scripts' | 'files' | 'reports'; path: string; displayName: string }
-  | { kind: 'upload'; file: File; displayName: string };
+interface ServerFileLocation {
+  serverBaseUrl: string;
+  category: 'scripts' | 'files' | 'reports';
+  path: string;
+  session: number;
+}
+
+type LanControlArchiveSource = { location: ServerFileLocation } & (
+  | { kind: 'managed'; path: string; displayName: string }
+  | { kind: 'upload'; file: File; displayName: string }
+);
 
 export interface ServerFileBrowserProps {
   isOpen: boolean;
@@ -85,8 +93,11 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [isUploading, setIsUploading] = createSignal(false);
   const [isDeleting, setIsDeleting] = createSignal(false);
+  const [isPasting, setIsPasting] = createSignal(false);
   const [showHidden, setShowHidden] = createSignal(false);
   const [isLocal, setIsLocal] = createSignal(false);
+  let viewSession = 0;
+  let disposed = false;
 
   // 中控脚本包安装
   const [lanControlArchiveOpen, setLanControlArchiveOpen] = createSignal(false);
@@ -99,9 +110,10 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [lanControlArchiveInstalling, setLanControlArchiveInstalling] = createSignal(false);
   const [lanControlArchiveError, setLanControlArchiveError] = createSignal('');
   let lanControlArchiveResolve: ((installed: boolean) => void) | null = null;
+  let lanControlArchiveRequest: LanControlArchiveSource | null = null;
 
   const mainBackdropClose = createBackdropClose(() => props.onClose());
-  const editorBackdropClose = createBackdropClose(() => setShowEditorModal(false));
+  const editorBackdropClose = createBackdropClose(() => closeEditor());
   const imagePreviewBackdropClose = createBackdropClose(() => setShowImagePreview(false));
   const lanControlArchiveBackdropClose = createBackdropClose(() => {
     if (!lanControlArchiveInstalling()) {
@@ -109,23 +121,16 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     }
   });
 
-  const loadConfig = async () => {
+  const loadConfig = async (serverBaseUrl: string, session: number) => {
     try {
-      const response = await authFetch(`${props.serverBaseUrl}/api/config?format=json`);
+      const response = await authFetch(`${serverBaseUrl}/api/config?format=json`);
       if (!response.ok) return;
       const data = await response.json();
-      setIsLocal(!!data?.ui?.isLocal);
+      if (!disposed && session === viewSession) setIsLocal(!!data?.ui?.isLocal);
     } catch {
-      setIsLocal(false);
+      if (!disposed && session === viewSession) setIsLocal(false);
     }
   };
-
-  createEffect(() => {
-    if (props.isOpen) {
-      setIsLocal(false);
-      loadConfig();
-    }
-  });
   
   // 选择模式
   const [isSelectMode, setIsSelectMode] = createSignal(false);
@@ -134,8 +139,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   // 剪贴板状态
   const [clipboard, setClipboard] = createSignal<{
     items: string[];
-    category: 'scripts' | 'files' | 'reports';
-    srcPath: string;
+    location: ServerFileLocation;
     mode: 'copy' | 'cut';
   } | null>(null);
   
@@ -144,6 +148,16 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const [editorFileName, setEditorFileName] = createSignal('');
   const [editorContent, setEditorContent] = createSignal('');
   const [editorSaving, setEditorSaving] = createSignal(false);
+  const [editorLoading, setEditorLoading] = createSignal(false);
+  let editorRequest: (ServerFileLocation & { filePath: string; controller: AbortController }) | null = null;
+
+  const closeEditor = () => {
+    editorRequest?.controller.abort();
+    editorRequest = null;
+    setEditorLoading(false);
+    setEditorSaving(false);
+    setShowEditorModal(false);
+  };
   
   // 图片预览
   const [showImagePreview, setShowImagePreview] = createSignal(false);
@@ -182,7 +196,12 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     category: 'scripts' | 'files' | 'reports' = currentCategory(),
     path = currentPath()
   ): Promise<void> => {
+    if (disposed || !props.isOpen) return;
+    const serverBaseUrl = props.serverBaseUrl;
+    const session = viewSession;
     const requestId = ++loadFilesRequestId;
+    const isCurrentRequest = () => !disposed && props.isOpen && session === viewSession && requestId === loadFilesRequestId
+      && props.serverBaseUrl === serverBaseUrl && currentCategory() === category && currentPath() === path;
     setIsLoading(true);
     setError('');
     
@@ -193,37 +212,65 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         meta: '1',
       });
       
-      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/list?${params}`);
+      const response = await authFetch(`${serverBaseUrl}/api/server-files/list?${params}`);
       const data = await response.json();
 
-      if (requestId !== loadFilesRequestId) return;
+      if (!isCurrentRequest()) return;
       
-      if (!response.ok || data.errorCode || data.error) {
+      if (!response.ok || data?.errorCode || data?.error) {
         setError(apiErrorMessage(data, t('files.load_failed', { msg: t('common.unknown_error') })));
         setFiles([]);
       } else {
         setFiles(data.files || []);
       }
     } catch (err) {
-      if (requestId !== loadFilesRequestId) return;
+      if (!isCurrentRequest()) return;
       setError(t('files.load_failed', { msg: (err as Error).message }));
       setFiles([]);
     } finally {
-      if (requestId === loadFilesRequestId) {
+      if (isCurrentRequest()) {
         setIsLoading(false);
       }
     }
   };
 
-  createEffect(() => {
-    if (!props.isOpen) return;
+  const refreshVisibleDirectory = async (location: ServerFileLocation) => {
+    // 后台操作可以继续写入原位置，但刷新只能作用于仍在显示该位置的同一次打开。
+    if (!disposed && props.isOpen && location.session === viewSession && props.serverBaseUrl === location.serverBaseUrl
+      && currentCategory() === location.category && currentPath() === location.path) {
+      await loadFiles(location.category, location.path);
+    }
+  };
 
-    const category = currentCategory();
-    const path = currentPath();
-
+  createEffect(on([() => props.isOpen, () => props.serverBaseUrl, currentCategory, currentPath], ([isOpen, serverBaseUrl, category, path], previous) => {
+    const serverChanged = !previous || serverBaseUrl !== previous[1];
+    if (!previous || isOpen !== previous[0] || serverChanged) {
+      viewSession++;
+      setIsLocal(false);
+      if (serverChanged) setClipboard(null);
+      closeLanControlArchiveDialog(false);
+      if (isOpen) void loadConfig(serverBaseUrl, viewSession);
+    }
+    closeEditor();
+    setContextMenuFile(null);
+    setShowImagePreview(false);
+    if (longPressTimer) clearTimeout(longPressTimer);
+    longPressTimer = null;
     setIsSelectMode(false);
     setSelectedItems(new Set<string>());
-    void loadFiles(category, path);
+    if (isOpen) void loadFiles(category, path);
+    else {
+      loadFilesRequestId++;
+      setIsLoading(false);
+    }
+  }));
+
+  onCleanup(() => {
+    disposed = true;
+    viewSession++;
+    closeEditor();
+    closeLanControlArchiveDialog(false);
+    if (longPressTimer) clearTimeout(longPressTimer);
   });
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -235,7 +282,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       } else if (showImagePreview()) {
         setShowImagePreview(false);
       } else if (showEditorModal()) {
-        setShowEditorModal(false);
+        closeEditor();
       } else if (props.isOpen) {
         props.onClose();
       }
@@ -332,7 +379,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
       const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
       void openLanControlArchiveInstallDialog({
         kind: 'managed',
-        category: currentCategory(),
+        location: { serverBaseUrl: props.serverBaseUrl, category: currentCategory(), path: currentPath(), session: viewSession },
         path: filePath,
         displayName: file.name
       });
@@ -377,8 +424,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     if (selected.size === 0) return;
     setClipboard({
       items: Array.from(selected),
-      category: currentCategory(),
-      srcPath: currentPath(),
+      location: { serverBaseUrl: props.serverBaseUrl, category: currentCategory(), path: currentPath(), session: viewSession },
       mode: 'copy'
     });
   };
@@ -389,8 +435,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     if (selected.size === 0) return;
     setClipboard({
       items: Array.from(selected),
-      category: currentCategory(),
-      srcPath: currentPath(),
+      location: { serverBaseUrl: props.serverBaseUrl, category: currentCategory(), path: currentPath(), session: viewSession },
       mode: 'cut'
     });
   };
@@ -398,39 +443,55 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   // 粘贴剪贴板中的项目
   const handlePaste = async () => {
     const cb = clipboard();
-    if (!cb || cb.items.length === 0) return;
-    
-    // 不能粘贴到相同目录（同一 category 且同一路径）
-    if (cb.category === currentCategory() && cb.srcPath === currentPath()) {
+    if (!cb || cb.items.length === 0 || isPasting() || cb.location.serverBaseUrl !== props.serverBaseUrl) return;
+    const target: ServerFileLocation = {
+      serverBaseUrl: props.serverBaseUrl, category: currentCategory(), path: currentPath(), session: viewSession,
+    };
+    if (cb.location.category === target.category && cb.location.path === target.path) {
       await dialog.alert(t('files.same_dir'));
       return;
     }
-    
+    const requestedNames = new Set(cb.items);
+    setIsPasting(true);
     try {
-      const endpoint = cb.mode === 'copy' 
-        ? `${props.serverBaseUrl}/api/server-files/batch-copy`
-        : `${props.serverBaseUrl}/api/server-files/batch-move`;
-        
+      const endpoint = `${target.serverBaseUrl}/api/server-files/${cb.mode === 'copy' ? 'batch-copy' : 'batch-move'}`;
       const response = await authFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          srcCategory: cb.category,
-          dstCategory: currentCategory(),
+          srcCategory: cb.location.category,
+          dstCategory: target.category,
           items: cb.items,
-          srcPath: cb.srcPath,
-          dstPath: currentPath()
+          srcPath: cb.location.path,
+          dstPath: target.path,
         })
       });
-      
-      const data = await response.json();
-      
-      if (!response.ok || data.errorCode || data.error) {
-        await dialog.alert(t('files.copy_move_failed', {
-          mode: cb.mode === 'copy' ? t('common.copy') : t('common.move'),
-          msg: apiErrorMessage(data, t('common.unknown_error'))
-        }));
-      } else if (data.errorItems?.length > 0 || data.errors?.length > 0) {
+      const data = await response.json().catch(() => null);
+      if (!response.ok || data?.errorCode || data?.error) {
+        throw new Error(apiErrorMessage(data, t('common.unknown_error')));
+      }
+      if (data?.totalCount !== cb.items.length || !Number.isInteger(data.successCount)
+        || data.successCount < 0 || data.successCount > cb.items.length) {
+        throw new Error(t('common.unknown_error'));
+      }
+      let failedNames: Set<string> | undefined;
+      if (Array.isArray(data.errorItems)) {
+        failedNames = new Set<string>(data.errorItems.map((item: any) => item?.item));
+        if (failedNames.size !== data.errorItems.length || failedNames.size !== cb.items.length - data.successCount
+          || [...failedNames].some(name => !requestedNames.has(name)) || data.success !== (failedNames.size === 0)) {
+          throw new Error(t('common.unknown_error'));
+        }
+      } else if (data.success === true && data.successCount === cb.items.length && (!data.errors || data.errors.length === 0)) {
+        failedNames = new Set();
+      } else if (data.success !== false || data.successCount === cb.items.length || !Array.isArray(data.errors) || data.errors.length === 0) {
+        throw new Error(t('common.unknown_error'));
+      }
+      // 只能移除已确认成功的剪切项，旧任务不能清掉用户随后复制或剪切的内容。
+      // 旧服务端若只提供错误文本，则保留整份剪贴板，避免猜错失败项。
+      if (cb.mode === 'cut' && clipboard() === cb && failedNames) {
+        setClipboard(failedNames.size > 0 ? { ...cb, items: cb.items.filter(name => failedNames!.has(name)) } : null);
+      }
+      if (!disposed && target.session === viewSession && data.successCount < cb.items.length) {
         await dialog.alert(t('files.partial_failed', {
           success: data.successCount,
           total: data.totalCount,
@@ -441,33 +502,31 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
           ).join('\n')
         }));
       }
-      
-      // 剪切操作完成后清空剪贴板
-      if (cb.mode === 'cut') {
-        setClipboard(null);
-      }
-      
-      loadFiles();
     } catch (err) {
-      await dialog.alert(t('files.copy_move_failed', {
-        mode: cb.mode === 'copy' ? t('common.copy') : t('common.move'),
-        msg: (err as Error).message
-      }));
+      if (!disposed && target.session === viewSession) {
+        await dialog.alert(t('files.copy_move_failed', {
+          mode: cb.mode === 'copy' ? t('common.copy') : t('common.move'),
+          msg: (err as Error).message
+        }));
+      }
+    } finally {
+      await refreshVisibleDirectory(target);
+      setIsPasting(false);
     }
   };
 
   // 检查是否可以粘贴
   const canPaste = () => {
     const cb = clipboard();
-    if (!cb || cb.items.length === 0) return false;
+    if (!cb || cb.items.length === 0 || isPasting() || cb.location.serverBaseUrl !== props.serverBaseUrl) return false;
     // 不能粘贴到相同目录（同一 category 且同一路径）
-    return !(cb.category === currentCategory() && cb.srcPath === currentPath());
+    return !(cb.location.category === currentCategory() && cb.location.path === currentPath());
   };
 
   const handleDownload = (file: ServerFileItem) => {
     const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
     const url = appendAuthQuery(
-      `${props.serverBaseUrl}/api/server-files/download/${currentCategory()}/${filePath}`
+      `${props.serverBaseUrl}/api/server-files/download/${currentCategory()}/${filePath.split('/').map(encodeURIComponent).join('/')}`
     );
     window.open(url, '_blank');
   };
@@ -497,13 +556,13 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   const inspectLanControlArchive = async (source: LanControlArchiveSource) => {
     if (source.kind === 'managed') {
-      const params = new URLSearchParams({ category: source.category, path: source.path });
-      const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/inspect?${params}`, { method: 'POST' });
+      const params = new URLSearchParams({ category: source.location.category, path: source.path });
+      const response = await authFetch(`${source.location.serverBaseUrl}/api/scripts/lancontrol-archive/inspect?${params}`, { method: 'POST' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.errorCode || data.error) throw new Error(apiErrorMessage(data, t('archive.inspect_failed')));
       return data;
     }
-    const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/inspect`, {
+    const response = await authFetch(`${source.location.serverBaseUrl}/api/scripts/lancontrol-archive/inspect`, {
       method: 'POST',
       body: buildLanControlArchiveFormData(source)
     });
@@ -512,24 +571,22 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     return data;
   };
 
-  const installLanControlArchive = async (source: LanControlArchiveSource) => {
-    const installName = lanControlArchiveInstallName().trim();
-    const overwrite = lanControlArchiveOverwrite() ? 'true' : 'false';
+  const installLanControlArchive = async (source: LanControlArchiveSource, installName: string, overwrite: boolean) => {
     if (source.kind === 'managed') {
       const params = new URLSearchParams({
-        category: source.category,
+        category: source.location.category,
         path: source.path,
         installName,
-        overwrite
+        overwrite: String(overwrite),
       });
-      const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/install?${params}`, { method: 'POST' });
+      const response = await authFetch(`${source.location.serverBaseUrl}/api/scripts/lancontrol-archive/install?${params}`, { method: 'POST' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.errorCode || data.error) throw new Error(apiErrorMessage(data, t('archive.install_failed')));
       return data;
     }
-    const response = await authFetch(`${props.serverBaseUrl}/api/scripts/lancontrol-archive/install`, {
+    const response = await authFetch(`${source.location.serverBaseUrl}/api/scripts/lancontrol-archive/install`, {
       method: 'POST',
-      body: buildLanControlArchiveFormData(source, { installName, overwrite })
+      body: buildLanControlArchiveFormData(source, { installName, overwrite: String(overwrite) })
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.errorCode || data.error) throw new Error(apiErrorMessage(data, t('archive.install_failed')));
@@ -537,13 +594,15 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   };
 
   const deleteManagedLanControlArchivePackage = async (source: Extract<LanControlArchiveSource, { kind: 'managed' }>) => {
-    const params = new URLSearchParams({ category: source.category, path: source.path });
-    const response = await authFetch(`${props.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
+    const params = new URLSearchParams({ category: source.location.category, path: source.path });
+    const response = await authFetch(`${source.location.serverBaseUrl}/api/server-files/delete?${params}`, { method: 'DELETE' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.errorCode || data.error) throw new Error(apiErrorMessage(data, t('archive.delete_package_failed')));
   };
 
   const closeLanControlArchiveDialog = (installed: boolean) => {
+    const wasInstalling = lanControlArchiveInstalling();
+    lanControlArchiveRequest = null;
     setLanControlArchiveOpen(false);
     setLanControlArchiveInstalling(false);
     setLanControlArchiveSource(null);
@@ -555,15 +614,18 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     setLanControlArchiveError('');
     const resolve = lanControlArchiveResolve;
     lanControlArchiveResolve = null;
-    resolve?.(installed);
+    // 安装已提交时，关掉旧界面不能让同批后续文件抢在安装结果前执行。
+    if (!wasInstalling || installed) resolve?.(installed);
   };
 
   const openLanControlArchiveInstallDialog = async (source: LanControlArchiveSource): Promise<boolean> => {
-    if (lanControlArchiveOpen()) {
+    if (disposed || lanControlArchiveRequest || !props.isOpen || source.location.session !== viewSession) {
       return false;
     }
+    lanControlArchiveRequest = source;
     try {
       const result = await inspectLanControlArchive(source);
+      if (lanControlArchiveRequest !== source) return false;
       const meta = (result?.meta || {}) as LanControlArchiveMeta;
       setLanControlArchiveMeta(meta);
       setLanControlArchiveSource(source);
@@ -578,40 +640,49 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         lanControlArchiveResolve = resolve;
       });
     } catch (error) {
-      await dialog.alert(t('archive.inspect_failed_with_msg', { msg: localizeLanControlArchiveError((error as Error).message) }));
+      if (lanControlArchiveRequest === source) {
+        lanControlArchiveRequest = null;
+        await dialog.alert(t('archive.inspect_failed_with_msg', { msg: localizeLanControlArchiveError((error as Error).message) }));
+      }
       return false;
     }
   };
 
   const confirmLanControlArchiveInstall = async () => {
     const source = lanControlArchiveSource();
-    if (!source) {
-      closeLanControlArchiveDialog(false);
-      return;
-    }
-    if (!lanControlArchiveInstallName().trim()) {
+    if (!source || lanControlArchiveRequest !== source || lanControlArchiveInstalling()) return;
+    const installName = lanControlArchiveInstallName().trim();
+    if (!installName) {
       setLanControlArchiveError(t('archive.install_name_required'));
       return;
     }
     setLanControlArchiveInstalling(true);
     setLanControlArchiveError('');
+    const deletePackage = source.kind === 'managed' && lanControlArchiveDeletePackage();
+    const resolve = lanControlArchiveResolve;
     try {
-      const result = await installLanControlArchive(source);
-      const installedName = String(result?.installName || lanControlArchiveInstallName().trim());
-      if (source.kind === 'managed' && lanControlArchiveDeletePackage()) {
+      const result = await installLanControlArchive(source, installName, lanControlArchiveOverwrite());
+      const installedName = String(result?.installName || installName);
+      if (source.kind === 'managed' && deletePackage) {
         try {
           await deleteManagedLanControlArchivePackage(source);
         } catch (deleteError) {
           console.error('Delete LanControl archive package failed:', deleteError);
-          toast.showError(t('archive.installed_delete_failed', { msg: localizeLanControlArchiveError((deleteError as Error).message) }));
+          if (lanControlArchiveRequest === source) toast.showError(t('archive.installed_delete_failed', { msg: localizeLanControlArchiveError((deleteError as Error).message) }));
         }
       }
-      toast.showSuccess(t('archive.install_success', { name: installedName }));
-      closeLanControlArchiveDialog(true);
-      loadFiles();
+      if (lanControlArchiveRequest === source) {
+        toast.showSuccess(t('archive.install_success', { name: installedName }));
+        closeLanControlArchiveDialog(true);
+      } else resolve?.(true);
+      await refreshVisibleDirectory(source.location);
     } catch (error) {
+      if (lanControlArchiveRequest !== source) {
+        resolve?.(false);
+        return;
+      }
       const localizedMessage = localizeLanControlArchiveError((error as Error).message);
-      if (localizedMessage === t('archive.script_exists', { name: lanControlArchiveInstallName().trim() }) || /^script "(.+)" already exists$/.test(String((error as Error).message || ''))) {
+      if (localizedMessage === t('archive.script_exists', { name: installName }) || /^script "(.+)" already exists$/.test(String((error as Error).message || ''))) {
         setLanControlArchiveExists(true);
       }
       setLanControlArchiveError(t('archive.install_failed_with_msg', { msg: localizedMessage }));
@@ -734,13 +805,13 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     let sentCount = 0;
     let failedCount = 0;
     const failures: string[] = [];
+    const filesToSend: Array<{ path: string; targetRelPath: string }> = [];
     
     // 递归获取目录中的所有文件
-    const getAllFilesInDir = async (
+    const collectDirectoryFiles = async (
       dirPath: string,
       basePath: string
-    ): Promise<Array<{path: string, targetRelPath: string}>> => {
-      const result: Array<{path: string, targetRelPath: string}> = [];
+    ): Promise<void> => {
       let entries: ServerFileItem[];
       
       try {
@@ -766,27 +837,22 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
         if (file.type === 'dir') {
           // 遍历中跳过目录符号链接，避免循环引用和重复发送。
           if (file.isSymlink === true) continue;
-          const subFiles = await getAllFilesInDir(filePath, relPath);
-          result.push(...subFiles);
+          await collectDirectoryFiles(filePath, relPath);
         } else {
-          result.push({ path: filePath, targetRelPath: relPath });
+          // 直接写入同一队列，避免巨型目录的数组展开超过函数参数数量上限。
+          filesToSend.push({ path: filePath, targetRelPath: relPath });
         }
       }
-      
-      return result;
     };
     
     try {
       // 收集所有需要发送的文件
-      const filesToSend: Array<{path: string, targetRelPath: string}> = [];
-      
       for (const file of selectedFiles) {
         const fileName = file.name;
         const filePath = sourceDir ? `${sourceDir}/${fileName}` : fileName;
         
         if (file.type === 'dir') {
-          const dirFiles = await getAllFilesInDir(filePath, fileName);
-          filesToSend.push(...dirFiles);
+          await collectDirectoryFiles(filePath, fileName);
         } else {
           filesToSend.push({ path: filePath, targetRelPath: fileName });
         }
@@ -905,41 +971,57 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
 
   // 编辑文件
   const handleEditFile = async (file: ServerFileItem) => {
-    const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
+    const request = {
+      serverBaseUrl: props.serverBaseUrl, category: currentCategory(), path: currentPath(), session: viewSession,
+      filePath: currentPath() ? `${currentPath()}/${file.name}` : file.name,
+      controller: new AbortController(),
+    };
+    closeEditor();
+    editorRequest = request;
+    setEditorFileName(file.name);
+    setEditorContent(t('common.loading'));
+    setEditorLoading(true);
+    setShowEditorModal(true);
     try {
-      const params = new URLSearchParams({ category: currentCategory(), path: filePath });
-      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/read?${params}`);
+      const params = new URLSearchParams({ category: request.category, path: request.filePath });
+      const response = await authFetch(`${request.serverBaseUrl}/api/server-files/read?${params}`, { signal: request.controller.signal });
       const data = await response.json();
-      if (!response.ok || data.errorCode || data.error) {
-        await dialog.alert(t('files.read_failed', { msg: apiErrorMessage(data, t('common.unknown_error')) }));
-        return;
+      if (editorRequest !== request) return;
+      if (!response.ok || data?.errorCode || data?.error) {
+        throw new Error(apiErrorMessage(data, t('common.unknown_error')));
       }
-      setEditorFileName(file.name);
+      if (typeof data?.content !== 'string') throw new Error(t('common.unknown_error'));
       setEditorContent(data.content);
-      setShowEditorModal(true);
     } catch (err) {
-      await dialog.alert(t('files.read_failed', { msg: (err as Error).message }));
+      if (editorRequest === request) {
+        closeEditor();
+        await dialog.alert(t('files.read_failed', { msg: (err as Error).message }));
+      }
+    } finally {
+      if (editorRequest === request) setEditorLoading(false);
     }
   };
 
   const handleSaveFile = async () => {
-    const filePath = currentPath() ? `${currentPath()}/${editorFileName()}` : editorFileName();
+    const request = editorRequest;
+    if (!request || editorLoading() || editorSaving()) return;
     setEditorSaving(true);
     try {
-      const response = await authFetch(`${props.serverBaseUrl}/api/server-files/save`, {
+      const response = await authFetch(`${request.serverBaseUrl}/api/server-files/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: currentCategory(), path: filePath, content: editorContent() })
+        body: JSON.stringify({ category: request.category, path: request.filePath, content: editorContent() })
       });
       const data = await response.json();
-      if (!response.ok || data.errorCode || data.error) {
-        await dialog.alert(t('files.save_failed', { msg: apiErrorMessage(data, t('common.unknown_error')) }));
+      if (!response.ok || data?.errorCode || data?.error || data?.success !== true) {
+        throw new Error(apiErrorMessage(data, t('common.unknown_error')));
       }
-      else setShowEditorModal(false);
+      if (editorRequest === request) closeEditor();
+      await refreshVisibleDirectory(request);
     } catch (err) {
-      await dialog.alert(t('files.save_failed', { msg: (err as Error).message }));
+      if (editorRequest === request) await dialog.alert(t('files.save_failed', { msg: (err as Error).message }));
     } finally {
-      setEditorSaving(false);
+      if (editorRequest === request) setEditorSaving(false);
     }
   };
 
@@ -947,7 +1029,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const handlePreviewImage = (file: ServerFileItem) => {
     const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
     const url = appendAuthQuery(
-      `${props.serverBaseUrl}/api/server-files/download/${currentCategory()}/${filePath}`
+      `${props.serverBaseUrl}/api/server-files/download/${currentCategory()}/${filePath.split('/').map(encodeURIComponent).join('/')}`
     );
     setPreviewImageUrl(url);
     setShowImagePreview(true);
@@ -960,15 +1042,22 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
   const handleDragLeave = (e: DragEvent) => { e.preventDefault(); dragCounter--; if (dragCounter === 0) setIsDragOver(false); };
   const handleDrop = async (e: DragEvent) => {
     e.preventDefault(); dragCounter = 0; setIsDragOver(false);
-    if (e.dataTransfer?.items) {
-      const scannedFiles = await scanEntries(e.dataTransfer.items);
-      if (scannedFiles.length > 0) await uploadFiles(scannedFiles);
-    } else {
-      const droppedFiles = Array.from(e.dataTransfer?.files || []);
-      if (droppedFiles.length > 0) {
-        const scannedFiles: ScannedFile[] = droppedFiles.map(file => ({ file, relativePath: file.name }));
-        await uploadFiles(scannedFiles);
+    if (disposed || isUploading()) return;
+    const location: ServerFileLocation = {
+      serverBaseUrl: props.serverBaseUrl, category: currentCategory(), path: currentPath(), session: viewSession,
+    };
+    setIsUploading(true);
+    try {
+      const scannedFiles = e.dataTransfer?.items
+        ? await scanEntries(e.dataTransfer.items)
+        : Array.from(e.dataTransfer?.files || []).map(file => ({ file, relativePath: file.name }));
+      if (scannedFiles.length > 0 && !disposed) await uploadFiles(scannedFiles, location);
+    } catch (err) {
+      if (!disposed && location.session === viewSession) {
+        await dialog.alert(t('files.upload_failed', { msg: (err as Error).message }));
       }
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -988,53 +1077,36 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
     }
   };
 
-  const getUploadTargetPath = (relativePath: string): string => {
-    const lastSlash = relativePath.lastIndexOf('/');
-    const relativeDir = lastSlash !== -1 ? relativePath.substring(0, lastSlash) : '';
-    const basePath = currentPath();
-    if (!basePath) {
-      return relativeDir;
-    }
-    if (!relativeDir) {
-      return basePath;
-    }
-    return `${basePath}/${relativeDir}`;
-  };
-
-  const uploadFiles = async (filesToUpload: ScannedFile[]) => {
-    setIsUploading(true);
-    try {
-      for (const { file, relativePath } of filesToUpload) {
-        if (currentCategory() === 'scripts' && isLanControlArchiveFile(relativePath || file.name)) {
-          await openLanControlArchiveInstallDialog({
-            kind: 'upload',
-            file,
-            displayName: file.name || relativePath
-          });
-          continue;
-        }
-
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('category', currentCategory());
-        const targetPath = getUploadTargetPath(relativePath);
-
-        formData.append('path', targetPath);
-        const response = await authFetch(`${props.serverBaseUrl}/api/server-files/upload`, { method: 'POST', body: formData });
-        const data = await response.json();
-        if (!response.ok || data.errorCode || data.error) {
+  const uploadFiles = async (filesToUpload: ScannedFile[], location: ServerFileLocation) => {
+    for (const { file, relativePath } of filesToUpload) {
+      if (disposed) break;
+      if (location.category === 'scripts' && isLanControlArchiveFile(relativePath || file.name)) {
+        // 安装需要用户确认，旧窗口关闭后不能把这个确认框带到另一个服务器。
+        if (!props.isOpen || location.session !== viewSession) break;
+        await openLanControlArchiveInstallDialog({
+          kind: 'upload', location, file, displayName: file.name || relativePath,
+        });
+        continue;
+      }
+      const lastSlash = relativePath.lastIndexOf('/');
+      const relativeDir = lastSlash < 0 ? '' : relativePath.slice(0, lastSlash);
+      const targetPath = [location.path, relativeDir].filter(Boolean).join('/');
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('category', location.category);
+      formData.append('path', targetPath);
+      const response = await authFetch(`${location.serverBaseUrl}/api/server-files/upload`, { method: 'POST', body: formData });
+      const data = await response.json();
+      if (!response.ok || data?.errorCode || data?.error) {
+        if (!disposed && location.session === viewSession) {
           await dialog.alert(t('files.upload_item_failed', {
             name: relativePath,
             msg: apiErrorMessage(data, t('common.unknown_error')),
           }));
         }
       }
-      loadFiles();
-    } catch (err) {
-      await dialog.alert(t('files.upload_failed', { msg: (err as Error).message }));
-    } finally {
-      setIsUploading(false);
     }
+    await refreshVisibleDirectory(location);
   };
 
   const formatSize = (bytes: number) => {
@@ -1334,14 +1406,14 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
           <div class={styles.editorModal} onMouseDown={(e) => e.stopPropagation()}>
             <div class={styles.editorHeader}>
               <h3>{t('files.edit_title', { name: editorFileName() })}</h3>
-              <button class={styles.closeButton} onClick={() => setShowEditorModal(false)} title={t('common.close')}>
+              <button class={styles.closeButton} onClick={closeEditor} title={t('common.close')}>
                 <IconXmark size={16} />
               </button>
             </div>
-            <textarea class={styles.editorTextarea} value={editorContent()} onInput={(e) => setEditorContent(e.currentTarget.value)} />
+            <textarea class={styles.editorTextarea} value={editorContent()} readOnly={editorLoading() || editorSaving()} onInput={(e) => setEditorContent(e.currentTarget.value)} />
             <div class={styles.editorFooter}>
-              <button class={styles.cancelBtn} onClick={() => setShowEditorModal(false)}>{t('common.cancel')}</button>
-              <button class={styles.confirmBtn} onClick={handleSaveFile} disabled={editorSaving()}>{editorSaving() ? t('files.saving') : t('common.save')}</button>
+              <button class={styles.cancelBtn} onClick={closeEditor}>{t('common.cancel')}</button>
+              <button class={styles.confirmBtn} onClick={handleSaveFile} disabled={editorSaving() || editorLoading()}>{editorSaving() ? t('files.saving') : t('common.save')}</button>
             </div>
           </div>
         </div>
@@ -1474,7 +1546,7 @@ export default function ServerFileBrowser(props: ServerFileBrowserProps) {
                 const filePath = currentPath() ? `${currentPath()}/${file.name}` : file.name;
                 void openLanControlArchiveInstallDialog({
                   kind: 'managed',
-                  category: currentCategory(),
+                  location: { serverBaseUrl: props.serverBaseUrl, category: currentCategory(), path: currentPath(), session: viewSession },
                   path: filePath,
                   displayName: file.name
                 });

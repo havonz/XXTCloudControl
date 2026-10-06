@@ -554,6 +554,8 @@
     "clipboard_write_failed": "Zwischenablage konnte nicht beschrieben werden"
   },
   "files": {
+    "invalid_response": "Das Gerät hat ungültige Dateidaten zurückgegeben",
+    "directory_cycle": "Zirkuläre Verzeichnisverknüpfung: {path}",
     "server_title": "Serverdateien",
     "device_title": "Dateibrowser des Geräts – {name}",
     "scripts_root": "Skripte",

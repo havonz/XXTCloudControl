@@ -470,6 +470,8 @@
     "clipboard_write_failed": "Failed to write clipboard"
   },
   "files": {
+    "invalid_response": "The device returned invalid file data",
+    "directory_cycle": "Circular directory link: {path}",
     "server_title": "Server Files",
     "device_title": "Device File Browser - {name}",
     "scripts_root": "Scripts",

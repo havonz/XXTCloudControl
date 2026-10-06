@@ -1,7 +1,7 @@
 import { Component, createSignal, onCleanup, createMemo, createEffect, lazy, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { useToast } from './components/ToastContext';
-import { WebSocketService, Device } from './services/WebSocketService';
+import { WebSocketService, type Device, type DeviceFileEntry } from './services/WebSocketService';
 import { AuthService, LoginCredentials } from './services/AuthService';
 import { createGroupStore } from './services/GroupStore';
 import { createDeviceSelectionCoordinator } from './services/DeviceSelectionCoordinator';
@@ -28,10 +28,6 @@ const GroupList = lazy(() => import('./components/GroupList'));
 const BindPage = lazy(() => import('./components/BindPage'));
 
 const VERSION_CACHE_KEY = 'xxt_server_version';
-
-type PendingFileGet =
-  | { kind: 'download'; deviceUdid: string; fileName: string; path: string }
-  | { kind: 'read'; deviceUdid: string; path: string };
 
 type UpdateBusyAction = '' | 'check' | 'download' | 'apply';
 
@@ -98,9 +94,10 @@ const App: Component = () => {
   const [fileBrowserOpen, setFileBrowserOpen] = createSignal(false);
   const fileBrowserActivated = createMemo<boolean>(opened => opened || fileBrowserOpen(), false);
   const [fileBrowserDevice, setFileBrowserDevice] = createSignal<{udid: string, name: string} | null>(null);
-  const [fileList, setFileList] = createSignal<any[]>([]);
+  const [fileList, setFileList] = createSignal<DeviceFileEntry[]>([]);
+  let fileListRequest = 0;
+  let fileBrowserPath = '/lua/scripts';
   const [isLoadingFiles, setIsLoadingFiles] = createSignal(false);
-  const [fileContent, setFileContent] = createSignal<{path: string, content: string} | null>(null);
   
   // Mobile UI state
   const [isMobileMenuOpen, setIsMobileMenuOpen] = createSignal(false);
@@ -139,7 +136,6 @@ const App: Component = () => {
   
   let wsService: WebSocketService | null = null;
   let disposed = false;
-  const pendingFileGets = new Map<string, PendingFileGet[]>();
   const authService = AuthService.getInstance();
   const fileTransferService = FileTransferService.getInstance();
   let updateTriggerRef: HTMLButtonElement | undefined;
@@ -492,22 +488,6 @@ const App: Component = () => {
     await handleDownloadUpdate();
   };
 
-  const enqueuePendingFileGet = (entry: PendingFileGet) => {
-    const list = pendingFileGets.get(entry.deviceUdid) || [];
-    list.push(entry);
-    pendingFileGets.set(entry.deviceUdid, list);
-  };
-
-  const dequeuePendingFileGet = (deviceUdid: string): PendingFileGet | undefined => {
-    const list = pendingFileGets.get(deviceUdid);
-    if (!list || list.length === 0) return undefined;
-    const entry = list.shift();
-    if (list.length === 0) {
-      pendingFileGets.delete(deviceUdid);
-    }
-    return entry;
-  };
-
   // Setup global event listeners
   document.addEventListener('contextmenu', handleGlobalContextMenu);
   document.addEventListener('keydown', handleGlobalKeyDown);
@@ -534,6 +514,7 @@ const App: Component = () => {
     setLoginError('');
     setLoginErrorCode('');
     setShowLoginTimeHint(false);
+    handleCloseFileBrowser();
     
     try {
       // 构建 WebSocket URL
@@ -580,6 +561,7 @@ const App: Component = () => {
           }
         } else {
           setIsAuthenticated(false);
+          handleCloseFileBrowser();
           authService.setAuthenticated(false);
           setLoginError(error || t('login.failed'));
           setLoginErrorCode(failure?.code || '');
@@ -622,56 +604,17 @@ const App: Component = () => {
       });
       
       // 监听文件操作响应
-      wsService.onMessage((message) => {
-        if (message.type === 'file/list') {
-
-          if (message.body && Array.isArray(message.body)) {
-            // 将后端返回的文件类型从 "dir" 映射为 "directory"
-            const mappedFiles = message.body.map((file: any) => ({
-              ...file,
-              type: file.type === 'dir' ? 'directory' : 'file'
-            }));
-            setFileList(mappedFiles);
-          } else if (message.error) {
-            toast.error(localizeApiError(message.error, t).message);
-          }
-          setIsLoadingFiles(false);
-        } else if (message.type === 'file/put' || message.type === 'file/delete') {
+      wsService.onMessage((message, responseHandled) => {
+        if (['file/put', 'file/delete', 'file/move', 'file/copy'].includes(message.type)) {
 
           if (message.error) {
             console.error('文件操作失败:', message.error);
-            if (message.type === 'file/put') {
-              const error = localizeApiError(message, t, t('transfer.upload_failed')).message;
-              const path = typeof message.body?.path === 'string' ? message.body.path : '';
+            // 等待回执的操作由调用方保留输入并提示错误，避免同一个失败重复弹出提示。
+            if (!responseHandled) {
+              const error = localizeApiError(message, t, t('common.failed')).message;
+              const path = typeof message.body?.path === 'string' ? message.body.path
+                : typeof message.body?.to === 'string' ? message.body.to : '';
               toast.showError(path ? `${path}: ${error}` : error);
-            }
-          }
-        } else if (message.type === 'file/get') {
-
-          if (message.error) {
-            console.error('文件操作失败:', message.error);
-            if (message.udid) {
-              dequeuePendingFileGet(message.udid);
-            }
-          } else if (message.body && typeof message.body === 'string') {
-            if (!message.udid) {
-              return;
-            }
-            const pending = dequeuePendingFileGet(message.udid);
-            if (!pending) {
-              return;
-            }
-            if (pending.kind === 'read') {
-              // 解码 Base64 内容
-              try {
-                const decodedContent = decodeURIComponent(escape(atob(message.body)));
-                setFileContent({ path: pending.path, content: decodedContent });
-              } catch (e) {
-                // 如果解码失败，直接使用原始内容
-                setFileContent({ path: pending.path, content: atob(message.body) });
-              }
-            } else if (pending.kind === 'download') {
-              handleFileDownload(pending.fileName, message.body);
             }
           }
         } else if (message.type === 'pasteboard/read') {
@@ -702,7 +645,7 @@ const App: Component = () => {
             // 只在上传到设备完成时刷新文件列表（设备文件有变化）
             // 下载时不需要刷新（设备文件没有变化）
             if (message.type === 'transfer/fetch/complete' && fileBrowserOpen() && fileBrowserDevice()?.udid === message.udid) {
-              handleListFiles(message.udid, fileList()[0]?.path?.match(/(.*\/)/)?.[1] || '/');
+              handleListFiles(message.udid, fileBrowserPath);
             }
           }
         }
@@ -841,72 +784,72 @@ const App: Component = () => {
     });
   };
 
-  // 处理文件下载
-  const handleFileDownload = (fileName: string, base64Data: string) => {
+  const handleDownloadFile = async (deviceUdid: string, path: string) => {
+    const connection = wsService;
+    if (!connection) return;
     try {
-      // 将Base64数据转换为Blob
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray]);
-      
-      // 创建下载链接
-      const url = URL.createObjectURL(blob);
+      const encoded = await connection.getFileAsync(deviceUdid, path);
+      if (disposed || wsService !== connection) return;
+      const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes]));
       const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      
-
+      try {
+        link.href = url;
+        link.download = path.split('/').pop() || 'unknown';
+        document.body.appendChild(link);
+        link.click();
+      } finally {
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
     } catch (error) {
-      console.error('文件下载失败:', error);
+      if (!disposed && wsService === connection) {
+        toast.showError(t('files.read_failed', { msg: error instanceof Error ? error.message : String(error) }));
+      }
     }
   };
 
-  // 处理下载文件请求
-  const handleDownloadFile = (udid: string, path: string) => {
-    if (wsService) {
-      // 从路径中提取文件名
-      const fileName = path.split('/').pop() || 'unknown';
-      enqueuePendingFileGet({ kind: 'download', deviceUdid: udid, fileName, path });
-      wsService.downloadFile(udid, path);
-
-    } else {
-      console.warn('WebSocket服务未连接');
-    }
-  };
-
-  // File browser handlers
   const handleOpenFileBrowser = (deviceUdid: string, deviceName: string) => {
+    fileListRequest++;
+    fileBrowserPath = '/lua/scripts';
+    setFileList([]);
+    setIsLoadingFiles(false);
     setFileBrowserDevice({ udid: deviceUdid, name: deviceName });
     setFileBrowserOpen(true);
-    setFileList([]);
   };
 
   const handleCloseFileBrowser = () => {
+    fileListRequest++;
     setFileBrowserOpen(false);
     setFileBrowserDevice(null);
     setFileList([]);
+    setIsLoadingFiles(false);
   };
 
-  const handleListFiles = (deviceUdid: string, path: string) => {
-    if (wsService) {
-      setIsLoadingFiles(true);
-      wsService.listFiles(deviceUdid, path);
+  const handleListFiles = async (deviceUdid: string, path: string) => {
+    const connection = wsService;
+    const request = ++fileListRequest;
+    fileBrowserPath = path;
+    setFileList([]);
+    setIsLoadingFiles(true);
+    const isCurrentRequest = () => !disposed && wsService === connection && request === fileListRequest
+      && fileBrowserOpen() && fileBrowserDevice()?.udid === deviceUdid;
+    try {
+      if (!connection) throw new Error(t('websocket.not_connected'));
+      const files = await connection.listFilesAsync(deviceUdid, path);
+      // 后台扫描和旧目录请求只交付自己的调用方，不能更新当前浏览视图。
+      if (isCurrentRequest()) setFileList(files);
+    } catch (error) {
+      if (isCurrentRequest()) {
+        toast.showError(t('files.load_failed', { msg: error instanceof Error ? error.message : String(error) }));
+      }
+    } finally {
+      if (isCurrentRequest()) setIsLoadingFiles(false);
     }
   };
 
-  const handleListFilesAsync = async (deviceUdid: string, path: string): Promise<{name: string; type: 'file' | 'directory'; size?: number}[]> => {
-    if (!wsService) {
-      console.warn('WebSocket服务未连接');
-      return [];
-    }
+  const handleListFilesAsync = async (deviceUdid: string, path: string): Promise<DeviceFileEntry[]> => {
+    if (!wsService) throw new Error(t('websocket.not_connected'));
     return wsService.listFilesAsync(deviceUdid, path);
   };
 
@@ -923,15 +866,11 @@ const App: Component = () => {
   };
 
   const handleUploadSingleFile = async (deviceUdid: string, path: string, file: File) => {
-    if (wsService) {
-      try {
-        const base64Data = await fileToBase64(file);
-        await wsService.uploadFile([deviceUdid], path, base64Data);
-
-      } catch (error) {
-        console.error(`上传文件 ${file.name} 失败:`, error);
-      }
-    }
+    const connection = wsService;
+    if (!connection) throw new Error(t('websocket.not_connected'));
+    const base64Data = await fileToBase64(file);
+    if (disposed || wsService !== connection) throw new Error(t('websocket.not_connected'));
+    await connection.putFileAsync(deviceUdid, path, base64Data);
   };
 
   const handleMoveFile = (deviceUdid: string, fromPath: string, toPath: string) => {
@@ -946,10 +885,15 @@ const App: Component = () => {
     }
   };
 
-  const handleReadFile = (deviceUdid: string, path: string) => {
-    if (wsService) {
-      enqueuePendingFileGet({ kind: 'read', deviceUdid, path });
-      wsService.readFile(deviceUdid, path);
+  const handleReadFile = async (deviceUdid: string, path: string): Promise<string> => {
+    const connection = wsService;
+    if (!connection) throw new Error(t('websocket.not_connected'));
+    const encoded = await connection.getFileAsync(deviceUdid, path);
+    const contents = atob(encoded);
+    try {
+      return decodeURIComponent(escape(contents));
+    } catch {
+      return contents;
     }
   };
 
@@ -1355,7 +1299,6 @@ const App: Component = () => {
             selectedScript={fileBrowserSelectedScript()}
             files={fileList()}
             isLoading={isLoadingFiles()}
-            fileContent={fileContent()}
             onPullFileFromDevice={handlePullFileFromDevice}
           />
         </AsyncBoundary>
