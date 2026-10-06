@@ -389,6 +389,9 @@
     "upload_failed": "上传失败"
   },
   "error": {
+    "transfer": {
+      "file_busy": "该文件正在传输，请完成后重试"
+    },
     "update": {
       "not_initialized": "更新服务未初始化",
       "disabled": "更新功能已禁用",

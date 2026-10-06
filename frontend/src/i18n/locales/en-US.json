@@ -389,6 +389,9 @@
     "upload_failed": "Upload failed"
   },
   "error": {
+    "transfer": {
+      "file_busy": "This file is being transferred. Please retry after it finishes."
+    },
     "update": {
       "not_initialized": "The update service is not initialized",
       "disabled": "Updates are disabled",

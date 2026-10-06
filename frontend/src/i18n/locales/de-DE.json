@@ -458,6 +458,9 @@
     "upload_failed": "Hochladen fehlgeschlagen"
   },
   "error": {
+    "transfer": {
+      "file_busy": "Diese Datei wird gerade übertragen. Bitte nach Abschluss erneut versuchen."
+    },
     "update": {
       "not_initialized": "Der Aktualisierungsdienst ist nicht initialisiert",
       "disabled": "Aktualisierungen sind deaktiviert",

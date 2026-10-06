@@ -389,6 +389,9 @@
     "upload_failed": "Falha no envio"
   },
   "error": {
+    "transfer": {
+      "file_busy": "Este arquivo está sendo transferido. Tente novamente após a conclusão."
+    },
     "update": {
       "not_initialized": "O serviço de atualização não foi inicializado",
       "disabled": "As atualizações estão desativadas",

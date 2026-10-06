@@ -458,6 +458,9 @@
     "upload_failed": "Tải lên thất bại"
   },
   "error": {
+    "transfer": {
+      "file_busy": "Tệp này đang được truyền. Vui lòng thử lại sau khi hoàn tất."
+    },
     "update": {
       "not_initialized": "Dịch vụ cập nhật chưa được khởi tạo",
       "disabled": "Tính năng cập nhật đã bị tắt",

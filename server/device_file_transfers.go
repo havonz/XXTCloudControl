@@ -1,11 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"path"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 var errDeviceFileTransferBusy = errors.New("file transfer already in progress")
@@ -84,4 +89,37 @@ func completeDeviceFileTransfer(deviceID, kind string, body any) {
 	}
 	delete(deviceFileTransfers.byPath, transfer.key)
 	delete(deviceFileTransfers.byID, transfer.requestID)
+}
+
+func forwardDeviceFilePut(controller, device *SafeConn, deviceID string, command Message, payload []byte) {
+	body, _ := decodeBodyMap(command.Body)
+	filePath, _ := body["path"].(string)
+	var sendErr error
+	if filePath != "" {
+		requestID := uuid.NewString()
+		sendErr = beginDeviceFileTransfer(deviceID, filePath, requestID, "download", time.Now().Add(defaultTransferTokenTTL))
+		if sendErr == nil {
+			// file/put 在设备上同步写入，入队后释放即可让后续传输按同一连接的顺序执行。
+			defer finishDeviceFileTransfer(requestID)
+		}
+	}
+	if sendErr == nil {
+		sendErr = device.WriteMessagesAsync(websocket.TextMessage, [][]byte{payload})
+	}
+	if sendErr == nil {
+		broadcastDeviceMessage(deviceID, getDeviceCommandMessageCode(command.Type), nil)
+		return
+	}
+	code := "error.transfer.send_device_failed"
+	if errors.Is(sendErr, errDeviceFileTransferBusy) {
+		code = "error.transfer.file_busy"
+	}
+	// 只将拒绝结果回给发起方，保留请求关联，但不回显上传的文件内容。
+	reply, err := json.Marshal(gin.H{
+		"type": command.Type, "udid": deviceID, "requestId": command.RequestID,
+		"body": gin.H{"path": filePath}, "error": sendErr.Error(), "errorCode": code,
+	})
+	if err == nil {
+		writeTextMessageAsync(controller, reply)
+	}
 }

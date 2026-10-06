@@ -458,6 +458,9 @@
     "upload_failed": "Error de subida"
   },
   "error": {
+    "transfer": {
+      "file_busy": "Este archivo se está transfiriendo. Vuelve a intentarlo cuando termine."
+    },
     "update": {
       "not_initialized": "El servicio de actualización no está inicializado",
       "disabled": "Las actualizaciones están desactivadas",

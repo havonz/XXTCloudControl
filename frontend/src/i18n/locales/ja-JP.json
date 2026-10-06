@@ -389,6 +389,9 @@
     "upload_failed": "アップロードに失敗しました"
   },
   "error": {
+    "transfer": {
+      "file_busy": "このファイルは転送中です。完了後に再試行してください。"
+    },
     "update": {
       "not_initialized": "更新サービスが初期化されていません",
       "disabled": "更新は無効になっています",

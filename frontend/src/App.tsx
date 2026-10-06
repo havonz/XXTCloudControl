@@ -671,6 +671,11 @@ const App: Component = () => {
 
           if (message.error) {
             console.error('文件操作失败:', message.error);
+            if (message.type === 'file/put') {
+              const error = localizeApiError(message, t, t('transfer.upload_failed')).message;
+              const path = typeof message.body?.path === 'string' ? message.body.path : '';
+              toast.showError(path ? `${path}: ${error}` : error);
+            }
           }
         } else if (message.type === 'file/get') {
 

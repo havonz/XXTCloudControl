@@ -1,4 +1,4 @@
-import { createSignal, createEffect, For, Show, onCleanup, createMemo } from 'solid-js';
+import { createSignal, createEffect, For, Show, onCleanup, createMemo, on } from 'solid-js';
 import { useDialog } from './DialogContext';
 import { useToast } from './ToastContext';
 import {
@@ -33,6 +33,7 @@ import SendToCloudModal from './SendToCloudModal';
 import ContextMenu, { ContextMenuButton, ContextMenuDivider } from './ContextMenu';
 import { debugLog } from '../utils/debugLogger';
 import { useI18n } from '../i18n';
+import { runWithConcurrency } from '../utils/runWithConcurrency';
 
 export interface FileItem {
   name: string;
@@ -82,6 +83,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   const editorBackdropClose = createBackdropClose(() => setShowEditorModal(false));
   let dragCounter = 0;
   let listRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
 
   // 剪贴板状态
   const [clipboard, setClipboard] = createSignal<{
@@ -109,6 +111,11 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   // 扫描状态 - 用于递归扫描目录内的文件
   const [isScanning, setIsScanning] = createSignal(false);
   const [selectedDirectoryCount, setSelectedDirectoryCount] = createSignal(0);
+  let sendToCloudTarget: {
+    deviceUdid: string;
+    path: string;
+    pullFile: DeviceFileBrowserProps['onPullFileFromDevice'];
+  } | null = null;
   
   const toast = useToast();
 
@@ -121,14 +128,22 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   });
 
   // 当组件打开时，加载默认目录
-  createEffect(() => {
-    if (props.isOpen) {
+  createEffect(on([() => props.isOpen, () => props.deviceUdid], ([isOpen, deviceUdid]) => {
+    // 组件关闭后会保留实例，旧设备的扫描、编辑器和剪贴板不能带到下一台设备。
+    sendToCloudTarget = null;
+    setShowSendToCloudModal(false);
+    setSendToCloudPendingItems([]);
+    setIsScanning(false);
+    setShowEditorModal(false);
+    setContextMenuFile(null);
+    setClipboard(null);
+    if (isOpen) {
       setCurrentPath('/lua/scripts');
-      props.onListFiles(props.deviceUdid, '/lua/scripts');
+      props.onListFiles(deviceUdid, '/lua/scripts');
       setIsSelectMode(false);
       setSelectedItems(new Set<string>());
     }
-  });
+  }));
 
   const runtimeUpdated = (event: Event) => {
     if (!props.isOpen || (event as CustomEvent).detail?.deviceId !== props.deviceUdid) return;
@@ -163,13 +178,16 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     props.onListFiles(props.deviceUdid, path);
   };
 
-  const scheduleListRefresh = (delayMs: number) => {
+  const scheduleListRefresh = (delayMs: number, deviceUdid = props.deviceUdid, path = currentPath()) => {
+    if (disposed || !props.isOpen || props.deviceUdid !== deviceUdid || currentPath() !== path) return;
     if (listRefreshTimer) {
       clearTimeout(listRefreshTimer);
     }
     listRefreshTimer = setTimeout(() => {
       listRefreshTimer = null;
-      props.onListFiles(props.deviceUdid, currentPath());
+      if (props.isOpen && props.deviceUdid === deviceUdid && currentPath() === path) {
+        props.onListFiles(deviceUdid, path);
+      }
     }, delayMs);
   };
 
@@ -221,6 +239,8 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   });
 
   onCleanup(() => {
+    disposed = true;
+    sendToCloudTarget = null;
     if (listRefreshTimer) {
       clearTimeout(listRefreshTimer);
       listRefreshTimer = null;
@@ -264,13 +284,14 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   };
 
   const handleDeleteFile = async (file: FileItem) => {
+    const deviceUdid = props.deviceUdid;
+    const directory = currentPath();
+    const deleteFile = props.onDeleteFile;
+    const fullPath = directory === '/' ? `/${file.name}` : `${directory}/${file.name}`;
     if (!await dialog.confirm(t('files.delete_confirm', { name: file.name }))) return;
-    const fullPath = currentPath() === '/' 
-      ? `/${file.name}` 
-      : `${currentPath()}/${file.name}`;
-    props.onDeleteFile(props.deviceUdid, fullPath);
+    deleteFile(deviceUdid, fullPath);
     // 刷新文件列表
-    scheduleListRefresh(500);
+    scheduleListRefresh(500, deviceUdid, directory);
   };
 
   const handleDownloadFile = async (file: FileItem) => {
@@ -316,20 +337,23 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
 
   // 重命名文件
   const handleRenameFile = async (file: FileItem) => {
+    const deviceUdid = props.deviceUdid;
+    const directory = currentPath();
+    const moveFile = props.onMoveFile;
     const newName = await dialog.prompt(t('files.rename_prompt'), file.name, t('common.rename'));
     if (!newName?.trim() || newName.trim() === file.name) return;
 
-    const fromPath = currentPath() === '/' 
+    const fromPath = directory === '/'
       ? `/${file.name}` 
-      : `${currentPath()}/${file.name}`;
-    const toPath = currentPath() === '/' 
+      : `${directory}/${file.name}`;
+    const toPath = directory === '/'
       ? `/${newName.trim()}` 
-      : `${currentPath()}/${newName.trim()}`;
+      : `${directory}/${newName.trim()}`;
 
-    props.onMoveFile(props.deviceUdid, fromPath, toPath);
+    moveFile(deviceUdid, fromPath, toPath);
 
     // 刷新文件列表
-    scheduleListRefresh(500);
+    scheduleListRefresh(500, deviceUdid, directory);
   };
 
   // 编辑文件
@@ -370,42 +394,49 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
   };
 
   const handleCreateFolder = async () => {
+    const deviceUdid = props.deviceUdid;
+    const directory = currentPath();
+    const createDirectory = props.onCreateDirectory;
     const folderName = await dialog.prompt(t('files.new_folder_prompt'), '', t('common.new_folder'));
     if (!folderName?.trim()) return;
 
-    const folderPath = currentPath() === '/' 
+    const folderPath = directory === '/'
       ? `/${folderName.trim()}` 
-      : `${currentPath()}/${folderName.trim()}`;
+      : `${directory}/${folderName.trim()}`;
     
-    props.onCreateDirectory(props.deviceUdid, folderPath);
+    createDirectory(deviceUdid, folderPath);
 
     // 刷新当前目录
-    scheduleListRefresh(500);
+    scheduleListRefresh(500, deviceUdid, directory);
   };
 
   const handleCreateFile = async () => {
+    const deviceUdid = props.deviceUdid;
+    const directory = currentPath();
+    const names = new Set(props.files.map(file => file.name));
+    const uploadFile = props.onUploadFile;
     const fileName = await dialog.prompt(t('files.new_file_prompt'), '', t('common.new_file'));
     if (!fileName?.trim()) return;
 
     const name = fileName.trim();
 
     // 检查文件是否已存在
-    const exists = props.files.some(f => f.name === name);
+    const exists = names.has(name);
     if (exists) {
       await dialog.alert(t('files.exists', { name }));
       return;
     }
 
-    const filePath = currentPath() === '/' 
+    const filePath = directory === '/'
       ? `/${name}` 
-      : `${currentPath()}/${name}`;
+      : `${directory}/${name}`;
     
     // 创建空文件（模拟上传一个空 Blob）
     const emptyFile = new File([], name, { type: 'text/plain' });
-    props.onUploadFile(props.deviceUdid, filePath, emptyFile);
+    uploadFile(deviceUdid, filePath, emptyFile);
 
     // 刷新当前目录
-    scheduleListRefresh(1000);
+    scheduleListRefresh(1000, deviceUdid, directory);
   };
 
 
@@ -430,37 +461,37 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     e.preventDefault();
     dragCounter = 0;
     setIsDragOver(false);
-    
-    let scannedFiles: ScannedFile[] = [];
-    if (e.dataTransfer?.items) {
-      scannedFiles = await scanEntries(e.dataTransfer.items);
-    } else {
-      const droppedFiles = Array.from(e.dataTransfer?.files || []);
-      scannedFiles = droppedFiles.map(file => ({ file, relativePath: file.name }));
-    }
-
-    if (scannedFiles.length > 0) {
-      setIsUploading(true);
-      
+    if (isUploading()) return;
+    const deviceUdid = props.deviceUdid;
+    const directory = currentPath();
+    const uploadFile = props.onUploadFile;
+    const uploadLargeFile = props.onUploadLargeFile;
+    setIsUploading(true);
+    try {
+      let scannedFiles: ScannedFile[];
+      if (e.dataTransfer?.items) {
+        scannedFiles = await scanEntries(e.dataTransfer.items);
+      } else {
+        scannedFiles = Array.from(e.dataTransfer?.files || []).map(file => ({ file, relativePath: file.name }));
+      }
       for (const { file, relativePath } of scannedFiles) {
-        const fullPath = currentPath() === '/' 
+        const fullPath = directory === '/'
           ? `/${relativePath}` 
-          : `${currentPath()}/${relativePath}`;
+          : `${directory}/${relativePath}`;
         
         // Use large file transfer for files > 128KB
-        if (file.size > LARGE_FILE_THRESHOLD && props.onUploadLargeFile) {
+        if (file.size > LARGE_FILE_THRESHOLD && uploadLargeFile) {
           debugLog('transfer', `📤 Large file detected (${file.size} bytes), using HTTP transfer`);
-          await props.onUploadLargeFile(props.deviceUdid, fullPath, file);
+          await uploadLargeFile(deviceUdid, fullPath, file);
         } else {
-          props.onUploadFile(props.deviceUdid, fullPath, file);
+          uploadFile(deviceUdid, fullPath, file);
         }
       }
-
-      // 刷新当前目录
-      scheduleListRefresh(2000);
-      setTimeout(() => {
-        setIsUploading(false);
-      }, 2000);
+      if (scannedFiles.length > 0) scheduleListRefresh(2000, deviceUdid, directory);
+    } catch (error) {
+      toast.showError(t('files.upload_failed', { msg: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -548,198 +579,108 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     return cb.srcPath !== currentPath();
   };
 
-  // 递归扫描目录，获取所有文件（返回 {sourcePath, relativePath}）
-  const scanDirectoryRecursive = async (
-    dirPath: string,
-    basePath: string
-  ): Promise<{sourcePath: string; relativePath: string}[]> => {
-    if (!props.onListFilesAsync) {
-      console.warn('onListFilesAsync not provided, cannot scan directory');
-      return [];
+  const prepareSendToCloud = async (selected: FileItem[], emptyMessage: string) => {
+    if (isSendingToCloud() || selected.length === 0) return;
+    const directories = selected.filter(file => file.type === 'directory');
+    const listFiles = props.onListFilesAsync;
+    if (directories.length > 0 && !listFiles) {
+      dialog.alert(t('files.send_cloud_unsupported_dir'));
+      return;
     }
 
-    const result: {sourcePath: string; relativePath: string}[] = [];
-    const files = await props.onListFilesAsync(props.deviceUdid, dirPath);
-    
-    for (const file of files) {
-      const fullPath = dirPath === '/' ? `/${file.name}` : `${dirPath}/${file.name}`;
-      const relPath = basePath ? `${basePath}/${file.name}` : file.name;
-      
-      if (file.type === 'file') {
-        result.push({ sourcePath: fullPath, relativePath: relPath });
-      } else if (file.type === 'directory') {
-        // 递归扫描子目录
-        const subFiles = await scanDirectoryRecursive(fullPath, relPath);
-        result.push(...subFiles);
-      }
-    }
-    
-    return result;
-  };
+    const target = {
+      deviceUdid: props.deviceUdid,
+      path: currentPath(),
+      pullFile: props.onPullFileFromDevice,
+    };
+    sendToCloudTarget = target;
+    const allFiles = selected.filter(file => file.type === 'file').map(file => file.name);
+    setSelectedDirectoryCount(directories.length);
+    setSendToCloudPendingItems([...allFiles]);
+    setIsScanning(directories.length > 0);
+    setShowSendToCloudModal(true);
 
-  // 打开发送到云控模态框
-  const openSendToCloudModal = async () => {
-    const selected = selectedItems();
-    if (selected.size === 0) return;
-    
-    // 统计选中的文件和目录
-    const selectedFiles: string[] = [];
-    const selectedDirs: string[] = [];
-    
-    Array.from(selected).forEach(name => {
-      const file = sortedFiles().find(f => f.name === name);
-      if (file) {
-        if (file.type === 'file') {
-          selectedFiles.push(name);
-        } else if (file.type === 'directory') {
-          selectedDirs.push(name);
+    const scanDirectory = async (directory: string, relativePath: string): Promise<void> => {
+      if (sendToCloudTarget !== target) return;
+      const files = await listFiles!(target.deviceUdid, directory);
+      if (sendToCloudTarget !== target) return;
+      for (const file of files) {
+        if (sendToCloudTarget !== target) return;
+        const name = `${relativePath}/${file.name}`;
+        if (file.type === 'directory') {
+          await scanDirectory(`${directory}/${file.name}`, name);
+        } else {
+          allFiles.push(name);
         }
       }
-    });
-    
-    setSelectedDirectoryCount(selectedDirs.length);
-    
-    // 如果选中了目录，需要先扫描
-    if (selectedDirs.length > 0) {
-      if (!props.onListFilesAsync) {
-        dialog.alert(t('files.send_cloud_unsupported_dir'));
-        return;
+    };
+
+    try {
+      for (const directory of directories) {
+        const path = target.path === '/' ? `/${directory.name}` : `${target.path}/${directory.name}`;
+        await scanDirectory(path, directory.name);
+        if (sendToCloudTarget !== target) return;
+        setSendToCloudPendingItems([...allFiles]);
       }
-      
-      setIsScanning(true);
-      setSendToCloudPendingItems(selectedFiles); // 先显示已选中的文件
-      setShowSendToCloudModal(true);
-      
-      // 扫描所有选中的目录
-      const allFiles: string[] = [...selectedFiles];
-      
-      for (const dirName of selectedDirs) {
-        const dirPath = currentPath() === '/' ? `/${dirName}` : `${currentPath()}/${dirName}`;
-        const scanned = await scanDirectoryRecursive(dirPath, dirName);
-        // 将扫描到的文件的相对路径添加到列表
-        scanned.forEach(f => allFiles.push(f.relativePath));
-        setSendToCloudPendingItems([...allFiles]); // 实时更新计数
-      }
-      
+      if (sendToCloudTarget !== target) return;
       setIsScanning(false);
-      
       if (allFiles.length === 0) {
-        dialog.alert(t('files.send_cloud_selected_empty'));
+        sendToCloudTarget = null;
         setShowSendToCloudModal(false);
-        return;
+        dialog.alert(t(emptyMessage));
       }
-      
-      setSendToCloudPendingItems(allFiles);
-    } else {
-      // 只有文件，直接打开模态框
-      setSendToCloudPendingItems(selectedFiles);
-      setShowSendToCloudModal(true);
+    } catch (error) {
+      if (sendToCloudTarget !== target) return;
+      sendToCloudTarget = null;
+      setIsScanning(false);
+      setShowSendToCloudModal(false);
+      setSendToCloudPendingItems([]);
+      dialog.alert(t('files.load_failed', { msg: error instanceof Error ? error.message : String(error) }));
     }
   };
 
-  // 执行发送到云控
-	  const handleSendToCloud = async (category: 'scripts' | 'files' | 'reports', targetPath: string) => {
-    if (!props.onPullFileFromDevice) {
+  const handleSendToCloud = async (category: 'scripts' | 'files' | 'reports', targetPath: string) => {
+    const target = sendToCloudTarget;
+    if (!target || isScanning() || isSendingToCloud()) return;
+    const pullFile = target.pullFile;
+    if (!pullFile) {
       dialog.alert(t('files.send_cloud_unavailable'));
       return;
     }
-    
-    const items = sendToCloudPendingItems();
+    const items = [...sendToCloudPendingItems()];
     if (items.length === 0) return;
-    
-	    setShowSendToCloudModal(false);
-	    setIsSendingToCloud(true);
-	    
-	    let successCount = 0;
-	    let failCount = 0;
 
-	    // 使用小并发池提升批量发送吞吐，避免单文件串行等待。
-	    const concurrency = Math.min(4, items.length);
-	    let nextIndex = 0;
-	    const worker = async () => {
-	      while (true) {
-	        const currentIndex = nextIndex;
-	        nextIndex++;
-	        if (currentIndex >= items.length) {
-	          return;
-	        }
-
-	        const name = items[currentIndex];
-	        const sourcePath = currentPath() === '/'
-	          ? `/${name}`
-	          : `${currentPath()}/${name}`;
-
-	        const finalTargetPath = targetPath === '/' || targetPath === ''
-	          ? name
-	          : (targetPath.endsWith('/') ? targetPath + name : targetPath + '/' + name);
-
-	        try {
-	          const result = await props.onPullFileFromDevice(
-	            props.deviceUdid,
-	            sourcePath,
-	            category,
-	            finalTargetPath
-	          );
-	          if (result.success) {
-	            successCount++;
-	          } else {
-	            failCount++;
-	            console.error(t('files.send_file_failed', { name }), result.error);
-	          }
-	        } catch (err) {
-	          failCount++;
-	          console.error(t('files.send_file_failed', { name }), err);
-	        }
-	      }
-	    };
-
-	    await Promise.all(Array.from({ length: concurrency }, () => worker()));
-	    
-	    setIsSendingToCloud(false);
-    
-    if (successCount > 0 && failCount === 0) {
-      toast.showSuccess(t('files.send_cloud_success', { count: successCount }));
-    } else if (successCount > 0 && failCount > 0) {
-      toast.showWarning(t('files.send_cloud_partial', { success: successCount, fail: failCount }));
-    } else {
-      toast.showError(t('files.send_cloud_failed_count', { fail: failCount }));
-    }
-    
+    sendToCloudTarget = null;
     setSendToCloudPendingItems([]);
-  };
-
-  // 单项发送到云控（支持文件和目录）
-  const handleSendSingleFileToCloud = async (file: FileItem) => {
-    if (file.type === 'directory') {
-      // 扫描目录并发送
-      if (!props.onListFilesAsync) {
-        dialog.alert(t('files.send_cloud_unsupported_dir'));
-        return;
+    setShowSendToCloudModal(false);
+    setIsSendingToCloud(true);
+    try {
+      // 队列后续任务沿用发起时的目标，不能跟随仍可切换的设备和目录。
+      const results = await runWithConcurrency(items, 4, async name => {
+        const sourcePath = target.path === '/' ? `/${name}` : `${target.path}/${name}`;
+        const finalTargetPath = targetPath === '/' || targetPath === ''
+          ? name
+          : (targetPath.endsWith('/') ? targetPath + name : targetPath + '/' + name);
+        try {
+          const result = await pullFile(target.deviceUdid, sourcePath, category, finalTargetPath);
+          if (!result.success) console.error(t('files.send_file_failed', { name }), result.error);
+          return result.success;
+        } catch (error) {
+          console.error(t('files.send_file_failed', { name }), error);
+          return false;
+        }
+      });
+      const successCount = results.filter(Boolean).length;
+      const failCount = results.length - successCount;
+      if (failCount === 0) {
+        toast.showSuccess(t('files.send_cloud_success', { count: successCount }));
+      } else if (successCount > 0) {
+        toast.showWarning(t('files.send_cloud_partial', { success: successCount, fail: failCount }));
+      } else {
+        toast.showError(t('files.send_cloud_failed_count', { fail: failCount }));
       }
-      
-      setSelectedDirectoryCount(1);
-      setIsScanning(true);
-      setSendToCloudPendingItems([]); // 先清空
-      setShowSendToCloudModal(true);
-      
-      const dirPath = currentPath() === '/' ? `/${file.name}` : `${currentPath()}/${file.name}`;
-      const scanned = await scanDirectoryRecursive(dirPath, file.name);
-      
-      setIsScanning(false);
-      
-      if (scanned.length === 0) {
-        dialog.alert(t('files.send_cloud_empty_dir'));
-        setShowSendToCloudModal(false);
-        return;
-      }
-      
-      const fileNames = scanned.map(f => f.relativePath);
-      setSendToCloudPendingItems(fileNames);
-    } else {
-      // 单个文件直接发送
-      setSelectedDirectoryCount(0);
-      setSendToCloudPendingItems([file.name]);
-      setShowSendToCloudModal(true);
+    } finally {
+      setIsSendingToCloud(false);
     }
   };
 
@@ -876,7 +817,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                 <Show when={props.onPullFileFromDevice}>
                   <button 
                     class={`${styles.selectAction} ${styles.sendToCloudAction}`}
-                    onClick={openSendToCloudModal} 
+                    onClick={() => prepareSendToCloud(sortedFiles().filter(file => selectedItems().has(file.name)), 'files.send_cloud_selected_empty')}
                     disabled={selectedItems().size === 0 || isSendingToCloud()}
                   >
                     <IconUpload size={14} />
@@ -890,17 +831,25 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
                   class={styles.deleteAction} 
                   disabled={selectedItems().size === 0}
                   onClick={async () => {
-                    if (await dialog.confirm(t('files.batch_delete_confirm', { count: selectedItems().size }))) {
+                    const items = [...selectedItems()];
+                    const deviceUdid = props.deviceUdid;
+                    const directory = currentPath();
+                    const deleteFile = props.onDeleteFile;
+                    if (await dialog.confirm(t('files.batch_delete_confirm', { count: items.length }))) {
                       // 批量删除
-                      for (const name of selectedItems()) {
-                        const fullPath = currentPath() === '/' 
+                      for (const name of items) {
+                        const fullPath = directory === '/'
                           ? `/${name}` 
-                          : `${currentPath()}/${name}`;
-                        props.onDeleteFile(props.deviceUdid, fullPath);
+                          : `${directory}/${name}`;
+                        deleteFile(deviceUdid, fullPath);
                       }
-                      setSelectedItems(new Set<string>());
+                      if (props.isOpen && props.deviceUdid === deviceUdid && currentPath() === directory) {
+                        const remaining = new Set(selectedItems());
+                        items.forEach(name => remaining.delete(name));
+                        setSelectedItems(remaining);
+                      }
                       // 刷新文件列表
-                      scheduleListRefresh(500);
+                      scheduleListRefresh(500, deviceUdid, directory);
                     }
                   }}
                 >
@@ -1083,7 +1032,7 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
           </ContextMenuButton>
         </Show>
         <Show when={props.onPullFileFromDevice && (contextMenuFile()?.type === 'file' || props.onListFilesAsync)}>
-          <ContextMenuButton icon={<IconUpload size={14} />} onClick={() => { handleSendSingleFileToCloud(contextMenuFile()!); closeContextMenu(); }}>
+          <ContextMenuButton icon={<IconUpload size={14} />} onClick={() => { prepareSendToCloud([contextMenuFile()!], 'files.send_cloud_empty_dir'); closeContextMenu(); }}>
             {t('files.send_to_cloud')}
           </ContextMenuButton>
         </Show>
@@ -1097,7 +1046,12 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     {/* 发送到云控模态框 */}
     <SendToCloudModal 
       isOpen={showSendToCloudModal()} 
-      onClose={() => setShowSendToCloudModal(false)}
+      onClose={() => {
+        sendToCloudTarget = null;
+        setShowSendToCloudModal(false);
+        setIsScanning(false);
+        setSendToCloudPendingItems([]);
+      }}
       onConfirm={handleSendToCloud}
       itemCount={sendToCloudPendingItems().length}
       isScanning={isScanning()}

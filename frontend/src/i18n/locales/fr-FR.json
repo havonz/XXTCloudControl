@@ -458,6 +458,9 @@
     "upload_failed": "Échec du téléversement"
   },
   "error": {
+    "transfer": {
+      "file_busy": "Ce fichier est en cours de transfert. Réessayez une fois terminé."
+    },
     "update": {
       "not_initialized": "Le service de mise à jour n’est pas initialisé",
       "disabled": "Les mises à jour sont désactivées",
