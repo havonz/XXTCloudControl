@@ -21,16 +21,18 @@ import (
 
 // TransferToken represents a temporary file transfer token
 type TransferToken struct {
-	Type             string    // "download" or "upload"
-	FilePath         string    // Server file path (absolute)
-	TargetPath       string    // Device target path (for download) or save path (for upload)
-	DeviceSN         string    // Target device serial number
-	ExpiresAt        time.Time // Token expiration time
-	OneTime          bool      // If true, token is invalidated after use
-	TotalBytes       int64     // File size (for progress calculation)
-	MD5              string    // File MD5 hash (for download verification)
-	Category         string    // File category (scripts/files/reports)
-	DeviceTransferID string
+	Type                 string    // "download" or "upload"
+	FilePath             string    // Server file path (absolute)
+	TargetPath           string    // Device target path (for download) or save path (for upload)
+	DeviceSN             string    // Target device serial number
+	ExpiresAt            time.Time // Token expiration time
+	OneTime              bool      // If true, token is invalidated after use
+	TotalBytes           int64     // File size (for progress calculation)
+	MD5                  string    // File MD5 hash (for download verification)
+	Category             string    // File category (scripts/files/reports)
+	DeviceTransferID     string
+	BrowserDownloadToken string
+	UploadPending        bool
 	// 令牌与进行中的下载共同持有临时源文件，避免其他设备或过期清理提前删除它。
 	SharedSourceID string
 }
@@ -214,7 +216,7 @@ func removeTempFileWithRetry(filePath string) {
 				debugLogf("🧹 Cleaned temp file: %s", filepath.Base(filePath))
 			}
 			parent := filepath.Dir(filePath)
-			if filepath.Base(filepath.Dir(parent)) == "_temp" && strings.HasPrefix(filepath.Base(parent), "upload-") {
+			if filepath.Base(filepath.Dir(parent)) == "_temp" && (strings.HasPrefix(filepath.Base(parent), "upload-") || strings.HasPrefix(filepath.Base(parent), "download-")) {
 				// 每次上传的隔离目录只在为空时删除，不能连带移除仍被使用的文件。
 				_ = os.Remove(parent)
 			}
@@ -563,6 +565,11 @@ func transferDownloadHandler(c *gin.Context) {
 		jsonError(c, http.StatusBadRequest, "token is not for download")
 		return
 	}
+	if tokenInfo.UploadPending {
+		transferTokensMu.Unlock()
+		jsonError(c, http.StatusConflict, errDeviceFileTransferBusy.Error())
+		return
+	}
 
 	releaseSharedID := tokenInfo.SharedSourceID
 	if tokenInfo.OneTime {
@@ -665,6 +672,9 @@ func transferUploadHandler(c *gin.Context) {
 	if time.Now().After(tokenInfo.ExpiresAt) {
 		delete(transferTokens, token)
 		transferTokensMu.Unlock()
+		if tokenInfo.SharedSourceID != "" {
+			releaseSharedTempRef(tokenInfo.SharedSourceID)
+		}
 		jsonError(c, http.StatusGone, "token expired")
 		return
 	}
@@ -691,6 +701,22 @@ func transferUploadHandler(c *gin.Context) {
 		}
 		deviceFileTransfers.Unlock()
 		defer finishDeviceFileTransfer(tokenInfo.DeviceTransferID)
+	}
+	uploadComplete := false
+	if tokenInfo.SharedSourceID != "" && tokenInfo.OneTime {
+		// 上传令牌消费后由正在进行的接收继续持有源文件，不能被下载令牌过期清理抢先删除。
+		defer func() {
+			if !uploadComplete && tokenInfo.BrowserDownloadToken != "" {
+				transferTokensMu.Lock()
+				download := transferTokens[tokenInfo.BrowserDownloadToken]
+				delete(transferTokens, tokenInfo.BrowserDownloadToken)
+				transferTokensMu.Unlock()
+				if download != nil {
+					releaseSharedTempRef(download.SharedSourceID)
+				}
+			}
+			releaseSharedTempRef(tokenInfo.SharedSourceID)
+		}()
 	}
 
 	// Create progress reader
@@ -738,6 +764,17 @@ func transferUploadHandler(c *gin.Context) {
 		generation: md5Cache.generation,
 	}
 	md5Cache.Unlock()
+	if tokenInfo.BrowserDownloadToken != "" {
+		transferTokensMu.Lock()
+		if download := transferTokens[tokenInfo.BrowserDownloadToken]; download != nil {
+			download.TotalBytes = written
+			download.MD5 = md5Hash
+			download.UploadPending = false
+			download.ExpiresAt = time.Now().Add(defaultTransferTokenTTL)
+		}
+		transferTokensMu.Unlock()
+	}
+	uploadComplete = true
 
 	debugLogf("✅ Upload completed: device %s → %s (%d bytes, MD5: %s)",
 		tokenInfo.DeviceSN, fileName, written, md5Hash)
@@ -957,6 +994,7 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 		Path          string `json:"path"`          // Server-side save path
 		Timeout       int    `json:"timeout"`       // Upload timeout in seconds
 		ServerBaseUrl string `json:"serverBaseUrl"` // Server base URL for device to upload to
+		Temporary     bool   `json:"temporary"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -967,6 +1005,14 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 	if req.DeviceSN == "" || req.SourcePath == "" || req.Category == "" || req.Path == "" {
 		jsonError(c, http.StatusBadRequest, "deviceSN, sourcePath, category, and path are required")
 		return
+	}
+	if req.Temporary {
+		parts := strings.Split(req.Path, "/")
+		if req.Category != "files" || len(parts) != 3 || parts[0] != "_temp" || !strings.HasPrefix(parts[1], "download-") ||
+			parts[1] == "download-" || validateFileName(parts[1]) != nil || parts[2] != "payload" {
+			jsonError(c, http.StatusBadRequest, "invalid file path")
+			return
+		}
 	}
 
 	// Validate and prepare save path
@@ -993,21 +1039,50 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 
 	// Create parent directory
 	parentDir := filepath.Dir(filePath)
-	if err := os.MkdirAll(parentDir, 0755); err != nil {
-		jsonError(c, http.StatusInternalServerError, "failed to create directory")
-		return
+	if req.Temporary {
+		if err := os.MkdirAll(filepath.Dir(parentDir), 0755); err != nil {
+			jsonError(c, http.StatusInternalServerError, "failed to create directory")
+			return
+		}
+		// 浏览器临时文件必须使用独占目录，不能给已有文件挂上自动删除令牌。
+		if err := os.Mkdir(parentDir, 0755); err != nil {
+			if os.IsExist(err) {
+				jsonError(c, http.StatusConflict, "file or directory already exists")
+			} else {
+				jsonError(c, http.StatusInternalServerError, "failed to create directory")
+			}
+			return
+		}
+	} else {
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			jsonError(c, http.StatusInternalServerError, "failed to create directory")
+			return
+		}
 	}
 
+	browserDownloadToken, sharedSourceID := "", ""
 	transferTokensMu.Lock()
+	if req.Temporary {
+		sharedSourceID = retainDownloadTempSource(filePath, "", 0)
+		registerSharedTempRef(sharedSourceID, filePath, 0)
+		browserDownloadToken = uuid.NewString()
+		transferTokens[browserDownloadToken] = &TransferToken{
+			Type: "download", FilePath: filePath, TargetPath: req.Path, DeviceSN: req.DeviceSN,
+			ExpiresAt: expiresAt, OneTime: true, Category: req.Category,
+			SharedSourceID: sharedSourceID, UploadPending: true,
+		}
+	}
 	transferTokens[token] = &TransferToken{
-		Type:             "upload",
-		FilePath:         filePath,
-		TargetPath:       req.SourcePath, // Store device source path for reference
-		DeviceSN:         req.DeviceSN,
-		ExpiresAt:        expiresAt,
-		OneTime:          true,
-		Category:         req.Category,
-		DeviceTransferID: requestID,
+		Type:                 "upload",
+		FilePath:             filePath,
+		TargetPath:           req.SourcePath, // Store device source path for reference
+		DeviceSN:             req.DeviceSN,
+		ExpiresAt:            expiresAt,
+		OneTime:              true,
+		Category:             req.Category,
+		DeviceTransferID:     requestID,
+		SharedSourceID:       sharedSourceID,
+		BrowserDownloadToken: browserDownloadToken,
 	}
 	transferTokensMu.Unlock()
 
@@ -1019,9 +1094,18 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 	// Send command to device
 	if err := sendFileUploadCommand(req.DeviceSN, uploadURL, req.SourcePath, req.Path, timeout, requestID); err != nil {
 		// Cleanup token on failure
+		var abandoned []*TransferToken
 		transferTokensMu.Lock()
-		delete(transferTokens, token)
+		for _, key := range []string{token, browserDownloadToken} {
+			if info := transferTokens[key]; info != nil {
+				abandoned = append(abandoned, info)
+				delete(transferTokens, key)
+			}
+		}
 		transferTokensMu.Unlock()
+		for _, info := range abandoned {
+			releaseSharedTempRef(info.SharedSourceID)
+		}
 		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1029,10 +1113,14 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 	debugLogf("📥 Pull file initiated: device %s:%s → %s", req.DeviceSN, req.SourcePath, req.Path)
 	transferDispatched = true
 
-	c.JSON(http.StatusOK, gin.H{
+	result := gin.H{
 		"success": true,
 		"token":   token,
-	})
+	}
+	if browserDownloadToken != "" {
+		result["downloadToken"] = browserDownloadToken
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 // Start cleanup goroutine
