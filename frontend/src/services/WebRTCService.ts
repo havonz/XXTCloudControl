@@ -166,7 +166,8 @@ export class WebRTCService {
 
         // 设置事件处理器
         this.peerConnection.onicecandidate = (event) => {
-          if (event.candidate) {
+          // Firefox 会用空候选表示收集结束，设备 ICE 接口不接受这一标记。
+          if (event.candidate?.candidate) {
             this.sendIceCandidate({
               candidate: event.candidate.candidate,
               sdpMid: event.candidate.sdpMid || '',

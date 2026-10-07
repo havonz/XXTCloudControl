@@ -92,6 +92,47 @@ describe('WebRTCService polling lifecycle', () => {
     service.cleanup();
   });
 
+  it('过滤 Firefox 的 ICE 结束空标记，同时保留正常候选发送', async () => {
+    vi.useFakeTimers();
+
+    const peer: any = {
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      createAnswer: vi.fn().mockResolvedValue({ type: 'answer', sdp: 'answer' }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn(),
+    };
+    vi.stubGlobal('RTCPeerConnection', vi.fn(function () { return peer; }));
+    const onError = vi.fn();
+    const service = new WebRTCService(createWebSocketService(), 'device-1', 'password', { onError });
+    const sendRequest = vi.fn(async (_method: string, path: string, _body?: unknown) =>
+      path === '/api/webrtc/start'
+        ? { type: 'offer', sdp: 'offer', iceServers: [] }
+        : []
+    );
+    (service as any).sendRequest = sendRequest;
+
+    try {
+      await service.startStream();
+      const candidate = {
+        candidate: 'candidate:1 1 UDP 2122260223 192.0.2.1 50000 typ host',
+        sdpMid: '0',
+        sdpMLineIndex: 0,
+      };
+      peer.onicecandidate({ candidate });
+      peer.onicecandidate({ candidate: { ...candidate, candidate: '' } });
+      peer.onicecandidate({ candidate: null });
+      await Promise.resolve();
+
+      expect(sendRequest.mock.calls.filter(([, path]) => path === '/api/webrtc/ice')).toEqual([
+        ['POST', '/api/webrtc/ice', candidate],
+      ]);
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      service.cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('stopPolling 会清理已排队的 poll timer', async () => {
     vi.useFakeTimers();
 
