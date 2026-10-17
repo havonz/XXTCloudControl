@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"log"
 	"net/http"
@@ -739,14 +738,9 @@ func transferUploadHandler(c *gin.Context) {
 	debugLogf("📤 Upload started: device %s → %s (%d bytes)",
 		tokenInfo.DeviceSN, fileName, contentLength)
 
-	var uploadReader io.Reader = pr
-	var hashWriter hash.Hash
-	// 浏览器临时下载不使用 MD5，且文件消费后即删除，无需计算摘要或占用分发缓存。
-	if tokenInfo.BrowserDownloadToken == "" {
-		hashWriter = md5.New()
-		uploadReader = io.TeeReader(pr, hashWriter)
-	}
-	written, info, err := replaceUploadedFile(c.Request.Context(), tokenInfo.FilePath, uploadReader, contentLength)
+	// 保留接口返回的摘要，随上传计算避免再次读取整个文件。
+	hashWriter := md5.New()
+	written, info, err := replaceUploadedFile(c.Request.Context(), tokenInfo.FilePath, io.TeeReader(pr, hashWriter), contentLength)
 	if err != nil {
 		log.Printf("❌ Upload failed: %s - %v", fileName, err)
 		if errors.Is(err, errUploadSizeMismatch) {
@@ -757,9 +751,9 @@ func transferUploadHandler(c *gin.Context) {
 		return
 	}
 
-	var md5Hash string
-	if hashWriter != nil {
-		md5Hash = hex.EncodeToString(hashWriter.Sum(nil))
+	md5Hash := hex.EncodeToString(hashWriter.Sum(nil))
+	// 浏览器临时文件消费后即删除，不占用后续分发使用的摘要缓存。
+	if tokenInfo.BrowserDownloadToken == "" {
 		// 使用本次写入的元数据，避免再次 Stat 时读到另一笔上传刚替换的文件。
 		md5Cache.Lock()
 		md5Cache.trimLocked(tokenInfo.FilePath)
@@ -771,11 +765,11 @@ func transferUploadHandler(c *gin.Context) {
 			generation: md5Cache.generation,
 		}
 		md5Cache.Unlock()
-	}
-	if tokenInfo.BrowserDownloadToken != "" {
+	} else {
 		transferTokensMu.Lock()
 		if download := transferTokens[tokenInfo.BrowserDownloadToken]; download != nil {
 			download.TotalBytes = written
+			download.MD5 = md5Hash
 			download.UploadPending = false
 			download.ExpiresAt = time.Now().Add(defaultTransferTokenTTL)
 		}
@@ -783,8 +777,8 @@ func transferUploadHandler(c *gin.Context) {
 	}
 	uploadComplete = true
 
-	debugLogf("✅ Upload completed: device %s → %s (%d bytes)",
-		tokenInfo.DeviceSN, fileName, written)
+	debugLogf("✅ Upload completed: device %s → %s (%d bytes, MD5: %s)",
+		tokenInfo.DeviceSN, fileName, written, md5Hash)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
