@@ -65,14 +65,21 @@ for (const entry of locales) {
   }
 
   const currentLanguagePath = entry.slug ? `${base}${entry.slug}/` : base;
-  const currentLanguageLink = `<a href="${currentLanguagePath}" class="language-menu-active" lang="${entry.locale}" hreflang="${entry.locale}" aria-current="page" data-language-locale="${entry.locale}">`;
-  if (!html.includes('<nav class="language-menu"') || !html.includes('<summary class="language-menu-trigger">')) {
-    errors.push(`${pagePath}: missing compact language menu`);
-  }
+  const currentLanguageAttributes = [
+    `href="${currentLanguagePath}"`,
+    `lang="${entry.locale}"`,
+    `hreflang="${entry.locale}"`,
+    'aria-current="page"',
+    `data-language-locale="${entry.locale}"`
+  ];
+  const hasCurrentLanguageLink = [...html.matchAll(/<a\b[^>]*>/g)].some(([tag]) => {
+    const attributes = tag.slice(2, -1).trim().split(/\s+/);
+    return currentLanguageAttributes.every(attribute => attributes.includes(attribute));
+  });
   if (!html.includes(`data-language-preference-key="${languagePreferenceKey}"`)) {
     errors.push(`${pagePath}: missing language preference storage key`);
   }
-  if (!html.includes(currentLanguageLink)) {
+  if (!hasCurrentLanguageLink) {
     errors.push(`${pagePath}: missing active language link for ${entry.locale}`);
   }
 

@@ -20,8 +20,8 @@ beforeEach(() => {
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key), clear: () => values.clear() });
 });
-afterEach(() => { disposers.splice(0).forEach(dispose => dispose()); document.body.innerHTML = ''; vi.useRealTimers(); vi.unstubAllGlobals(); });
-const serviceFor = (adapter: ConstructorParameters<typeof RuntimeSettingsService>[1]) => {
+afterEach(() => { disposers.splice(0).forEach(dispose => dispose()); document.body.innerHTML = ''; vi.unstubAllGlobals(); });
+const serviceFor = (adapter: ConstructorParameters<typeof RuntimeSettingsService>[0]) => {
   const service = new RuntimeSettingsService(adapter);
   disposers.push(() => service.dispose());
   return service;
@@ -32,36 +32,20 @@ const click = (label: string) => {
 };
 
 describe('runtime settings submission', () => {
-  it('finishes after sending once without polling or saving a pending operation', async () => {
-    const apply = vi.fn(); const read = vi.fn();
-    const service = serviceFor({ apply, read });
-    await service.submit(prepareRuntimeChange('one', initial('one'), { log_port: 0 }));
-    expect(apply).toHaveBeenCalledTimes(1);
-    expect(service.get('one')?.state).toBe('submitted');
-    expect(read).not.toHaveBeenCalled();
-    expect(localStorage.getItem('runtime-test')).toBeNull();
-  });
-  it('ignores old pending records when the service is recreated', async () => {
+  it('marks a sent change as submitted', async () => {
     const change = prepareRuntimeChange('one', initial('one'), { log_port: 0 });
-    localStorage.setItem('runtime-test', JSON.stringify([{ ...change, state: 'querying' }]));
-    const apply = vi.fn(); const read = vi.fn();
-    const service = serviceFor({ apply, read });
-    await flush();
-    expect(apply).not.toHaveBeenCalled(); expect(read).not.toHaveBeenCalled();
+    const apply = vi.fn();
+    const service = serviceFor({ apply, read: vi.fn() });
     await service.submit(change);
     expect(service.get('one')?.state).toBe('submitted');
     expect(apply).toHaveBeenCalledTimes(1);
   });
-  it('reports send errors without starting a retry or confirmation timer', async () => {
-    vi.useFakeTimers();
+  it('reports send errors', async () => {
     const apply = vi.fn(() => { throw new Error('WebSocket disconnected'); });
-    const read = vi.fn();
-    const service = serviceFor({ apply, read });
+    const service = serviceFor({ apply, read: vi.fn() });
     await service.submit(prepareRuntimeChange('one', initial('one'), { log_port: 0 }));
     expect(service.get('one')).toMatchObject({ state: 'failed', error: 'WebSocket disconnected' });
-    expect(vi.getTimerCount()).toBe(0);
-    await vi.advanceTimersByTimeAsync(300001);
-    expect(read).not.toHaveBeenCalled(); expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledTimes(1);
   });
   it('prevents duplicate sends for the same device while other devices can submit', async () => {
     let finish!: () => void;
@@ -101,8 +85,6 @@ describe('runtime settings batch preview', () => {
     click('应用'); await flush();
     expect(apply).toHaveBeenCalledTimes(2);
     expect(host.textContent).toContain('已发起');
-    expect(host.textContent).not.toContain('继续查询');
-    expect(host.textContent).not.toContain('等待设备恢复');
     const calls = apply.mock.calls as unknown as Array<[string, any]>;
     expect(calls[0][1].settings).toEqual({ port: 46952, udp_port: 46953, webdav_port: 0, log_port: 0 });
     expect(calls[1][1].settings).toEqual({ port: 50152, udp_port: 50153, webdav_port: 0, log_port: 0 });

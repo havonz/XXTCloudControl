@@ -29,19 +29,10 @@ export interface RuntimeApplyRequest {
     prepare_downgrade?: true;
 }
 
-export interface RuntimeApplyReply {
-    ok: true;
-    changed?: boolean;
-    transaction_id?: string;
-    revision?: number;
-}
-
 export interface PendingRuntimeChange {
     deviceId: string;
     request: RuntimeApplyRequest;
     profileGeneration: number;
-    transactionId?: string;
-    startedAt: number;
 }
 
 export class RuntimeSettingsError extends Error {
@@ -102,37 +93,5 @@ export function prepareRuntimeChange(deviceId: string, before: RuntimeStatus,
         if (profileGeneration === 2) request.use_device_directory = true;
         else request.prepare_downgrade = true;
     }
-    return { deviceId, request, profileGeneration, startedAt: Date.now() };
-}
-
-export function evaluateRuntimeChange(status: RuntimeStatus, change: PendingRuntimeChange): { state: 'pending' | 'succeeded' | 'failed'; error?: string } {
-    if (status.deviceid && status.deviceid !== change.deviceId) return { state: 'pending' };
-    const expectedRevision = change.request.expected_revision + 1;
-    const result = [status.operation_status, status.last_result].find(item => item &&
-        (change.transactionId ? item.transaction_id === change.transactionId : item.revision === expectedRevision));
-    if (result && ['failed', 'rolled_back'].includes(result.phase || '')) {
-        return { state: 'failed', error: result.error || status.last_error || 'Device settings could not be applied.' };
-    }
-    const matchesOperation = change.transactionId
-        ? status.transaction_id === change.transactionId || !!result
-        : status.revision === expectedRevision;
-    if (matchesOperation && status.ready && !status.busy && !status.blocks_writes &&
-        status.revision === expectedRevision && status.profile_generation === change.profileGeneration &&
-        runtimePortKeys.every(key => (status.bound || status.active)[key] === change.request.settings[key])) {
-        return { state: 'succeeded' };
-    }
-    return { state: 'pending' };
-}
-
-export function normalizeDiscoveryPorts(value: unknown): number[] {
-    if (!Array.isArray(value) || !value.length || value.some(port => !Number.isInteger(port) || port < 1 || port > 65535)) {
-        throw new RuntimeSettingsError('invalid', 'Discovery ports must be integers between 1 and 65535.');
-    }
-    return [...new Set(value)];
-}
-
-export function assertRuntimeWritesAvailable(api: { runtimeWritesBlocked?: boolean; runtimeOperationPending?: boolean }): void {
-    if (api.runtimeWritesBlocked || api.runtimeOperationPending) {
-        throw new RuntimeSettingsError('rejected', 'Device settings are being updated. Try again after the operation completes.');
-    }
+    return { deviceId, request, profileGeneration };
 }

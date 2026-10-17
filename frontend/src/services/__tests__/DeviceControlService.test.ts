@@ -112,7 +112,7 @@ describe('DeviceControlService control/http requests', () => {
     const { wsService } = createWebSocketService();
     vi.mocked(wsService.send).mockReturnValue(false);
     const service = new DeviceControlService(wsService, 'password');
-    await service.runtimeSettings.submit({ deviceId: 'device-1', profileGeneration: 1, startedAt: Date.now(),
+    await service.runtimeSettings.submit({ deviceId: 'device-1', profileGeneration: 1,
       request: { expected_revision: 4, settings: { port: 50152, udp_port: 50153, webdav_port: 0, log_port: 0 } },
     });
     expect(service.runtimeSettings.get('device-1')?.state).toBe('failed');
