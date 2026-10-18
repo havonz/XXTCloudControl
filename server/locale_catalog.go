@@ -186,6 +186,15 @@ var translationCatalog = map[string][supportedLocaleCount]string{
 	"error.file.upload_missing": {
 		"未上传文件", "No file was uploaded", "未上傳檔案", "ファイルがアップロードされていません", "업로드된 파일이 없습니다", "Chưa tải tệp lên", "No se ha subido ningún archivo", "Nenhum arquivo foi enviado", "Файл не загружен", "Aucun fichier n’a été envoyé", "Es wurde keine Datei hochgeladen",
 	},
+	"error.file.upload_invalid": {
+		"上传表单解析失败", "Failed to parse the upload form", "上傳表單解析失敗", "アップロードフォームを解析できませんでした", "업로드 양식을 분석하지 못했습니다", "Không thể phân tích biểu mẫu tải lên", "No se ha podido analizar el formulario de subida", "Não foi possível analisar o formulário de envio", "Не удалось разобрать форму загрузки", "Impossible d’analyser le formulaire d’envoi", "Das Upload-Formular konnte nicht gelesen werden",
+	},
+	"error.file.upload_interrupted": {
+		"文件上传中断", "File upload was interrupted", "檔案上傳中斷", "ファイルのアップロードが中断されました", "파일 업로드가 중단되었습니다", "Quá trình tải tệp lên bị gián đoạn", "La subida del archivo se ha interrumpido", "O envio do arquivo foi interrompido", "Загрузка файла прервана", "L’envoi du fichier a été interrompu", "Der Datei-Upload wurde unterbrochen",
+	},
+	"error.file.upload_storage_failed": {
+		"服务器无法处理上传临时文件", "The server could not process the temporary upload file", "伺服器無法處理上傳暫存檔案", "サーバーがアップロード用の一時ファイルを処理できませんでした", "서버에서 업로드 임시 파일을 처리하지 못했습니다", "Máy chủ không thể xử lý tệp tải lên tạm thời", "El servidor no ha podido procesar el archivo temporal de subida", "O servidor não conseguiu processar o arquivo temporário de envio", "Серверу не удалось обработать временный файл загрузки", "Le serveur n’a pas pu traiter le fichier temporaire d’envoi", "Der Server konnte die temporäre Upload-Datei nicht verarbeiten",
+	},
 	"error.file.path_invalid": {
 		"文件路径无效", "Invalid file path", "檔案路徑無效", "ファイルパスが無効です", "파일 경로가 잘못되었습니다", "Đường dẫn tệp không hợp lệ", "La ruta del archivo no es válida", "Caminho de arquivo inválido", "Недопустимый путь к файлу", "Chemin de fichier non valide", "Ungültiger Dateipfad",
 	},

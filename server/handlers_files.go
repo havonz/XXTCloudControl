@@ -1,9 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -230,6 +233,26 @@ func serverFilesListHandler(c *gin.Context) {
 
 // serverFilesUploadHandler handles POST /api/server-files/upload
 func serverFilesUploadHandler(c *gin.Context) {
+	// DefaultPostForm 会忽略首次解析错误；必须先解析，否则后续 FormFile 只能看到丢失上下文的二次错误。
+	form, err := c.MultipartForm()
+	if err != nil {
+		status, code := http.StatusBadRequest, "error.file.upload_invalid"
+		var pathErr *os.PathError
+		var networkErr net.Error
+		switch {
+		case errors.As(err, &pathErr):
+			status, code = http.StatusInternalServerError, "error.file.upload_storage_failed"
+		case errors.As(err, &networkErr) && networkErr.Timeout():
+			status, code = http.StatusRequestTimeout, "error.request.timeout"
+		case errors.Is(err, io.ErrUnexpectedEOF):
+			code = "error.file.upload_interrupted"
+		}
+		log.Printf("[upload] multipart parse failed: contentType=%q contentLength=%d transferEncoding=%v error=%v", c.GetHeader("Content-Type"), c.Request.ContentLength, c.Request.TransferEncoding, err)
+		jsonErrorWithDetail(c, status, code, err.Error())
+		return
+	}
+	defer form.RemoveAll()
+
 	category := c.DefaultPostForm("category", "scripts")
 	subPath := c.DefaultPostForm("path", "")
 
@@ -246,7 +269,13 @@ func serverFilesUploadHandler(c *gin.Context) {
 
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
-		jsonError(c, http.StatusBadRequest, "no file uploaded")
+		if errors.Is(err, http.ErrMissingFile) {
+			log.Printf("[upload] file field missing: contentType=%q contentLength=%d fileFields=%d", c.GetHeader("Content-Type"), c.Request.ContentLength, len(form.File))
+			jsonError(c, http.StatusBadRequest, "no file uploaded")
+		} else {
+			log.Printf("[upload] failed to open uploaded file: %v", err)
+			jsonErrorWithDetail(c, http.StatusInternalServerError, "error.file.open_failed", err.Error())
+		}
 		return
 	}
 	defer file.Close()
