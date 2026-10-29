@@ -649,6 +649,7 @@
     "rename_prompt": "Neuen Namen eingeben",
     "new_folder_prompt": "Ordnernamen eingeben",
     "new_file_prompt": "Dateinamen eingeben",
+    "invalid_file_name": "Der Dateiname darf weder / noch \\ enthalten und nicht „.“ oder „..“ sein.",
     "exists": "Die Datei „{name}“ ist bereits vorhanden.",
     "edit_title": "Bearbeiten: {name}",
     "preview": "Vorschau",

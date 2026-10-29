@@ -649,6 +649,7 @@
     "rename_prompt": "Introduce un nombre nuevo",
     "new_folder_prompt": "Introduce el nombre de la carpeta",
     "new_file_prompt": "Introduce el nombre del archivo",
+    "invalid_file_name": "El nombre del archivo no puede contener / ni \\ ni ser «.» o «..».",
     "exists": "El archivo \"{name}\" ya existe.",
     "edit_title": "Editar: {name}",
     "preview": "Vista previa",

@@ -649,6 +649,7 @@
     "rename_prompt": "Nhập tên mới",
     "new_folder_prompt": "Nhập tên thư mục",
     "new_file_prompt": "Nhập tên tệp",
+    "invalid_file_name": "Tên tệp không được chứa / hoặc \\ và không được là “.” hoặc “..”.",
     "exists": "Tệp \"{name}\" đã tồn tại.",
     "edit_title": "Chỉnh sửa: {name}",
     "preview": "Xem trước",

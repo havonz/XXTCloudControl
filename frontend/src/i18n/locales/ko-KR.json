@@ -541,6 +541,7 @@
     "rename_prompt": "새 이름을 입력하세요",
     "new_folder_prompt": "폴더 이름을 입력하세요",
     "new_file_prompt": "파일 이름을 입력하세요",
+    "invalid_file_name": "파일 이름에 / 또는 \\를 포함하거나 . 또는 ..를 사용할 수 없습니다.",
     "exists": "파일 \"{name}\"이(가) 이미 존재합니다.",
     "edit_title": "편집: {name}",
     "preview": "미리보기",

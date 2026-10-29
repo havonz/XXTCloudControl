@@ -541,6 +541,7 @@
     "rename_prompt": "请输入新名称",
     "new_folder_prompt": "请输入文件夹名称",
     "new_file_prompt": "请输入文件名称",
+    "invalid_file_name": "文件名不能包含 / 或 \\，也不能是 . 或 ..",
     "exists": "文件 \"{name}\" 已存在！",
     "edit_title": "编辑: {name}",
     "preview": "预览",

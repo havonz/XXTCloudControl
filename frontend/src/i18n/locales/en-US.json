@@ -541,6 +541,7 @@
     "rename_prompt": "Enter a new name",
     "new_folder_prompt": "Enter folder name",
     "new_file_prompt": "Enter file name",
+    "invalid_file_name": "File name cannot contain / or \\ and cannot be . or ..",
     "exists": "File \"{name}\" already exists.",
     "edit_title": "Edit: {name}",
     "preview": "Preview",

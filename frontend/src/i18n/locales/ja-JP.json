@@ -541,6 +541,7 @@
     "rename_prompt": "新しい名前を入力",
     "new_folder_prompt": "フォルダー名を入力",
     "new_file_prompt": "ファイル名を入力",
+    "invalid_file_name": "ファイル名に / や \\ は使用できません。「.」「..」も指定できません。",
     "exists": "ファイル「{name}」はすでに存在します。",
     "edit_title": "編集：{name}",
     "preview": "プレビュー",

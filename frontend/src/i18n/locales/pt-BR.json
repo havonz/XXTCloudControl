@@ -541,6 +541,7 @@
     "rename_prompt": "Digite um novo nome",
     "new_folder_prompt": "Digite o nome da pasta",
     "new_file_prompt": "Digite o nome do arquivo",
+    "invalid_file_name": "O nome do arquivo não pode conter / ou \\ nem ser “.” ou “..”.",
     "exists": "O arquivo “{name}” já existe.",
     "edit_title": "Editar: {name}",
     "preview": "Visualizar",

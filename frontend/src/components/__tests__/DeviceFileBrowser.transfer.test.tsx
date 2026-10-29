@@ -284,6 +284,30 @@ describe('DeviceFileBrowser operation targets', () => {
     await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(3));
   });
 
+  it.each(['./existing.lua', 'nested/../existing.lua', '../existing.lua', 'nested\\existing.lua', '.', '..'])('新建文件拒绝路径输入 %s，避免覆盖已有文件', async name => {
+    feedback.prompt.mockResolvedValueOnce(name);
+    const { props } = await mount([file('existing.lua')]);
+    button('common.new_file').click();
+    await vi.waitFor(() => expect(feedback.alert).toHaveBeenCalledWith(translate('en-US', 'files.invalid_file_name')));
+    expect(props.onUploadFile).not.toHaveBeenCalled();
+  });
+
+  it('新建文件仍会拦截当前目录中的同名文件', async () => {
+    feedback.prompt.mockResolvedValueOnce('existing.lua');
+    const { props } = await mount([file('existing.lua')]);
+    button('common.new_file').click();
+    await vi.waitFor(() => expect(feedback.alert).toHaveBeenCalledWith('File "existing.lua" already exists.'));
+    expect(props.onUploadFile).not.toHaveBeenCalled();
+  });
+
+  it.each(['.hidden.lua', '..backup.lua'])('新建文件允许合法点号名称 %s', async name => {
+    feedback.prompt.mockResolvedValueOnce(name);
+    const { props } = await mount([file('existing.lua')]);
+    button('common.new_file').click();
+    await vi.waitFor(() => expect(props.onUploadFile).toHaveBeenCalledWith('device-a', `/lua/scripts/${name}`, expect.any(File)));
+    expect(feedback.alert).not.toHaveBeenCalled();
+  });
+
   it('创建空文件失败会提示，成功回执后才刷新目录', async () => {
     const pending = deferred<void>();
     const upload = vi.fn().mockRejectedValueOnce(new Error('permission denied')).mockReturnValueOnce(pending.promise);

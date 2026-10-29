@@ -424,6 +424,10 @@ export default function DeviceFileBrowser(props: DeviceFileBrowserProps) {
     if (!fileName?.trim()) return;
 
     const name = fileName.trim();
+    if (name === '.' || name === '..' || /[/\\]/.test(name)) {
+      await dialog.alert(t('files.invalid_file_name'));
+      return;
+    }
 
     // 检查文件是否已存在
     const exists = names.has(name);
