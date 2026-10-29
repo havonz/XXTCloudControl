@@ -1566,7 +1566,7 @@ export class WebSocketService {
       } = {
         x: x,
         y: y,
-        touchTs: this.nextTouchTs(Number.isInteger(finger) ? finger : 1)
+        touchTs: this.nextTouchTs(typeof finger === 'number' && Number.isInteger(finger) ? finger : 1)
       };
       if (Number.isInteger(finger)) {
         body.finger = finger;

@@ -26,7 +26,7 @@ const setupMobileViewport = () => {
 
   syncViewport();
 
-  if ('addEventListener' in mobileMedia) {
+  if (typeof mobileMedia.addEventListener === 'function') {
     mobileMedia.addEventListener('change', handleChange);
   } else {
     mobileMedia.addListener(handleChange);

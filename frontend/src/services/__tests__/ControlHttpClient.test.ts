@@ -18,7 +18,7 @@ function createSocket() {
     send: vi.fn((message: any) => { sent.push(message); return true; }),
   };
   return {
-    service: service as unknown as WebSocketService,
+    service,
     listeners,
     statusListeners,
     sent,
@@ -40,9 +40,9 @@ function httpResponse(requestId: string, udid = 'device-1', body: unknown = { ok
 describe('ControlHttpClient response routing', () => {
   const clients: ControlHttpClient[] = [];
 
-  const createClient = (socket: ReturnType<typeof createSocket>, options: Partial<ControlHttpClientOptions> = {}) => {
+  const createClient = (socket: { service: ReturnType<typeof createSocket>['service'] | WebSocketService }, options: Partial<ControlHttpClientOptions> = {}) => {
     const client = new ControlHttpClient({
-      wsService: socket.service,
+      wsService: socket.service as unknown as WebSocketService,
       password: 'test-only',
       requestIdPrefix: 'route',
       defaultTimeoutMs: 5000,
