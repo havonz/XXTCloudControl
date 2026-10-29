@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, createEffect, Show, onMount, For, createMemo } from 'solid-js';
+import { Dynamic } from 'solid-js/web';
 import { createBackdropClose } from '../hooks/useBackdropClose';
 import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconCopy, IconPaperPlane, IconLinkSlash, IconLink, IconMobileScreen, IconUser, IconUsers, IconGear } from '../icons';
 import styles from './WebRTCControl.module.css';
@@ -2110,7 +2111,9 @@ export default function WebRTCControl(props: WebRTCControlProps) {
                   </span>
                 </div>
                 
-                <video
+                {/* Dynamic 在当前文档创建视频，避开 WebKit 27 模板克隆后误判不可见的回归（webkit.org/b/320979）。 */}
+                <Dynamic
+                  component="video"
                   ref={videoRef}
                   class={styles.videoElement}
                   style={{ 

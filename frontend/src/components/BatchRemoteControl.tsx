@@ -1,4 +1,5 @@
 import { createSignal, For, Show, onCleanup, createEffect, onMount, createMemo } from 'solid-js';
+import { Dynamic } from 'solid-js/web';
 import { createStore, reconcile } from 'solid-js/store';
 import { CgMaximizeAlt, CgMinimizeAlt } from 'solid-icons/cg';
 import { IconXmark, IconHouse, IconVolumeDecrease, IconVolumeIncrease, IconLock, IconPaste, IconGear, IconMobileScreen, IconLink, IconLinkSlash } from '../icons';
@@ -3109,7 +3110,9 @@ export default function BatchRemoteControl(props: BatchRemoteControlProps) {
                             </div>
                           }
                         >
-                          <video
+                          {/* Dynamic 在当前文档创建视频，避开 WebKit 27 模板克隆后误判不可见的回归（webkit.org/b/320979）。 */}
+                          <Dynamic
+                            component="video"
                             ref={(el) => setVideoRef(device.udid, el)}
                             class={styles.deviceVideo}
                             style={getDeviceVideoTransformStyle(device.udid)}
