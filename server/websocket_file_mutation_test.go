@@ -15,7 +15,6 @@ func TestWebSocketFileMutationsProtectActiveTransfersAndParents(t *testing.T) {
 	}{
 		{"delete-file", "file/delete", map[string]interface{}{"path": "res/busy/./file.bin"}},
 		{"delete-parent", "file/delete", map[string]interface{}{"path": "/res/other/../busy/"}},
-		{"delete-root", "file/delete", map[string]interface{}{"path": "/."}},
 		{"move-file", "file/move", map[string]interface{}{"from": "/res/busy/file.bin", "to": "/res/new.bin"}},
 		{"move-parent", "file/move", map[string]interface{}{"from": "/res/busy", "to": "/res/new"}},
 		{"move-over-file", "file/move", map[string]interface{}{"from": "/res/new.bin", "to": "/res/busy/file.bin"}},
@@ -98,6 +97,112 @@ func TestWebSocketFileMutationsProtectActiveTransfersAndParents(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestWebSocketFileDeleteRejectsExplicitRootAndPreservesDevicePaths(t *testing.T) {
+	for _, mode := range []string{"control/command", "control/commands"} {
+		for _, tc := range []struct {
+			path    string
+			allowed bool
+		}{
+			{path: "/"},
+			{path: "."},
+			{path: "/./"},
+			{path: "././"},
+			{path: "link/..", allowed: true},
+			{path: "/res/file.lua", allowed: true},
+			{path: "res/./file.lua", allowed: true},
+			{path: "res/../file.lua", allowed: true},
+			{path: ".hidden", allowed: true},
+			{path: "..backup", allowed: true},
+		} {
+			t.Run(mode+"/"+tc.path, func(t *testing.T) {
+				resetTransferTokensForTest()
+				t.Cleanup(resetTransferTokensForTest)
+				writes := make(chan recordedWebSocketWrite, 2)
+				responses := make(chan recordedWebSocketWrite, 2)
+				device := &SafeConn{writeMessageHook: func(typ int, data []byte) error {
+					writes <- recordedWebSocketWrite{messageType: typ, data: data}
+					return nil
+				}}
+				controller := &SafeConn{writeMessageHook: func(typ int, data []byte) error {
+					responses <- recordedWebSocketWrite{messageType: typ, data: data}
+					return nil
+				}}
+				setupHTTPBinProxyTestState(t, controller, device)
+				t.Cleanup(func() { _ = device.Close(); _ = controller.Close() })
+				body := map[string]interface{}{
+					"devices": []string{"device-http-bin"}, "type": "file/delete",
+					"body": map[string]interface{}{"path": tc.path}, "requestId": "delete-request",
+				}
+				if mode == "control/commands" {
+					body = map[string]interface{}{"devices": []string{"device-http-bin"}, "commands": []interface{}{
+						map[string]interface{}{"type": "file/delete", "body": map[string]interface{}{"path": tc.path}},
+					}}
+				}
+				if err := handleMessage(controller, signTestControlMessage(t, mode, body, "delete-path")); err != nil {
+					t.Fatal(err)
+				}
+				if tc.allowed {
+					var forwarded Message
+					if err := json.Unmarshal(receiveWebSocketWrite(t, writes).data, &forwarded); err != nil {
+						t.Fatal(err)
+					}
+					if forwarded.Type != "file/delete" || forwarded.Body.(map[string]interface{})["path"] != tc.path {
+						t.Fatalf("合法删除路径被改变：%+v", forwarded)
+					}
+					return
+				}
+				var reply struct {
+					Type, UDID, RequestID, Error, ErrorCode string
+					Body                                    map[string]interface{}
+				}
+				if err := json.Unmarshal(receiveWebSocketWrite(t, responses).data, &reply); err != nil {
+					t.Fatal(err)
+				}
+				if reply.Type != "file/delete" || reply.UDID != "device-http-bin" || reply.ErrorCode != "error.file.path_invalid" || reply.Error == "" || reply.Body["path"] != tc.path {
+					t.Fatalf("删除路径拒绝响应不完整：%+v", reply)
+				}
+				if mode == "control/command" && reply.RequestID != "delete-request" {
+					t.Fatal("拒绝响应丢失请求 ID")
+				}
+				select {
+				case <-writes:
+					t.Fatal("危险删除请求被发送给设备")
+				default:
+				}
+			})
+		}
+	}
+}
+
+func TestWebSocketFileDeletePreservesDevicePathError(t *testing.T) {
+	responses := make(chan recordedWebSocketWrite, 1)
+	device := &SafeConn{}
+	controller := &SafeConn{writeMessageHook: func(typ int, data []byte) error {
+		responses <- recordedWebSocketWrite{messageType: typ, data: data}
+		return nil
+	}}
+	setupHTTPBinProxyTestState(t, controller, device)
+	t.Cleanup(func() { _ = device.Close(); _ = controller.Close() })
+	mu.Lock()
+	deviceLinksMap[device] = "device-http-bin"
+	controllers[controller] = true
+	mu.Unlock()
+	var response Message
+	if err := json.Unmarshal([]byte(`{"type":"file/delete","requestId":"delete-request","body":{"path":"link/../file.lua"},"error":"file/delete: invalid file path","errorCode":"error.file.path_invalid"}`), &response); err != nil {
+		t.Fatal(err)
+	}
+	if err := handleMessage(device, response); err != nil {
+		t.Fatal(err)
+	}
+	var forwarded Message
+	if err := json.Unmarshal(receiveWebSocketWrite(t, responses).data, &forwarded); err != nil {
+		t.Fatal(err)
+	}
+	if forwarded.UDID != "device-http-bin" || forwarded.Type != response.Type || forwarded.RequestID != response.RequestID || forwarded.Error != response.Error || forwarded.ErrorCode != "error.file.path_invalid" {
+		t.Fatalf("设备端拒绝响应未完整透传：%+v", forwarded)
 	}
 }
 

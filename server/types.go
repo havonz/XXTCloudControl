@@ -126,6 +126,7 @@ type Message struct {
 	Sign      string      `json:"sign,omitempty"`
 	UDID      string      `json:"udid,omitempty"`
 	Error     string      `json:"error,omitempty"`
+	ErrorCode string      `json:"errorCode,omitempty"`
 }
 
 // ControlCommand represents a single control command

@@ -389,6 +389,9 @@
     "upload_failed": "上传失败"
   },
   "error": {
+    "file": {
+      "path_invalid": "文件路径无效"
+    },
     "transfer": {
       "file_busy": "该文件正在传输，请完成后重试"
     },

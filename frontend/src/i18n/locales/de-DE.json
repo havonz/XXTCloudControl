@@ -458,6 +458,9 @@
     "upload_failed": "Hochladen fehlgeschlagen"
   },
   "error": {
+    "file": {
+      "path_invalid": "Ungültiger Dateipfad"
+    },
     "transfer": {
       "file_busy": "Diese Datei wird gerade übertragen. Bitte nach Abschluss erneut versuchen."
     },

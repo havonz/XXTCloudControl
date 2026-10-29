@@ -458,6 +458,9 @@
     "upload_failed": "Tải lên thất bại"
   },
   "error": {
+    "file": {
+      "path_invalid": "Đường dẫn tệp không hợp lệ"
+    },
     "transfer": {
       "file_busy": "Tệp này đang được truyền. Vui lòng thử lại sau khi hoàn tất."
     },

@@ -458,6 +458,9 @@
     "upload_failed": "Error de subida"
   },
   "error": {
+    "file": {
+      "path_invalid": "La ruta del archivo no es válida"
+    },
     "transfer": {
       "file_busy": "Este archivo se está transfiriendo. Vuelve a intentarlo cuando termine."
     },

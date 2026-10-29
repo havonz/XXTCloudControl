@@ -98,19 +98,38 @@ func forwardDeviceFileMutation(controller, device *SafeConn, deviceID string, co
 	}
 	paths := make([]string, 0, len(fields))
 	replyBody := make(map[string]string, len(fields))
+	var sendErr error
+	code := "error.transfer.send_device_failed"
 	for _, field := range fields {
 		if value, ok := body[field].(string); ok {
 			replyBody[field] = value
 			if value != "" {
-				paths = append(paths, path.Clean(strings.TrimLeft(value, "/")))
+				normalized := path.Clean(strings.TrimLeft(value, "/"))
+				paths = append(paths, normalized)
+				if command.Type == "file/delete" {
+					// 只有空段和点段可直接认定为根目录；含 .. 的路径须由设备结合符号链接解析。
+					rootPath := true
+					for _, component := range strings.Split(value, "/") {
+						if component != "" && component != "." {
+							rootPath = false
+							break
+						}
+					}
+					if rootPath {
+						sendErr = errors.New("invalid file path")
+						code = "error.file.path_invalid"
+					}
+				}
 			}
 		}
 	}
 	createsDirectory := command.Type == "file/put" && body["directory"] == true
-	var sendErr error
 	deviceFileTransfers.Lock()
 	now := time.Now()
 	for key, transfer := range deviceFileTransfers.byPath {
+		if sendErr != nil {
+			break
+		}
 		if key.deviceID != deviceID {
 			continue
 		}
@@ -130,9 +149,6 @@ func forwardDeviceFileMutation(controller, device *SafeConn, deviceID string, co
 				break
 			}
 		}
-		if sendErr != nil {
-			break
-		}
 	}
 	if sendErr == nil {
 		// 这些命令在设备上同步执行；检查与入队必须连续，后续传输才不会抢在改动前面。
@@ -146,7 +162,6 @@ func forwardDeviceFileMutation(controller, device *SafeConn, deviceID string, co
 		}
 		return
 	}
-	code := "error.transfer.send_device_failed"
 	if errors.Is(sendErr, errDeviceFileTransferBusy) {
 		code = "error.transfer.file_busy"
 	}

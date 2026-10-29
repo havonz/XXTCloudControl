@@ -389,6 +389,9 @@
     "upload_failed": "Upload failed"
   },
   "error": {
+    "file": {
+      "path_invalid": "Invalid file path"
+    },
     "transfer": {
       "file_busy": "This file is being transferred. Please retry after it finishes."
     },

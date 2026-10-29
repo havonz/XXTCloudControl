@@ -1113,15 +1113,35 @@ local _message_switcher = {
     end,
     ['file/delete'] = function(ws, msgtab)
         msgtab.error = ''
+        msgtab.errorCode = nil
         local path = XXT_HOME_PATH .. '/'
-        if type(msgtab.body) == 'table' and type(msgtab.body.path) == 'string' and msgtab.body.path ~= '' and msgtab.body.path:gsub('/', '') ~= '' then
+        if type(msgtab.body) == 'table' and type(msgtab.body.path) == 'string' and msgtab.body.path ~= '' and msgtab.body.path:gsub('/', '') ~= '' and not msgtab.body.path:find('\0', 1, true) then
             path = path .. msgtab.body.path
         else
             msgtab.error = msgtab.type .. ': argument error.'
             return msgtab
         end
-        if lfs.attributes(path, 'mode') then
-            noexecute.rm_rf(path)
+        local mode = lfs.symlinkattributes(path, 'mode')
+        if mode then
+            local root = sys.realpath(XXT_HOME_PATH)
+            local resolved
+            if mode == 'link' then
+                -- 最后一项是链接时只解析父目录，避免把删除链接变成删除目标。
+                local parent, name = path:match('^(.*)/([^/]+)$')
+                parent = parent and sys.realpath(parent)
+                if parent then
+                    resolved = parent .. '/' .. name
+                end
+            else
+                resolved = sys.realpath(path)
+            end
+            local prefix = root and (root:gsub('/+$', '') .. '/')
+            if not resolved or not root or resolved == root or resolved:sub(1, #prefix) ~= prefix then
+                msgtab.error = msgtab.type .. ': invalid file path'
+                msgtab.errorCode = 'error.file.path_invalid'
+                return msgtab
+            end
+            noexecute.rm_rf(resolved)
         end
         return msgtab
     end,

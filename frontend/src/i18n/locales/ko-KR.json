@@ -389,6 +389,9 @@
     "upload_failed": "업로드 실패"
   },
   "error": {
+    "file": {
+      "path_invalid": "파일 경로가 잘못되었습니다"
+    },
     "transfer": {
       "file_busy": "이 파일을 전송하고 있습니다. 완료된 후 다시 시도하세요."
     },
