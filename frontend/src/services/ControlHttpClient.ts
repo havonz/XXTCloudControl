@@ -103,14 +103,12 @@ export class ControlHttpClient {
         const owner = shared.pendingOwners.get(message.body?.requestId);
         owner?.handleMessage(message);
       });
-      if (typeof this.wsService.onStatusChange === 'function') {
-        shared.unsubscribeStatus = this.wsService.onStatusChange((status) => {
-          if (status !== 'disconnected') return;
-          for (const client of shared.clients) {
-            client.rejectAllPendingRequests(new Error(translate(getCurrentLocale(), 'websocket.disconnected')));
-          }
-        });
-      }
+      shared.unsubscribeStatus = this.wsService.onStatusChange((status) => {
+        if (status !== 'disconnected') return;
+        for (const client of shared.clients) {
+          client.rejectAllPendingRequests(new Error(translate(getCurrentLocale(), 'websocket.disconnected')));
+        }
+      });
       responseRouters.set(this.wsService, shared);
       router = shared;
     }

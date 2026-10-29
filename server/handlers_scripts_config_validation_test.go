@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -45,6 +46,47 @@ func TestScriptsSendRejectsEmptyNonEmptyEditConfig(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "mode") {
 		t.Fatalf("expected error to include field caption, got %s", w.Body.String())
+	}
+}
+
+func TestScriptsSendPreservesConfigCaptionWhitespace(t *testing.T) {
+	for _, itemType := range []string{"Edit", "ComboBox"} {
+		for _, tc := range []struct {
+			name, value, trimmedKeyValue string
+			status                       int
+		}{
+			{name: "valid", value: "abc", trimmedKeyValue: "", status: http.StatusOK},
+			{name: "empty", value: "", trimmedKeyValue: "abc", status: http.StatusBadRequest},
+			{name: "invalid-format", value: "123", trimmedKeyValue: "abc", status: http.StatusBadRequest},
+		} {
+			t.Run(itemType+"/"+tc.name, func(t *testing.T) {
+				dataDir := setupFileHandlersTestDataDir(t)
+				item := map[string]any{
+					"type": itemType, "caption": " 账号 ",
+					"nonEmpty": true, "validationRegex": "[a-z]+",
+				}
+				var value any = tc.value
+				if itemType == "ComboBox" {
+					item["canEdit"] = true
+					item["item"] = []string{"选项"}
+					value = map[string]any{"select": 0, "text": tc.value}
+				}
+				content, err := json.Marshal(map[string]any{
+					"UI":     []any{item},
+					"Config": map[string]any{" 账号 ": value, "账号": tc.trimmedKeyValue},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeScriptMainJSONForValidationTest(t, dataDir, "demo", string(content))
+
+				w := performJSONHandlerRequest(t, http.MethodPost, "/api/scripts/send",
+					map[string]any{"devices": []string{"device-1"}, "name": "demo"}, scriptsSendHandler)
+				if w.Code != tc.status {
+					t.Fatalf("expected status %d, got %d body=%s", tc.status, w.Code, w.Body.String())
+				}
+			})
+		}
 	}
 }
 

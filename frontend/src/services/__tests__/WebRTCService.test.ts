@@ -25,6 +25,7 @@ function setWindow(): void {
 function createWebSocketService(unsubscribe = vi.fn()): WebSocketService {
   return {
     onMessage: vi.fn(() => unsubscribe),
+    onStatusChange: vi.fn(() => vi.fn()),
     send: vi.fn(() => true),
   } as unknown as WebSocketService;
 }
@@ -55,6 +56,7 @@ describe('WebRTCService polling lifecycle', () => {
         listener = callback;
         return vi.fn();
       }),
+      onStatusChange: vi.fn(() => vi.fn()),
       send: vi.fn((message: any) => {
         sentMessages.push(message);
         return true;

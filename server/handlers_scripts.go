@@ -1154,16 +1154,18 @@ func validateScriptTextConfigItem(item map[string]interface{}, config map[string
 		return nil
 	}
 
-	caption := strings.TrimSpace(fmt.Sprint(item["caption"]))
+	// 前端以原始标题作为配置键，裁剪空白仅用于错误提示。
+	captionKey := fmt.Sprint(item["caption"])
+	caption := strings.TrimSpace(captionKey)
 	if caption == "" {
 		caption = itemType
 	}
 
 	value := ""
 	if itemType == "ComboBox" {
-		value = scriptConfigEffectiveComboText(item, config, caption)
+		value = scriptConfigEffectiveComboText(item, config, captionKey)
 	} else {
-		value = scriptConfigEffectiveEditText(item, config, caption)
+		value = scriptConfigEffectiveEditText(item, config, captionKey)
 	}
 
 	if item["nonEmpty"] == true && value == "" {
