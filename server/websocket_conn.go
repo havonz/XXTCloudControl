@@ -19,6 +19,7 @@ var errWebSocketWriteQueueFull = errors.New("websocket write queue is full")
 
 type websocketWrite struct {
 	messageType int
+	firstIsText bool
 	payloads    [][]byte
 	result      chan error
 	beforeWrite func() error
@@ -121,7 +122,11 @@ func (sc *SafeConn) writePump() {
 			}
 		}
 
-		for _, payload := range message.payloads {
+		for i, payload := range message.payloads {
+			kind := message.messageType
+			if i == 0 && message.firstIsText {
+				kind = websocket.TextMessage
+			}
 			select {
 			case <-sc.writeClosed:
 				return
@@ -130,13 +135,13 @@ func (sc *SafeConn) writePump() {
 
 			var err error
 			if sc.writeMessageHook != nil {
-				err = sc.writeMessageHook(message.messageType, payload)
+				err = sc.writeMessageHook(kind, payload)
 			} else if sc.conn == nil {
 				err = net.ErrClosed
 			} else {
 				err = sc.conn.SetWriteDeadline(time.Now().Add(websocketWriteTimeout))
 				if err == nil {
-					err = sc.conn.WriteMessage(message.messageType, payload)
+					err = sc.conn.WriteMessage(kind, payload)
 				}
 			}
 			if err != nil {

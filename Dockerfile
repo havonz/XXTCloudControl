@@ -15,7 +15,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM golang:1.21-alpine AS server-build
+FROM golang:1.25-alpine AS server-build
 WORKDIR /app/server
 RUN apk add --no-cache git
 COPY server/go.mod server/go.sum ./

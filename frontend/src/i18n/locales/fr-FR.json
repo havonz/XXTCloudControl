@@ -1,4 +1,14 @@
 {
+  "mcp": {
+    "title": "Accès MCP",
+    "address": "URL de connexion",
+    "secret": "Jeton Bearer (affiché une seule fois)",
+    "header_hint": "Réglez l’en-tête Authorization sur Bearer <jeton>, avec une espace après Bearer.",
+    "copy_config": "Copier la configuration",
+    "generate": "Générer un jeton",
+    "rotate": "Renouveler le jeton",
+    "revoke": "Révoquer le jeton"
+  },
   "common": {
     "add": "Ajouter",
     "adding": "Ajout en cours…",

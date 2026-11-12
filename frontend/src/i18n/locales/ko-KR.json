@@ -1,4 +1,14 @@
 {
+  "mcp": {
+    "title": "MCP 연결",
+    "address": "연결 주소",
+    "secret": "Bearer 토큰 (한 번만 표시됨)",
+    "header_hint": "Authorization 헤더 값을 Bearer <토큰>으로 설정하세요. Bearer 뒤에는 공백을 하나 넣으세요.",
+    "copy_config": "설정 복사",
+    "generate": "토큰 생성",
+    "rotate": "토큰 교체",
+    "revoke": "토큰 폐기"
+  },
   "common": {
     "add": "추가",
     "adding": "추가 중...",

@@ -15,6 +15,13 @@
 
 支持单台与批量配置设备目录模式、API／UDP／WebDAV／日志端口。修改只发起一次，设备完成后重新连接云控。使用方法及兼容约定见[运行配置协议](docs/runtime-settings.md)。
 
+## MCP 接入
+
+管理员登录面板后点击顶部 **MCP**，复制连接地址并生成令牌。客户端选择 Streamable HTTP，地址示例为 `https://cloud.example.com/mcp`，请求头为 `Authorization: Bearer <令牌>`。生成或轮换令牌后，点击 **复制配置** 即可复制已填好连接地址和请求头的 `mcpServers` JSON。公网部署请使用 HTTPS。令牌可控制所有在线设备并读写托管文件，明文只在生成时显示。轮换或撤销后，原令牌立即失效。
+
+使用 `skill_read({"skill":"xxtcloudcontrol"})` 阅读云控指南，或用 `tool_call({"tool":"backend_list_devices"})` 选定在线设备。设备继续使用已有云控连接。UI 元素功能取决于设备已安装的 XXTouch 版本。批量下发返回每台设备的提交情况，脚本运行结果可通过设备状态和日志查看。
+
+
 ## 发布地址
 
 - 官方发布下载页（GitHub Pages）：[https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

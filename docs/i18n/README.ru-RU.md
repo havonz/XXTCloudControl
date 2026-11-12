@@ -11,6 +11,10 @@
   <img alt="XXTCloudControl screenshot" src="../../site/public/screenshot-001-en.png">
 </picture>
 
+## Доступ к MCP
+
+После входа нажмите **MCP** вверху панели, скопируйте адрес и создайте токен Bearer. Используйте Streamable HTTP через HTTPS, например `https://cloud.example.com/mcp`, с заголовком `Authorization: Bearer <token>`. Токен даёт доступ к управлению устройствами и файлами сервера. Он показывается один раз и сразу перестаёт действовать при замене или отзыве.
+
 ## Выпуски
 
 - Официальная страница загрузки (GitHub Pages): [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

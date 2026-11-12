@@ -27,6 +27,9 @@ func prepareScriptDistribution(c *gin.Context, req scriptSendRequest) *scriptDis
 		return nil
 	}
 	scriptPath, scriptName := resolved.absPath, resolved.normalizedName
+	if staged, ok := c.Request.Context().Value(mcpStageKey{}).(mcpDistributionSource); ok {
+		scriptPath = staged.path
+	}
 	fileInfo, err := os.Stat(scriptPath)
 	if err != nil {
 		jsonError(c, http.StatusNotFound, "script not found")

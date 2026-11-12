@@ -43,15 +43,15 @@ func resetInternalHTTPBinState(t *testing.T) {
 
 	internalHTTPBinMu.Lock()
 	requestsBackup := internalHTTPBinRequests
-	ignoredBackup := internalHTTPBinIgnored
+
 	internalHTTPBinRequests = make(map[string]*internalHTTPBinRequestState)
-	internalHTTPBinIgnored = make(map[string]time.Time)
+
 	internalHTTPBinMu.Unlock()
 
 	t.Cleanup(func() {
 		internalHTTPBinMu.Lock()
 		internalHTTPBinRequests = requestsBackup
-		internalHTTPBinIgnored = ignoredBackup
+
 		internalHTTPBinMu.Unlock()
 	})
 }
@@ -515,7 +515,7 @@ func TestInternalHTTPBinRequestCollectsChunksAndCompletes(t *testing.T) {
 	)
 
 	requestID := "00112233445566778899aabbccddeeff"
-	req := registerInternalHTTPBinRequest(requestID, "device-1")
+	req := registerInternalHTTPBinRequest(requestID, "device-1", conn)
 	firstChunk := bytes.Repeat([]byte("a"), internalHTTPBinChunkSize)
 	secondChunk := []byte("bc")
 
@@ -559,13 +559,10 @@ func TestInternalHTTPBinRequestCollectsChunksAndCompletes(t *testing.T) {
 
 	internalHTTPBinMu.Lock()
 	_, active := internalHTTPBinRequests[requestID]
-	_, ignored := internalHTTPBinIgnored[requestID]
+
 	internalHTTPBinMu.Unlock()
 	if active {
 		t.Fatalf("request should be removed after completion")
-	}
-	if !ignored {
-		t.Fatalf("request should leave an ignore tombstone after completion")
 	}
 }
 
@@ -573,9 +570,10 @@ func TestAbortInternalHTTPBinRequestsForDevice(t *testing.T) {
 	resetInternalHTTPBinState(t)
 
 	requestID := "ffeeddccbbaa99887766554433221100"
-	req := registerInternalHTTPBinRequest(requestID, "device-2")
+	conn := &SafeConn{}
+	req := registerInternalHTTPBinRequest(requestID, "device-2", conn)
 
-	abortInternalHTTPBinRequestsForDevice("device-2", "device disconnected")
+	abortInternalHTTPBinRequestsForDevice(conn, "device disconnected")
 
 	select {
 	case <-req.Done:
@@ -630,7 +628,7 @@ func TestInternalHTTPBinRequestRejectsOversizedBodyMeta(t *testing.T) {
 	)
 
 	requestID := "1234567890abcdef1234567890abcdef"
-	req := registerInternalHTTPBinRequest(requestID, "device-4")
+	req := registerInternalHTTPBinRequest(requestID, "device-4", conn)
 
 	if !handleInternalHTTPResponseBinMeta(conn, Message{
 		Type: "http/response-bin",
@@ -665,7 +663,7 @@ func TestInternalHTTPBinRequestRejectsExcessiveChunkCount(t *testing.T) {
 	)
 
 	requestID := "fedcba0987654321fedcba0987654321"
-	req := registerInternalHTTPBinRequest(requestID, "device-5")
+	req := registerInternalHTTPBinRequest(requestID, "device-5", conn)
 
 	if !handleInternalHTTPResponseBinChunk(conn, requestID, 0, maxInternalHTTPBinChunksForBody(internalHTTPBinMaxBodySize)+1, []byte("boom")) {
 		t.Fatalf("expected invalid chunk count to be consumed")

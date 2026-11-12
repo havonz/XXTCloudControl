@@ -927,13 +927,9 @@ func broadcastDeviceMessageWithDetail(udid string, messageCode string, messagePa
 }
 
 // sendFileDownloadCommand sends a file download command to a device
-func sendFileDownloadCommand(deviceSN string, downloadURL string, targetPath string, md5 string, totalBytes int64, timeout int, requestID string) error {
-	mu.RLock()
-	conn, exists := deviceLinks[deviceSN]
-	mu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("device %s not connected", deviceSN)
+func sendFileDownloadCommand(conn *SafeConn, downloadURL string, targetPath string, md5 string, totalBytes int64, timeout int, requestID string) error {
+	if conn == nil {
+		return errors.New("device not connected")
 	}
 
 	cmd := Message{

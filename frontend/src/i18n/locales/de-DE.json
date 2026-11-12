@@ -1,4 +1,14 @@
 {
+  "mcp": {
+    "title": "MCP-Zugang",
+    "address": "Verbindungsadresse",
+    "secret": "Bearer-Token (einmalige Anzeige)",
+    "header_hint": "Setze den Authorization-Header auf Bearer <Token> mit einem Leerzeichen nach Bearer.",
+    "copy_config": "Konfiguration kopieren",
+    "generate": "Token erstellen",
+    "rotate": "Token erneuern",
+    "revoke": "Token widerrufen"
+  },
   "common": {
     "add": "Hinzufügen",
     "adding": "Wird hinzugefügt…",

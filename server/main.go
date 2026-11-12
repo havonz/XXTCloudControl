@@ -182,6 +182,10 @@ func main() {
 	r.Use(corsMiddleware())
 	r.Use(apiAuthMiddleware())
 
+	if err := registerMCP(r); err != nil {
+		log.Fatalf("MCP initialization failed: %v", err)
+	}
+
 	// WebSocket route
 	r.GET("/api/ws", handleWebSocketConnection)
 

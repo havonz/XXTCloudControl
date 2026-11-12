@@ -11,6 +11,10 @@ L’implémentation du protocole côté appareil se trouve à l’adresse `/var/
   <img alt="Capture d’écran de XXTCloudControl" src="../../site/public/screenshot-001-en.png">
 </picture>
 
+## Accès MCP
+
+Après la connexion, ouvrez **MCP** en haut du panneau, copiez l’adresse et générez un jeton Bearer. Utilisez Streamable HTTP via HTTPS, par exemple `https://cloud.example.com/mcp`, avec l’en-tête `Authorization: Bearer <token>`. Ce jeton permet de contrôler les appareils et de gérer les fichiers du serveur. Il ne s’affiche qu’une fois. Son renouvellement ou sa révocation invalide immédiatement l’ancien jeton.
+
 ## Versions publiées
 
 - Page officielle de téléchargement (GitHub Pages) : [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

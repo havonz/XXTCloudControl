@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -531,7 +532,7 @@ func addLogSubscriberLocked(udid string, conn *SafeConn) bool {
 	if subs[conn] {
 		return false
 	}
-	wasEmpty := len(subs) == 0
+	wasEmpty := len(subs) == 0 && len(mcpLogCaptures[deviceLinks[udid]]) == 0
 	subs[conn] = true
 	return wasEmpty
 }
@@ -552,7 +553,7 @@ func removeLogSubscriberLocked(udid string, conn *SafeConn) bool {
 	delete(subs, conn)
 	if len(subs) == 0 {
 		delete(logSubscriptions, udid)
-		return true
+		return len(mcpLogCaptures[deviceLinks[udid]]) == 0
 	}
 	return false
 }
@@ -569,7 +570,9 @@ func removeLogSubscriberFromAllLocked(conn *SafeConn) []string {
 			delete(subs, conn)
 			if len(subs) == 0 {
 				delete(logSubscriptions, udid)
-				emptied = append(emptied, udid)
+				if len(mcpLogCaptures[deviceLinks[udid]]) == 0 {
+					emptied = append(emptied, udid)
+				}
 			}
 		}
 	}
@@ -774,6 +777,12 @@ func forwardDeviceMessageToControllers(conn *SafeConn, data Message) error {
 // handleMessage processes incoming WebSocket messages
 func handleMessage(conn *SafeConn, data Message) error {
 	switch data.Type {
+	case "screen/snapshot":
+		if strings.HasPrefix(data.RequestID, mcpSnapshotPrefix) {
+			handleMCPSnapshotReply(conn, data)
+			return nil
+		}
+		return forwardDeviceMessageToControllers(conn, data)
 	case "control/devices":
 		if !isDataValid(data) {
 			conn.Close()
@@ -1153,8 +1162,20 @@ func handleMessage(conn *SafeConn, data Message) error {
 			}
 		}
 
+	case "http/request-bin":
+		// 旧版设备遇到 Lua 异常可能原样回送请求。在这里结束匹配的调用，避免超时或广播请求信息。
+		if body, ok := data.Body.(map[string]any); ok {
+			if id, ok := body["requestId"].(string); ok && strings.HasPrefix(id, internalIDPrefix) {
+				if data.Error == "" {
+					data.Error = "device rejected internal HTTP request"
+				}
+				handleInternalHTTPResponseBinMeta(conn, Message{Body: map[string]any{"requestId": id, "error": data.Error, "bodySize": 0}})
+				return nil
+			}
+		}
+		return forwardDeviceMessageToControllers(conn, data)
 	case "http/response-bin":
-		// 服务端内部截图请求也复用 http/response-bin，必须先拦截，避免再转发给控制端。
+		// 内部回包只交给发起请求的一方，即使原来的设备连接已经结束。
 		if handleInternalHTTPResponseBinMeta(conn, data) {
 			return nil
 		}
@@ -1279,6 +1300,14 @@ func handleMessage(conn *SafeConn, data Message) error {
 			controllerList    []*SafeConn
 		)
 		mu.Lock()
+		replaced := deviceLinks[udid]
+		if previous, known := deviceLinksMap[conn]; known && (previous != udid || replaced != conn) {
+			mu.Unlock()
+			return nil
+		}
+		if replaced != nil && replaced != conn {
+			abortInternalHTTPBinRequestsForDevice(replaced, "device reconnected")
+		}
 		deviceLinks[udid] = conn
 		deviceLinksMap[conn] = udid
 		deviceTable[udid] = data.Body
@@ -1290,6 +1319,10 @@ func handleMessage(conn *SafeConn, data Message) error {
 			controllerList = snapshotControllerConnsLocked()
 		}
 		mu.Unlock()
+
+		if replaced != nil && replaced != conn {
+			_ = replaced.Close()
+		}
 
 		if needsLogSubscribe {
 			subscribePayload, err := json.Marshal(Message{Type: "system/log/subscribe"})
@@ -1320,9 +1353,19 @@ func handleMessage(conn *SafeConn, data Message) error {
 			udid           string
 			subscriberList []*SafeConn
 		)
-		mu.RLock()
+		mu.Lock()
 		if mappedUDID, exists := deviceLinksMap[conn]; exists {
 			udid = mappedUDID
+			if body, ok := data.Body.(map[string]any); ok {
+				chunk, _ := body["chunk"].(string)
+				for capture := range mcpLogCaptures[conn] {
+					remaining := (256 << 10) - capture.buffer.Len()
+					if len(chunk) > remaining {
+						capture.truncated = true
+					}
+					capture.buffer.WriteString(chunk[:min(remaining, len(chunk))])
+				}
+			}
 			if subs, ok := logSubscriptions[udid]; ok && len(subs) > 0 {
 				subscriberList = make([]*SafeConn, 0, len(subs))
 				for controllerConn := range subs {
@@ -1330,7 +1373,7 @@ func handleMessage(conn *SafeConn, data Message) error {
 				}
 			}
 		}
-		mu.RUnlock()
+		mu.Unlock()
 
 		if udid != "" && len(subscriberList) > 0 {
 			data.UDID = udid
@@ -1561,7 +1604,7 @@ func handleDisconnection(conn *SafeConn) {
 
 	if disconnectedUDID != "" {
 		clearPendingScriptStart(disconnectedUDID)
-		abortInternalHTTPBinRequestsForDevice(disconnectedUDID, "device disconnected")
+		abortInternalHTTPBinRequestsForDevice(conn, "device disconnected")
 	}
 
 	if disconnectUDID != "" && len(disconnectTargets) > 0 {

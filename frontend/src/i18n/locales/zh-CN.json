@@ -1,4 +1,14 @@
 {
+  "mcp": {
+    "title": "MCP 接入",
+    "address": "连接地址",
+    "secret": "Bearer 令牌（仅显示一次）",
+    "header_hint": "将 Authorization 请求头设为 Bearer <令牌>，Bearer 后留一个空格。",
+    "copy_config": "复制配置",
+    "generate": "生成令牌",
+    "rotate": "轮换令牌",
+    "revoke": "撤销令牌"
+  },
   "common": {
     "add": "添加",
     "adding": "添加中...",

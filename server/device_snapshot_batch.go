@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gorilla/websocket"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,11 +22,11 @@ import (
 )
 
 const (
-	batchSnapshotConcurrency      = 3
-	batchSnapshotRequestTimeout   = 20 * time.Second
-	internalHTTPBinChunkSize      = 64 * 1024
-	internalHTTPBinIgnoreDuration = 30 * time.Second
-	internalHTTPBinMaxBodySize    = 32 * 1024 * 1024
+	batchSnapshotConcurrency    = 3
+	batchSnapshotRequestTimeout = 20 * time.Second
+	internalHTTPBinChunkSize    = 64 * 1024
+
+	internalHTTPBinMaxBodySize = 32 * 1024 * 1024
 )
 
 type snapshotSaveBatchRequest struct {
@@ -50,6 +53,7 @@ type internalHTTPBinResponse struct {
 type internalHTTPBinRequestState struct {
 	RequestID      string
 	DeviceUDID     string
+	Conn           *SafeConn
 	Done           chan struct{}
 	Result         internalHTTPBinResponse
 	MetaReceived   bool
@@ -64,7 +68,6 @@ type internalHTTPBinRequestState struct {
 var (
 	internalHTTPBinMu       sync.Mutex
 	internalHTTPBinRequests = make(map[string]*internalHTTPBinRequestState)
-	internalHTTPBinIgnored  = make(map[string]time.Time)
 
 	captureDeviceScreenshot = requestDeviceScreenshotViaHTTPBin
 )
@@ -312,44 +315,92 @@ func requestDeviceHTTPBin(udid, method, path string, query map[string]interface{
 		return internalHTTPBinResponse{}, errors.New("device is offline")
 	}
 
-	requestID, err := generateInternalHTTPBinRequestID()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return deviceHTTP(ctx, conn, udid, method, path, query, headers, nil)
+}
+
+// Internal IDs keep late replies private even after their request has been reclaimed.
+const internalIDPrefix = "cc4d4350"
+
+func deviceHTTP(ctx context.Context, conn *SafeConn, udid, method, path string, query map[string]any, headers map[string]string, body []byte) (internalHTTPBinResponse, error) {
+	id, err := generateInternalHTTPBinRequestID()
 	if err != nil {
 		return internalHTTPBinResponse{}, err
 	}
-
-	req := registerInternalHTTPBinRequest(requestID, udid)
-
-	payload, err := json.Marshal(Message{
-		Type: "http/request-bin",
-		Body: map[string]interface{}{
-			"requestId": requestID,
-			"method":    method,
-			"path":      path,
-			"query":     query,
-			"headers":   headers,
-			"bodySize":  0,
-			"chunkSize": internalHTTPBinChunkSize,
-		},
-	})
+	id = internalIDPrefix + id[len(internalIDPrefix):]
+	meta := map[string]any{"requestId": id, "method": method, "path": path, "bodySize": len(body), "chunkSize": internalHTTPBinChunkSize}
+	if query != nil {
+		meta["query"] = query
+	}
+	if headers != nil {
+		meta["headers"] = headers
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		meta["timeoutMs"] = max(int64(1), time.Until(deadline).Milliseconds())
+	}
+	payload, err := json.Marshal(Message{Type: "http/request-bin", Body: meta})
 	if err != nil {
-		cancelInternalHTTPBinRequest(requestID, err.Error())
 		return internalHTTPBinResponse{}, err
 	}
+	// 元数据和请求体一起排队。一旦发出元数据，应发完同一请求的分片，以免设备永久等待剩余部分。
+	frames := [][]byte{payload}
+	if len(body) > 0 {
+		rawID, _ := hex.DecodeString(id)
+		total := (len(body) + internalHTTPBinChunkSize - 1) / internalHTTPBinChunkSize
 
-	if err := writeTextMessage(conn, payload); err != nil {
-		cancelInternalHTTPBinRequest(requestID, err.Error())
+		for i := 0; i < total; i++ {
+			chunk := body[i*internalHTTPBinChunkSize : min((i+1)*internalHTTPBinChunkSize, len(body))]
+			frame := make([]byte, binaryHeaderSize+len(chunk))
+			copy(frame, rawID)
+			binary.BigEndian.PutUint32(frame[16:20], uint32(i))
+			binary.BigEndian.PutUint32(frame[20:24], uint32(total))
+			copy(frame[24:], chunk)
+			frames = append(frames, frame)
+		}
+	}
+	return awaitDeviceReply(ctx, conn, udid, id, websocketWrite{messageType: websocket.BinaryMessage, firstIsText: true, payloads: frames})
+}
+
+func awaitDeviceReply(ctx context.Context, conn *SafeConn, udid, id string, write websocketWrite) (internalHTTPBinResponse, error) {
+	mu.RLock()
+	if conn == nil || deviceLinks[udid] != conn {
+		mu.RUnlock()
+		return internalHTTPBinResponse{}, errors.New("device disconnected")
+	}
+	req := registerInternalHTTPBinRequest(id, udid, conn)
+	mu.RUnlock()
+	defer cancelInternalHTTPBinRequest(id, "request canceled")
+	write.result = make(chan error, 1)
+	write.beforeWrite = func() error {
+		if e := ctx.Err(); e != nil {
+			return e
+		}
+		mu.RLock()
+		defer mu.RUnlock()
+		if deviceLinks[udid] != conn {
+			return errors.New("device disconnected")
+		}
+		return nil
+	}
+	if err := conn.enqueueWrite(write); err != nil {
 		return internalHTTPBinResponse{}, err
 	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
+	select {
+	case err := <-write.result:
+		if err != nil {
+			return internalHTTPBinResponse{}, err
+		}
+	case <-conn.writeClosed:
+		return internalHTTPBinResponse{}, errors.New("device disconnected")
+	case <-ctx.Done():
+		return internalHTTPBinResponse{}, ctx.Err()
+	}
 	select {
 	case <-req.Done:
 		return req.Result, nil
-	case <-timer.C:
-		cancelInternalHTTPBinRequest(requestID, "request timeout")
-		return internalHTTPBinResponse{}, errors.New("request timeout")
+	case <-ctx.Done():
+		return internalHTTPBinResponse{}, ctx.Err()
 	}
 }
 
@@ -361,16 +412,14 @@ func generateInternalHTTPBinRequestID() (string, error) {
 	return hex.EncodeToString(buf[:]), nil
 }
 
-func registerInternalHTTPBinRequest(requestID, deviceUDID string) *internalHTTPBinRequestState {
+func registerInternalHTTPBinRequest(requestID, deviceUDID string, conn *SafeConn) *internalHTTPBinRequestState {
 	internalHTTPBinMu.Lock()
 	defer internalHTTPBinMu.Unlock()
 
-	pruneExpiredInternalHTTPBinIgnoredLocked(time.Now())
-
 	state := &internalHTTPBinRequestState{
 		RequestID:  requestID,
-		DeviceUDID: deviceUDID,
-		Done:       make(chan struct{}),
+		DeviceUDID: deviceUDID, Conn: conn,
+		Done: make(chan struct{}),
 	}
 	internalHTTPBinRequests[requestID] = state
 	return state
@@ -389,12 +438,12 @@ func cancelInternalHTTPBinRequest(requestID, reason string) {
 	})
 }
 
-func abortInternalHTTPBinRequestsForDevice(deviceUDID, reason string) {
+func abortInternalHTTPBinRequestsForDevice(conn *SafeConn, reason string) {
 	internalHTTPBinMu.Lock()
 	defer internalHTTPBinMu.Unlock()
 
 	for _, state := range internalHTTPBinRequests {
-		if state.DeviceUDID != deviceUDID || state.Completed {
+		if state.Conn != conn || state.Completed {
 			continue
 		}
 		finalizeInternalHTTPBinRequestLocked(state, internalHTTPBinResponse{
@@ -404,11 +453,6 @@ func abortInternalHTTPBinRequestsForDevice(deviceUDID, reason string) {
 }
 
 func handleInternalHTTPResponseBinMeta(conn *SafeConn, data Message) bool {
-	deviceUDID, ok := getDeviceUDIDByConn(conn)
-	if !ok {
-		return false
-	}
-
 	bodyMap, err := decodeBodyMap(data.Body)
 	if err != nil {
 		return false
@@ -417,19 +461,24 @@ func handleInternalHTTPResponseBinMeta(conn *SafeConn, data Message) bool {
 	if !ok || strings.TrimSpace(requestID) == "" {
 		return false
 	}
+	if strings.HasPrefix(requestID, mcpSnapshotPrefix) {
+		return true
+	}
+
+	deviceUDID, known := getDeviceUDIDByConn(conn)
+	if !known {
+		return strings.HasPrefix(requestID, internalIDPrefix)
+	}
 
 	internalHTTPBinMu.Lock()
 	defer internalHTTPBinMu.Unlock()
 
-	now := time.Now()
-	pruneExpiredInternalHTTPBinIgnoredLocked(now)
-	if shouldIgnoreInternalHTTPBinRequestLocked(requestID, now) {
-		return true
-	}
-
 	state, exists := internalHTTPBinRequests[requestID]
-	if !exists || state.DeviceUDID != deviceUDID || state.Completed {
-		return false
+	if !exists {
+		return strings.HasPrefix(requestID, internalIDPrefix)
+	}
+	if state.Conn != conn || state.DeviceUDID != deviceUDID || state.Completed {
+		return true
 	}
 
 	if statusCode, ok := toInt(bodyMap["statusCode"]); ok {
@@ -470,8 +519,7 @@ func handleInternalHTTPResponseBinMeta(conn *SafeConn, data Message) bool {
 	}
 
 	if state.ExpectedChunks > 0 && state.ReceivedChunks == int(state.ExpectedChunks) {
-		state.Result.Body = assembleInternalHTTPBinBody(state)
-		finalizeInternalHTTPBinRequestLocked(state, state.Result)
+		completeInternalHTTPBinBodyLocked(state)
 	}
 	return true
 }
@@ -479,21 +527,18 @@ func handleInternalHTTPResponseBinMeta(conn *SafeConn, data Message) bool {
 func handleInternalHTTPResponseBinChunk(conn *SafeConn, requestID string, seq, total uint32, chunk []byte) bool {
 	deviceUDID, ok := getDeviceUDIDByConn(conn)
 	if !ok {
-		return false
+		return strings.HasPrefix(requestID, internalIDPrefix)
 	}
 
 	internalHTTPBinMu.Lock()
 	defer internalHTTPBinMu.Unlock()
 
-	now := time.Now()
-	pruneExpiredInternalHTTPBinIgnoredLocked(now)
-	if shouldIgnoreInternalHTTPBinRequestLocked(requestID, now) {
-		return true
-	}
-
 	state, exists := internalHTTPBinRequests[requestID]
-	if !exists || state.DeviceUDID != deviceUDID || state.Completed {
-		return false
+	if !exists {
+		return strings.HasPrefix(requestID, internalIDPrefix)
+	}
+	if state.Conn != conn || state.DeviceUDID != deviceUDID || state.Completed {
+		return true
 	}
 
 	if total == 0 {
@@ -544,26 +589,22 @@ func handleInternalHTTPResponseBinChunk(conn *SafeConn, requestID string, seq, t
 	}
 
 	if state.MetaReceived && state.ExpectedChunks > 0 && state.ReceivedChunks == int(state.ExpectedChunks) {
-		state.Result.Body = assembleInternalHTTPBinBody(state)
-		finalizeInternalHTTPBinRequestLocked(state, state.Result)
+		completeInternalHTTPBinBodyLocked(state)
 	}
 	return true
 }
 
-func assembleInternalHTTPBinBody(state *internalHTTPBinRequestState) []byte {
-	totalBytes := 0
-	for _, chunk := range state.Chunks {
-		totalBytes += len(chunk)
+func completeInternalHTTPBinBodyLocked(state *internalHTTPBinRequestState) {
+	if state.ReceivedBytes != state.BodySize {
+		finalizeInternalHTTPBinRequestLocked(state, internalHTTPBinResponse{Error: "response body size mismatch"})
+		return
 	}
-
-	body := make([]byte, 0, totalBytes)
+	body := make([]byte, 0, state.BodySize)
 	for _, chunk := range state.Chunks {
 		body = append(body, chunk...)
 	}
-	if state.BodySize > 0 && len(body) > state.BodySize {
-		body = body[:state.BodySize]
-	}
-	return body
+	state.Result.Body = body
+	finalizeInternalHTTPBinRequestLocked(state, state.Result)
 }
 
 func finalizeInternalHTTPBinRequestLocked(state *internalHTTPBinRequestState, result internalHTTPBinResponse) {
@@ -573,28 +614,8 @@ func finalizeInternalHTTPBinRequestLocked(state *internalHTTPBinRequestState, re
 	state.Completed = true
 	state.Result = result
 	delete(internalHTTPBinRequests, state.RequestID)
-	internalHTTPBinIgnored[state.RequestID] = time.Now().Add(internalHTTPBinIgnoreDuration)
+
 	close(state.Done)
-}
-
-func shouldIgnoreInternalHTTPBinRequestLocked(requestID string, now time.Time) bool {
-	expiresAt, exists := internalHTTPBinIgnored[requestID]
-	if !exists {
-		return false
-	}
-	if now.After(expiresAt) {
-		delete(internalHTTPBinIgnored, requestID)
-		return false
-	}
-	return true
-}
-
-func pruneExpiredInternalHTTPBinIgnoredLocked(now time.Time) {
-	for requestID, expiresAt := range internalHTTPBinIgnored {
-		if now.After(expiresAt) {
-			delete(internalHTTPBinIgnored, requestID)
-		}
-	}
 }
 
 func maxInternalHTTPBinChunksForBody(bodySize int) uint32 {

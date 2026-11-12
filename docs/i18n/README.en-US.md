@@ -11,6 +11,10 @@ The device-side protocol implementation is located at `/var/mobile/Media/1ferver
   <img alt="XXTCloudControl screenshot" src="../../site/public/screenshot-001-en.png">
 </picture>
 
+## MCP access
+
+Sign in and open **MCP** in the panel header. Copy the URL and generate a Bearer token. Connect using Streamable HTTP over HTTPS, for example `https://cloud.example.com/mcp`, with the header `Authorization: Bearer <token>`. The token can control connected devices and manage cloud files. It is shown once. Rotating or revoking it invalidates the old token immediately.
+
 ## Releases
 
 - Official download page (GitHub Pages): [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

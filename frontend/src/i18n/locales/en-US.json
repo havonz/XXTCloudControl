@@ -1,4 +1,14 @@
 {
+  "mcp": {
+    "title": "MCP access",
+    "address": "Connection URL",
+    "secret": "Bearer token (shown once)",
+    "header_hint": "Set the Authorization header to Bearer <token>, with a space after Bearer.",
+    "copy_config": "Copy configuration",
+    "generate": "Generate token",
+    "rotate": "Rotate token",
+    "revoke": "Revoke token"
+  },
   "common": {
     "add": "Add",
     "adding": "Adding...",

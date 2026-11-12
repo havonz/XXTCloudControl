@@ -32,6 +32,7 @@ type filePushSource struct {
 	path         string
 	size         int64
 	smallPayload []byte
+	targets      map[string]*SafeConn
 	md5          string
 }
 
@@ -40,6 +41,9 @@ func prepareFilePushSource(c *gin.Context, req filePushRequest) *filePushSource 
 	if err != nil {
 		jsonError(c, http.StatusBadRequest, err.Error())
 		return nil
+	}
+	if staged, ok := c.Request.Context().Value(mcpStageKey{}).(mcpDistributionSource); ok {
+		filePath = staged.path
 	}
 	info, err := os.Stat(filePath)
 	if os.IsNotExist(err) {
@@ -56,6 +60,9 @@ func prepareFilePushSource(c *gin.Context, req filePushRequest) *filePushSource 
 	}
 
 	source := &filePushSource{path: filePath, size: info.Size()}
+	if staged, ok := c.Request.Context().Value(mcpStageKey{}).(mcpDistributionSource); ok {
+		source.targets = staged.targets
+	}
 	if info.Size() < 128*1024 {
 		content, err := os.ReadFile(filePath)
 		if err != nil {
@@ -82,6 +89,12 @@ func prepareFilePushSource(c *gin.Context, req filePushRequest) *filePushSource 
 }
 
 func pushPreparedFileToDevice(source *filePushSource, req filePushRequest, deviceSN, baseURL string) (gin.H, int, error) {
+	mu.RLock()
+	conn := deviceLinks[deviceSN]
+	mu.RUnlock()
+	if source.targets != nil && source.targets[deviceSN] != conn {
+		conn = nil
+	}
 	timeout := normalizeTransferTimeoutSeconds(req.Timeout)
 	expiresAt := time.Now().Add(transferTokenTTLForTimeout(timeout))
 	requestID := uuid.NewString()
@@ -95,9 +108,6 @@ func pushPreparedFileToDevice(source *filePushSource, req filePushRequest, devic
 		}
 	}()
 	if source.smallPayload != nil {
-		mu.RLock()
-		conn := deviceLinks[deviceSN]
-		mu.RUnlock()
 		if conn == nil {
 			return nil, http.StatusBadRequest, errors.New("device not connected")
 		}
@@ -128,7 +138,7 @@ func pushPreparedFileToDevice(source *filePushSource, req filePushRequest, devic
 
 	downloadURL := baseURL + "/api/transfer/download/" + token
 	broadcastDeviceMessage(deviceSN, "device.transfer.download_file", map[string]any{"name": filepath.Base(req.Path)})
-	if err := sendFileDownloadCommand(deviceSN, downloadURL, req.TargetPath, source.md5, source.size, timeout, requestID); err != nil {
+	if err := sendFileDownloadCommand(conn, downloadURL, req.TargetPath, source.md5, source.size, timeout, requestID); err != nil {
 		transferTokensMu.Lock()
 		info := transferTokens[token]
 		delete(transferTokens, token)

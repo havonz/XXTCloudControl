@@ -1,4 +1,14 @@
 {
+  "mcp": {
+    "title": "MCP 連線",
+    "address": "連線位址",
+    "secret": "Bearer 權杖（僅顯示一次）",
+    "header_hint": "將 Authorization 請求標頭設為 Bearer <權杖>，Bearer 後留一個空格。",
+    "copy_config": "複製設定",
+    "generate": "產生權杖",
+    "rotate": "更換權杖",
+    "revoke": "撤銷權杖"
+  },
   "common": {
     "add": "新增",
     "adding": "新增中...",

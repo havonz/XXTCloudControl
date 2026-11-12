@@ -11,6 +11,10 @@
   <img alt="XXTCloudControl screenshot" src="../../site/public/screenshot-001-en.png">
 </picture>
 
+## MCP 連線
+
+登入後點選面板頂端的 **MCP**，複製連線位址並產生 Bearer 權杖。使用 Streamable HTTP 透過 HTTPS 連線，例如 `https://cloud.example.com/mcp`，並設定 `Authorization: Bearer <token>`。權杖可控制線上裝置及管理雲端檔案，明文只顯示一次。更換或撤銷後，舊權杖立即失效。
+
 ## 下載與發布
 
 - 官方發布下載頁（GitHub Pages）：[https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

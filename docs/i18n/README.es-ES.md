@@ -11,6 +11,10 @@ La implementación del protocolo del dispositivo se encuentra en `/var/mobile/Me
   <img alt="XXTCloudControl screenshot" src="../../site/public/screenshot-001-en.png">
 </picture>
 
+## Acceso MCP
+
+Inicie sesión y abra **MCP** en la cabecera del panel. Copie la URL y genere un token Bearer. Conecte mediante Streamable HTTP sobre HTTPS, por ejemplo a `https://cloud.example.com/mcp`, con la cabecera `Authorization: Bearer <token>`. El token permite controlar los dispositivos y gestionar los archivos del servidor. Solo se muestra una vez y deja de funcionar en cuanto se renueva o revoca.
+
 ## Versiones publicadas
 
 - Página oficial de descargas (GitHub Pages): [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

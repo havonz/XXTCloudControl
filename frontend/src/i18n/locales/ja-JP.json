@@ -1,4 +1,14 @@
 {
+  "mcp": {
+    "title": "MCP 接続",
+    "address": "接続先 URL",
+    "secret": "Bearer トークン（一度だけ表示）",
+    "header_hint": "Authorization ヘッダーを Bearer <トークン> に設定します。Bearer の後には半角スペースを入れてください。",
+    "copy_config": "設定をコピー",
+    "generate": "トークンを生成",
+    "rotate": "トークンを更新",
+    "revoke": "トークンを失効"
+  },
   "common": {
     "add": "追加",
     "adding": "追加中...",

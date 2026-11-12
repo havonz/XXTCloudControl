@@ -1,4 +1,14 @@
 {
+  "mcp": {
+    "title": "Kết nối MCP",
+    "address": "Địa chỉ kết nối",
+    "secret": "Mã Bearer (chỉ hiển thị một lần)",
+    "header_hint": "Đặt tiêu đề Authorization thành Bearer <mã>, với một dấu cách sau Bearer.",
+    "copy_config": "Sao chép cấu hình",
+    "generate": "Tạo mã",
+    "rotate": "Thay mã",
+    "revoke": "Thu hồi mã"
+  },
   "common": {
     "add": "Thêm",
     "adding": "Đang thêm...",

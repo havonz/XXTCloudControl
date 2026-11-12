@@ -1,0 +1,43 @@
+.row, .actions, .configHeading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.row { margin: 0.4rem 0 1rem; }
+.row input, .config {
+  min-width: 0;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-family: monospace;
+}
+.row input { flex: 1; }
+.headerHint {
+  margin: -0.5rem 0 1rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+.configHeading { justify-content: space-between; }
+.config {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0.4rem 0 1rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+.row button, .actions button, .configHeading button {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--panel-2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.actions { flex-wrap: wrap; }
+.actions button:first-child { color: var(--primary); }
+.row button:hover, .actions button:hover, .configHeading button:hover { background: var(--hover-bg); }
+.row button:active, .actions button:active, .configHeading button:active { transform: scale(0.98); }
+.actions button:disabled { opacity: 0.6; cursor: default; }

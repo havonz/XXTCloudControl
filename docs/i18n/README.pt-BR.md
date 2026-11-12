@@ -11,6 +11,10 @@ A implementação do protocolo no dispositivo está em `/var/mobile/Media/1ferve
   <img alt="XXTCloudControl screenshot" src="../../site/public/screenshot-001-en.png">
 </picture>
 
+## Acesso MCP
+
+Entre no painel e abra **MCP** no cabeçalho. Copie a URL e gere um token Bearer. Conecte-se usando Streamable HTTP sobre HTTPS, por exemplo em `https://cloud.example.com/mcp`, com o cabeçalho `Authorization: Bearer <token>`. O token permite controlar dispositivos e gerenciar arquivos do servidor. Ele só é exibido uma vez e perde a validade assim que é renovado ou revogado.
+
 ## Lançamentos
 
 - Página oficial de download (GitHub Pages): [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

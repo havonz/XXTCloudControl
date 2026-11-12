@@ -11,6 +11,10 @@ Mã nguồn triển khai giao thức phía thiết bị nằm tại `/var/mobile
   <img alt="XXTCloudControl screenshot" src="../../site/public/screenshot-001-en.png">
 </picture>
 
+## Kết nối MCP
+
+Đăng nhập rồi mở **MCP** ở đầu bảng điều khiển. Sao chép địa chỉ và tạo mã Bearer. Kết nối bằng Streamable HTTP qua HTTPS, ví dụ `https://cloud.example.com/mcp`, với tiêu đề `Authorization: Bearer <token>`. Mã cho phép điều khiển thiết bị và quản lý tệp trên máy chủ. Mã chỉ hiển thị một lần và mất hiệu lực ngay khi được thay hoặc thu hồi.
+
 ## Bản phát hành
 
 - Trang tải xuống chính thức (GitHub Pages): [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

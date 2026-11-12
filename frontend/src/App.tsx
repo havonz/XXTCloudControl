@@ -22,6 +22,7 @@ import { useI18n } from './i18n';
 import { localizeApiError } from './utils/apiError';
 import { localizeUpdateError } from './utils/updateError';
 
+const MCPAccessModal = lazy(() => import('./components/MCPAccessModal'));
 const DeviceList = lazy(() => import('./components/DeviceList'));
 const DeviceFileBrowser = lazy(() => import('./components/DeviceFileBrowser'));
 const GroupList = lazy(() => import('./components/GroupList'));
@@ -64,6 +65,7 @@ interface UpdatePanelPosition {
 
 const App: Component = () => {
   const toast = useToast();
+  const [mcpOpen, setMCPOpen] = createSignal(false);
   const { themeMode, cycleTheme } = useTheme();
   const { t, locale } = useI18n();
   
@@ -1211,6 +1213,12 @@ const App: Component = () => {
               )}
             </div>
             <div class={styles.headerRight}>
+              <button class={`${styles.versionBadge} ${styles.versionBadgeButton}`} onClick={() => setMCPOpen(true)} title={t('mcp.title')}>MCP</button>
+              <Show when={mcpOpen()}>
+                <AsyncBoundary modal visible onClose={() => setMCPOpen(false)}>
+                  <MCPAccessModal endpoint={authService.getHttpBaseUrl(serverHost(), serverPort()) + '/mcp'} onClose={() => setMCPOpen(false)} />
+                </AsyncBoundary>
+              </Show>
               <div class={styles.serverInfo}>
                 <span class={styles.serverIp}>{serverHost()}</span>
               </div>

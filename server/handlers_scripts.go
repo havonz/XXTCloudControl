@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -63,6 +64,7 @@ type scriptStartState struct {
 }
 
 type scriptStartSession struct {
+	connection             *SafeConn
 	runPayload             []byte
 	runPayloadPrepared     bool
 	runName                string
@@ -145,6 +147,7 @@ func createScriptStartSession(
 	runName string,
 	phase string,
 	fetchRequests []pendingScriptFetchRequest,
+	bound ...*SafeConn,
 ) (uint64, bool) {
 	if deviceID == "" {
 		return 0, false
@@ -166,6 +169,9 @@ func createScriptStartSession(
 		},
 	}
 
+	if len(bound) > 0 {
+		session.connection = bound[0]
+	}
 	scriptStartSessions.Lock()
 	current := scriptStartSessions.entries[deviceID]
 	if current != nil && current.state.Active {
@@ -283,14 +289,6 @@ func clearScriptStartSessionIfGeneration(deviceID string, generation uint64) boo
 	return true
 }
 
-func isCurrentScriptStartSession(deviceID string, generation uint64) bool {
-	scriptStartSessions.Lock()
-	current := scriptStartSessions.entries[deviceID]
-	ok := current != nil && current.generation == generation && current.state.Active
-	scriptStartSessions.Unlock()
-	return ok
-}
-
 func cancelScriptStartSession(deviceID string) scriptStartCancelResult {
 	if deviceID == "" {
 		return scriptStartCancelFailure(scriptStartCancelReasonCodeNoActive)
@@ -338,14 +336,19 @@ func startScriptOnDevice(
 		if delay > 0 {
 			time.Sleep(delay)
 		}
-		if !isCurrentScriptStartSession(deviceID, generation) {
-			return
-		}
 
 		mu.RLock()
 		conn, exists := deviceLinks[deviceID]
 		mu.RUnlock()
-		if !exists {
+		scriptStartSessions.Lock()
+		entry := scriptStartSessions.entries[deviceID]
+		current := entry != nil && entry.generation == generation && entry.state.Active
+		sameConn := current && (entry.connection == nil || entry.connection == conn)
+		scriptStartSessions.Unlock()
+		if !current {
+			return
+		}
+		if !exists || !sameConn {
 			failScriptStartSession(deviceID, generation, "device.script.start_device_offline")
 			return
 		}
@@ -985,11 +988,12 @@ func buildDeviceScriptConfigIndex(scriptName string, selectedGroups []string) ma
 
 // snapshotDeviceConns copies currently connected device sockets for target devices.
 // This avoids holding the global device mutex while doing heavy per-device work.
-func snapshotDeviceConns(deviceIDs []string) map[string]*SafeConn {
+func snapshotDeviceConns(ctx context.Context, deviceIDs []string) map[string]*SafeConn {
+	source, pinned := ctx.Value(mcpStageKey{}).(mcpDistributionSource)
 	conns := make(map[string]*SafeConn, len(deviceIDs))
 	mu.RLock()
 	for _, udid := range deviceIDs {
-		if conn, exists := deviceLinks[udid]; exists {
+		if conn, exists := deviceLinks[udid]; exists && (!pinned || source.targets[udid] == conn) {
 			conns[udid] = conn
 		}
 	}
@@ -1414,7 +1418,8 @@ func scriptsSendHandler(c *gin.Context) {
 	}
 	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 
-	deviceConns := snapshotDeviceConns(req.Devices)
+	deviceConns := snapshotDeviceConns(c.Request.Context(), req.Devices)
+	results := map[string]string{}
 	var sendErr error
 	for _, udid := range req.Devices {
 		if conn, exists := deviceConns[udid]; exists {
@@ -1425,6 +1430,7 @@ func scriptsSendHandler(c *gin.Context) {
 
 			if err := distribution.sender.sendSmallFilesToConn(conn, udid); err != nil {
 				sendErr = err
+				results[udid] = "failed"
 				continue
 			}
 
@@ -1458,13 +1464,18 @@ func scriptsSendHandler(c *gin.Context) {
 				}
 			}
 
-			if !deviceFailed {
+			if deviceFailed {
+				results[udid] = "failed"
+			} else {
+				results[udid] = "queued"
 				broadcastDeviceMessage(udid, "device.script.uploaded", nil)
 			}
+		} else {
+			results[udid] = "offline"
 		}
 	}
 
-	if sendErr != nil {
+	if sendErr != nil && c.Request.Context().Value(mcpStageKey{}) == nil {
 		status := http.StatusInternalServerError
 		if errors.Is(sendErr, errDeviceFileTransferBusy) {
 			status = http.StatusConflict
@@ -1472,7 +1483,7 @@ func scriptsSendHandler(c *gin.Context) {
 		jsonError(c, status, sendErr.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(distribution.files)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(distribution.files), "results": results})
 }
 
 // scriptsSendAndStartHandler handles POST /api/scripts/send-and-start
@@ -1491,10 +1502,10 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 
 	// Device-selected mode: empty name means run the script already selected on device
 	if req.Name == "" {
-		deviceConns := snapshotDeviceConns(req.Devices)
+		deviceConns := snapshotDeviceConns(c.Request.Context(), req.Devices)
 		for _, udid := range req.Devices {
-			if _, exists := deviceConns[udid]; exists {
-				generation, ok := createScriptStartSession(udid, nil, false, "", scriptStartPhaseStarting, nil)
+			if conn, exists := deviceConns[udid]; exists {
+				generation, ok := createScriptStartSession(udid, nil, false, "", scriptStartPhaseStarting, nil, conn)
 				if !ok {
 					broadcastDeviceMessage(udid, "device.script.start_previous_pending", nil)
 					continue
@@ -1524,7 +1535,8 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 	runPayloadPrepared := runPayloadErr == nil
 	transferBaseURL := resolveTransferBaseURL(c, req.ServerBaseUrl)
 
-	deviceConns := snapshotDeviceConns(req.Devices)
+	deviceConns := snapshotDeviceConns(c.Request.Context(), req.Devices)
+	results := map[string]string{}
 	type plannedLargeFetch struct {
 		file      scriptFileData
 		requestID string
@@ -1546,8 +1558,9 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 				})
 			}
 			largeTransferPrepareFailed := false
-			generation, ok := createScriptStartSession(udid, runPayload, runPayloadPrepared, runName, scriptStartPhasePreparing, pendingFetchRequests)
+			generation, ok := createScriptStartSession(udid, runPayload, runPayloadPrepared, runName, scriptStartPhasePreparing, pendingFetchRequests, conn)
 			if !ok {
+				results[udid] = "busy"
 				broadcastDeviceMessage(udid, "device.script.start_previous_pending", nil)
 				continue
 			}
@@ -1558,6 +1571,7 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			})
 
 			if err := distribution.sender.sendSmallFilesToConn(conn, udid); err != nil {
+				results[udid] = "failed"
 				clearScriptStartSessionIfGeneration(udid, generation)
 				broadcastDeviceMessageWithDetail(udid, "device.script.start_transfer_prepare_failed", nil, err.Error())
 				continue
@@ -1592,11 +1606,13 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			}
 
 			if largeTransferPrepareFailed {
+				results[udid] = "failed"
 				clearScriptStartSessionIfGeneration(udid, generation)
 				broadcastDeviceMessage(udid, "device.script.start_transfer_prepare_failed", nil)
 				continue
 			}
 
+			results[udid] = "queued"
 			if len(pendingFetchRequests) > 0 {
 				if updateScriptStartSessionPhase(udid, generation, scriptStartPhaseWaitingTransfer, true) {
 					broadcastDeviceMessage(udid, "device.script.waiting_for_transfers", map[string]any{"count": len(pendingFetchRequests)})
@@ -1608,11 +1624,12 @@ func scriptsSendAndStartHandler(c *gin.Context) {
 			updateScriptStartSessionPhase(udid, generation, scriptStartPhaseStarting, true)
 			startScriptOnDevice(udid, generation, runPayload, runPayloadPrepared, runName, ScriptStartDelay)
 		} else {
+			results[udid] = "offline"
 			broadcastDeviceMessage(udid, "device.script.start_not_connected", nil)
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(distribution.files)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "files_sent": len(distribution.files), "results": results})
 }
 
 // scriptsSendAndStartCancelHandler handles POST /api/scripts/send-and-start/cancel

@@ -1,4 +1,14 @@
 {
+  "mcp": {
+    "title": "Acesso MCP",
+    "address": "URL de conexão",
+    "secret": "Token Bearer (exibido uma vez)",
+    "header_hint": "Defina o cabeçalho Authorization como Bearer <token>, com um espaço após Bearer.",
+    "copy_config": "Copiar configuração",
+    "generate": "Gerar token",
+    "rotate": "Renovar token",
+    "revoke": "Revogar token"
+  },
   "common": {
     "add": "Adicionar",
     "adding": "Adicionando...",
