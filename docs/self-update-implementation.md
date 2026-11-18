@@ -19,6 +19,8 @@
 - `https://xxtccc-packages.xxtouch.app/releases/latest/download/update-manifest.json`
 - `https://github.com/havonz/XXTCloudControl/releases/latest/download/update-manifest.json`（兜底）
 
+R2 只保留最新正式版的安装包、Docker 镜像归档和更新元数据。发布流程上传新版文件并更新 latest 清单后，清理 R2 中的旧版本目录。历史版本可从 GitHub Releases 下载。
+
 如果通过 `update.source.manifestUrls`、`update.source.manifestUrl` 或发布构建注入值配置了来源，则使用配置来源。自定义 `update.source.repository` 只在没有上述来源时回退到对应 GitHub Release。
 
 manifest 结构由 `UpdateManifest` 定义（`server/updater.go`）：

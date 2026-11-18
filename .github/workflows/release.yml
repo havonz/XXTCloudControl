@@ -27,6 +27,10 @@ on:
         required: false
         type: string
 
+concurrency:
+  group: release-${{ inputs.dry_run == 'true' && github.run_id || 'publish' }}
+  queue: max
+
 jobs:
   build-release:
     runs-on: ubuntu-latest
@@ -448,7 +452,7 @@ jobs:
             "$IMAGE_GH:$VERSION-arm64"
           docker manifest push "$IMAGE_GH:latest"
 
-      - name: Upload Public Artifacts to R2
+      - name: Publish latest release to R2 and prune old versions
         if: ${{ inputs.dry_run != 'true' }}
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
@@ -512,9 +516,17 @@ jobs:
             upload_object "$f" "releases/download/${VERSION}/$(basename "$f")" "$immutable_cache"
           done
 
-          upload_object ./update-manifest.json "releases/latest/download/update-manifest.json" "$latest_cache"
           upload_object ./checksums.txt "releases/latest/download/checksums.txt" "$latest_cache"
           upload_object ./latest.txt "releases/latest/download/latest.txt" "$latest_cache"
+          upload_object ./update-manifest.json "releases/latest/download/update-manifest.json" "$latest_cache"
+
+          aws s3api list-objects-v2 --bucket "$R2_BUCKET" --prefix 'releases/download/' \
+            --delimiter '/' --endpoint-url "$R2_ENDPOINT" --output json |
+            jq -r --arg current "releases/download/${VERSION}/" \
+              '.CommonPrefixes[]?.Prefix | select(test("^releases/download/v[0-9]{12}/$") and . != $current)' |
+            while IFS= read -r prefix; do
+              aws s3 rm "s3://${R2_BUCKET}/${prefix}" --recursive --endpoint-url "$R2_ENDPOINT" --only-show-errors
+            done
 
       - name: Create GitHub Release (auto notes)
         if: ${{ inputs.dry_run != 'true' && inputs.release_notes == '' }}
