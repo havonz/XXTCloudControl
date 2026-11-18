@@ -15,6 +15,8 @@ XXTouch 1.3.8-20260122000000 이상을 위한 클라우드 제어 서버(WebSock
 
 로그인 후 패널 상단의 **MCP**에서 주소를 복사하고 Bearer 토큰을 생성하세요. HTTPS에서 Streamable HTTP로 접속하고(예: `https://cloud.example.com/mcp`), `Authorization: Bearer <token>` 헤더를 설정하세요. 토큰으로 기기를 제어하고 서버 파일을 관리할 수 있습니다. 토큰은 한 번만 표시되며 교체하거나 폐기하면 이전 토큰은 즉시 무효화됩니다.
 
+로컬 파일은 `backend_file_upload_url` 또는 `backend_file_download_url`로 링크를 받은 뒤 PUT으로 원본 파일을 올리거나 GET으로 내려받으세요. 링크는 5분 이내에 한 번 사용할 수 있습니다. 기기에서 파일을 가져오려면 `backend_pull_file_from_device`를 호출하세요. 다운로드 링크에서 HTTP 409를 반환하면 `Retry-After`에 표시된 시간만큼 기다린 뒤 다시 시도하세요.
+
 ## 릴리스
 
 - 공식 다운로드 페이지(GitHub Pages): [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

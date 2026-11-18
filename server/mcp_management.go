@@ -123,18 +123,34 @@ func stageMCPSource(ctx context.Context, root *os.Root, name string) (dir, sourc
 	return
 }
 
-func writeManagedFile(root *os.Root, name string, content []byte) error {
-	tmp := filepath.Join(filepath.Dir(name), ".mcp-"+uuid.NewString())
-	f, err := root.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+func writeManagedFile(ctx context.Context, root *os.Root, name string, source io.Reader, size int64) (int64, os.FileInfo, error) {
+	parent, err := root.OpenRoot(filepath.Dir(name))
 	if err != nil {
-		return err
+		return 0, nil, err
 	}
-	defer root.Remove(tmp)
-	_, writeErr := f.Write(content)
-	if err = errors.Join(writeErr, f.Close()); err != nil {
-		return err
+	defer parent.Close()
+	// 固定父目录，保证传输期间目录或链接变化也不会重定向最终的替换操作。
+	tmp := ".mcp-" + uuid.NewString()
+	f, err := parent.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil {
+		return 0, nil, err
 	}
-	return root.Rename(tmp, name)
+	defer func() {
+		f.Close()
+		parent.Remove(tmp)
+	}()
+	written, err := receiveUploadContents(ctx, f, source, size)
+	if err != nil {
+		return written, nil, err
+	}
+	version, err := parent.Stat(tmp)
+	if err != nil {
+		return written, nil, err
+	}
+	if err = parent.Rename(tmp, filepath.Base(name)); err != nil {
+		return written, nil, err
+	}
+	return written, version, nil
 }
 
 func managementMCPOperations() []mcpOperation {
@@ -158,6 +174,7 @@ func managementMCPOperations() []mcpOperation {
 	router.POST("/send", scriptsSendHandler)
 	router.POST("/run", scriptsSendAndStartHandler)
 	router.POST("/push", pushFileToDevicesHandler)
+	router.POST("/pull", pullFileFromDeviceHandler)
 	call := func(ctx context.Context, method, path string, body any) (any, error) {
 		b, err := json.Marshal(body)
 		if err != nil {
@@ -216,8 +233,8 @@ func managementMCPOperations() []mcpOperation {
 		ro         bool
 	}{
 		{"list", "List a page of directory entries.", fields{"offset": integer(0, 100000000), "limit": integer(1, 500)}, nil, true},
-		{"read", "Read a file page in UTF-8 or base64. nextOffset counts bytes.", fields{"offset": integer(0, 1<<52), "limit": integer(1, 1<<20)}, []string{"path"}, true},
-		{"write", "Create or replace one file. Supply text or base64 content.", fields{"content": freeText, "encoding": fields{"enum": []string{"utf8", "base64"}}}, []string{"path", "content"}, false},
+		{"read", "Inspect a file page in UTF-8 or base64. For whole files use backend_file_download_url.", fields{"offset": integer(0, 1<<52), "limit": integer(1, 1<<20)}, []string{"path"}, true},
+		{"write", "Create or replace a small file from text or base64. For local files use backend_file_upload_url.", fields{"content": freeText, "encoding": fields{"enum": []string{"utf8", "base64"}}}, []string{"path", "content"}, false},
 		{"mkdir", "Create a directory and its parents.", fields{}, []string{"path"}, false},
 		{"rename", "Move a file or directory within the same root.", fields{"destination": word}, []string{"path", "destination"}, false},
 		{"delete", "Delete the specified file or directory tree.", fields{}, []string{"path"}, false},
@@ -281,7 +298,8 @@ func managementMCPOperations() []mcpOperation {
 						return nil, err
 					}
 				}
-				return nil, writeManagedFile(root, name, b)
+				_, _, err = writeManagedFile(ctx, root, name, bytes.NewReader(b), int64(len(b)))
+				return nil, err
 			case "mkdir":
 				return nil, root.MkdirAll(name, 0755)
 			case "rename":
@@ -296,6 +314,33 @@ func managementMCPOperations() []mcpOperation {
 			panic("unknown file operation")
 		})
 	}
+	for _, op := range []struct{ kind, desc string }{
+		{"upload", "Get a one-use URL to PUT a local file's raw bytes into the cloud. Creates or replaces the named file."},
+		{"download", "Get a one-use URL to GET the named cloud file directly into a local file."},
+	} {
+		add("backend_file_"+op.kind+"_url", "files", op.desc, op.kind == "download", object(fields{"root": fields{"enum": AllowedCategories}, "path": word}, "root", "path"), func(ctx context.Context, a toolArgs) (any, error) {
+			info, _ := ctx.Value(mcpContextKey{}).(mcpRequestInfo)
+			file, err := prepareMCPFileTransfer(info, op.kind, a.str("root"), a.str("path"))
+			if err != nil {
+				return nil, err
+			}
+			token := uuid.NewString()
+			transferTokensMu.Lock()
+			transferTokens[token] = file
+			transferTokensMu.Unlock()
+			return file.mcpLink(info.clientBaseURL, token), nil
+		})
+	}
+	add("backend_pull_file_from_device", "files", "Queue one device file for upload into a cloud root. GET the returned URL to download it. HTTP 409 means the device is still uploading.", false,
+		object(fields{"udid": word, "sourcePath": word, "root": fields{"enum": AllowedCategories}, "targetPath": word}, "udid", "sourcePath", "root", "targetPath"), func(ctx context.Context, a toolArgs) (any, error) {
+			source := strings.TrimPrefix(a.str("sourcePath"), "/")
+			if _, err := managedName(source, false); err != nil {
+				return nil, err
+			}
+			info, _ := ctx.Value(mcpContextKey{}).(mcpRequestInfo)
+			return call(ctx, http.MethodPost, "/pull", fields{"deviceSN": a.str("udid"), "sourcePath": source,
+				"category": a.str("root"), "path": a.str("targetPath"), "serverBaseUrl": info.deviceBaseURL})
+		})
 	for _, kind := range []string{"get", "set"} {
 		props := fields{"name": word}
 		required := []string{"name"}
@@ -333,7 +378,8 @@ func managementMCPOperations() []mcpOperation {
 			if e != nil {
 				return nil, e
 			}
-			return nil, writeManagedFile(r, path, b)
+			_, _, e = writeManagedFile(ctx, r, path, bytes.NewReader(b), int64(len(b)))
+			return nil, e
 		})
 	}
 	add("backend_list_scripts", "scripts", "List runnable cloud scripts and projects.", true, object(nil), func(context.Context, toolArgs) (any, error) {
@@ -427,12 +473,12 @@ func managementMCPOperations() []mcpOperation {
 				}
 			}()
 			info, _ := ctx.Value(mcpContextKey{}).(mcpRequestInfo)
-			if info.baseURL == "" {
+			if info.deviceBaseURL == "" {
 				return nil, errors.New("missing device-reachable cloud URL")
 			}
-			body := fields{"serverBaseUrl": info.baseURL, "devices": ids, "name": a.str("sourcePath"), "selectedGroups": a["selectedGroups"]}
+			body := fields{"serverBaseUrl": info.deviceBaseURL, "devices": ids, "name": a.str("sourcePath"), "selectedGroups": a["selectedGroups"]}
 			if op.path == "/push" {
-				body = fields{"serverBaseUrl": info.baseURL, "category": category, "path": a.str("sourcePath"), "targetPath": a.str("targetPath"), "deviceSNs": ids}
+				body = fields{"serverBaseUrl": info.deviceBaseURL, "category": category, "path": a.str("sourcePath"), "targetPath": a.str("targetPath"), "deviceSNs": ids}
 			}
 			result, err := call(context.WithValue(ctx, mcpStageKey{}, mcpDistributionSource{source, targets}), "POST", op.path, body)
 			if err == nil && op.path == "/push" {

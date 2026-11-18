@@ -15,6 +15,8 @@ A implementação do protocolo no dispositivo está em `/var/mobile/Media/1ferve
 
 Entre no painel e abra **MCP** no cabeçalho. Copie a URL e gere um token Bearer. Conecte-se usando Streamable HTTP sobre HTTPS, por exemplo em `https://cloud.example.com/mcp`, com o cabeçalho `Authorization: Bearer <token>`. O token permite controlar dispositivos e gerenciar arquivos do servidor. Ele só é exibido uma vez e perde a validade assim que é renovado ou revogado.
 
+Para transferir um arquivo local, use `backend_file_upload_url` ou `backend_file_download_url`. Envie o arquivo sem codificação com PUT ou baixe-o com GET pela URL recebida. Cada link pode ser usado uma vez em até cinco minutos. Para buscar um arquivo do dispositivo, chame `backend_pull_file_from_device`. Se o GET retornar HTTP 409, aguarde o tempo indicado em `Retry-After` e tente novamente.
+
 ## Lançamentos
 
 - Página oficial de download (GitHub Pages): [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

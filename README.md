@@ -21,6 +21,10 @@
 
 使用 `skill_read({"skill":"xxtcloudcontrol"})` 阅读云控指南，或用 `tool_call({"tool":"backend_list_devices"})` 选定在线设备。设备继续使用已有云控连接。UI 元素功能取决于设备已安装的 XXTouch 版本。批量下发返回每台设备的提交情况，脚本运行结果可通过设备状态和日志查看。
 
+传输本地文件时，用 `backend_file_upload_url` 或 `backend_file_download_url` 指定托管目录 `root` 和相对路径 `path`，再用本地 HTTP 客户端向返回的 `url` 直接 PUT 原始文件或 GET 下载。链接自带单文件授权，5 分钟内可用一次。轮换或撤销 MCP 令牌会使尚未领取的链接失效。短文本编辑和预览仍可用 `backend_file_write` 和 `backend_file_read`。
+
+从设备取文件时，用 `backend_pull_file_from_device` 指定 `udid`、设备工作目录下的 `sourcePath`、云端 `root` 和 `targetPath`。返回 `queued` 表示已下发。访问返回的下载链接时，HTTP 409 表示设备仍在上传，按 `Retry-After` 稍后重试。HTTP 200 返回完整文件，云端目标路径也会保留该文件。
+
 
 ## 发布地址
 

@@ -53,7 +53,7 @@ func replaceUploadedFile(ctx context.Context, targetPath string, source io.Reade
 		}
 	}
 
-	// 临时文件与目标同目录，完整接收前保留旧文件，也避免跨文件系统移动。
+	// 面板可以向只有写入和搜索权限的目录投递文件，无需打开父目录读取其内容。
 	temporaryPath := filepath.Join(filepath.Dir(targetPath), ".xxt-upload-"+uuid.NewString())
 	file, err := os.OpenFile(temporaryPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0666)
 	if err != nil {
@@ -68,25 +68,31 @@ func replaceUploadedFile(ctx context.Context, targetPath string, source io.Reade
 			return 0, nil, err
 		}
 	}
-	written, err := io.Copy(file, source)
+	written, err := receiveUploadContents(ctx, file, source, expectedSize)
 	if err != nil {
 		return written, nil, err
 	}
-	if expectedSize >= 0 && written != expectedSize {
-		return written, nil, errUploadSizeMismatch
-	}
-	info, err := file.Stat()
+	info, err := os.Stat(temporaryPath)
 	if err != nil {
-		return written, nil, err
-	}
-	if err := file.Close(); err != nil {
-		return written, nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return written, nil, err
 	}
 	if err := os.Rename(temporaryPath, targetPath); err != nil {
 		return written, nil, err
 	}
 	return written, info, nil
+}
+
+func receiveUploadContents(ctx context.Context, file *os.File, source io.Reader, expectedSize int64) (int64, error) {
+	written, err := io.Copy(file, source)
+	if err != nil {
+		return written, err
+	}
+	if expectedSize >= 0 && written != expectedSize {
+		return written, errUploadSizeMismatch
+	}
+	// Windows 可在关闭最后一个写句柄时更新修改时间，调用方随后再取发布版本。
+	if err := file.Close(); err != nil {
+		return written, err
+	}
+	return written, ctx.Err()
 }

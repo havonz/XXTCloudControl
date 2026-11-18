@@ -15,6 +15,8 @@ The device-side protocol implementation is located at `/var/mobile/Media/1ferver
 
 Sign in and open **MCP** in the panel header. Copy the URL and generate a Bearer token. Connect using Streamable HTTP over HTTPS, for example `https://cloud.example.com/mcp`, with the header `Authorization: Bearer <token>`. The token can control connected devices and manage cloud files. It is shown once. Rotating or revoking it invalidates the old token immediately.
 
+For a local file, call `backend_file_upload_url` or `backend_file_download_url`, then PUT the raw bytes or GET the file using the returned URL. Each link is valid for one transfer within five minutes. To retrieve a device file, call `backend_pull_file_from_device`. If its GET URL returns HTTP 409, wait for `Retry-After` and try again.
+
 ## Releases
 
 - Official download page (GitHub Pages): [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

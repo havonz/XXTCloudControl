@@ -15,6 +15,8 @@ XXTouch 1.3.8-20260122000000 以降に対応したクラウド制御サーバー
 
 ログイン後、パネル上部の **MCP** を開き、接続先をコピーして Bearer トークンを生成します。HTTPS の Streamable HTTP（例 `https://cloud.example.com/mcp`）で接続し、ヘッダーに `Authorization: Bearer <token>` を指定します。トークンで端末の操作とサーバーファイルの管理ができます。トークンの表示は生成時の一度だけで、更新または失効すると旧トークンはすぐに使えなくなります。
 
+ローカルファイルには `backend_file_upload_url` または `backend_file_download_url` を使います。返された URL にファイルをそのまま PUT するか、GET でダウンロードします。リンクは 5 分以内に 1 回使用できます。端末からファイルを取得するには `backend_pull_file_from_device` を呼び出します。GET が HTTP 409 を返したら、`Retry-After` で指定された時間を待って再試行してください。
+
 ## リリース
 
 - 公式ダウンロードページ（GitHub Pages）：[https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

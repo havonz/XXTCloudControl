@@ -177,7 +177,7 @@ func main() {
 	// Configure Gin
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(gin.Logger())
+	r.Use(requestLogger())
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware())
 	r.Use(apiAuthMiddleware())

@@ -21,9 +21,11 @@ import (
 )
 
 type mcpAccess struct {
-	mu     sync.RWMutex
-	path   string
-	digest []byte
+	mu              sync.RWMutex
+	path            string
+	digest          []byte
+	fileLinks       context.Context
+	revokeFileLinks context.CancelFunc
 }
 
 func registerMCP(r *gin.Engine) error {
@@ -59,6 +61,7 @@ func registerMCP(r *gin.Engine) error {
 	r.POST("/api/mcp/token", access.manage)
 	r.DELETE("/api/mcp/token", access.manage)
 	server := newCloudMCPServer()
+	access.fileLinks, access.revokeFileLinks = context.WithCancel(context.Background())
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	r.Any("/mcp", func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
@@ -76,6 +79,7 @@ func registerMCP(r *gin.Engine) error {
 			hash := sha256.Sum256([]byte(auth[1]))
 			allowed = subtle.ConstantTimeCompare(access.digest, hash[:]) == 1
 		}
+		fileLinks := access.fileLinks
 		access.mu.RUnlock()
 		if !allowed {
 			c.Header("WWW-Authenticate", `Bearer realm="XXTCloudControl"`)
@@ -84,7 +88,11 @@ func registerMCP(r *gin.Engine) error {
 		}
 		req := c.Request
 		req.Body = http.MaxBytesReader(c.Writer, req.Body, 4<<20)
-		ctx := context.WithValue(req.Context(), mcpContextKey{}, mcpRequestInfo{baseURL: resolveTransferBaseURL(c, ""), language: req.Header.Get("Accept-Language")})
+		ctx := context.WithValue(req.Context(), mcpContextKey{}, mcpRequestInfo{
+			deviceBaseURL: resolveTransferBaseURL(c, ""),
+			clientBaseURL: requestBaseURLFromContext(c, requestTransferScheme(c)),
+			language:      req.Header.Get("Accept-Language"), fileLinks: fileLinks,
+		})
 		handler.ServeHTTP(c.Writer, req.WithContext(ctx))
 	})
 	return nil
@@ -118,6 +126,8 @@ func (a *mcpAccess) manage(c *gin.Context) {
 			jsonError(c, 500, "error.config.save_failed")
 			return
 		}
+		a.revokeFileLinks()
+		a.fileLinks, a.revokeFileLinks = context.WithCancel(context.Background())
 		a.digest = hash[:]
 		c.JSON(200, gin.H{"enabled": true, "token": token})
 		return
@@ -126,6 +136,7 @@ func (a *mcpAccess) manage(c *gin.Context) {
 			jsonError(c, 500, "error.config.save_failed")
 			return
 		}
+		a.revokeFileLinks()
 		a.digest = nil
 	}
 	c.JSON(200, gin.H{"enabled": len(a.digest) > 0})

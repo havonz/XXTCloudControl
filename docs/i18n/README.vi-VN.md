@@ -15,6 +15,8 @@ Mã nguồn triển khai giao thức phía thiết bị nằm tại `/var/mobile
 
 Đăng nhập rồi mở **MCP** ở đầu bảng điều khiển. Sao chép địa chỉ và tạo mã Bearer. Kết nối bằng Streamable HTTP qua HTTPS, ví dụ `https://cloud.example.com/mcp`, với tiêu đề `Authorization: Bearer <token>`. Mã cho phép điều khiển thiết bị và quản lý tệp trên máy chủ. Mã chỉ hiển thị một lần và mất hiệu lực ngay khi được thay hoặc thu hồi.
 
+Để truyền tệp cục bộ, gọi `backend_file_upload_url` hoặc `backend_file_download_url`, rồi dùng PUT để gửi trực tiếp nội dung tệp hoặc GET để tải tệp về. Mỗi liên kết dùng được một lần trong vòng năm phút. Để lấy tệp từ thiết bị, gọi `backend_pull_file_from_device`. Nếu GET trả về HTTP 409, hãy đợi theo `Retry-After` rồi thử lại.
+
 ## Bản phát hành
 
 - Trang tải xuống chính thức (GitHub Pages): [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

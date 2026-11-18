@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,20 +23,26 @@ import (
 
 // TransferToken represents a temporary file transfer token
 type TransferToken struct {
-	Type                 string    // "download" or "upload"
-	FilePath             string    // Server file path (absolute)
-	TargetPath           string    // Device target path (for download) or save path (for upload)
-	DeviceSN             string    // Target device serial number
-	ExpiresAt            time.Time // Token expiration time
-	OneTime              bool      // If true, token is invalidated after use
-	TotalBytes           int64     // File size (for progress calculation)
-	MD5                  string    // File MD5 hash (for download verification)
-	Category             string    // File category (scripts/files/reports)
-	DeviceTransferID     string
-	BrowserDownloadToken string
-	UploadPending        bool
+	Type             string    // "download" or "upload"
+	FilePath         string    // Absolute for panel transfers, relative to Category for MCP grants.
+	TargetPath       string    // Device target path (for download) or save path (for upload)
+	DeviceSN         string    // Target device serial number
+	ExpiresAt        time.Time // Token expiration time
+	OneTime          bool      // If true, token is invalidated after use
+	TotalBytes       int64     // File size (for progress calculation)
+	MD5              string    // File MD5 hash (for download verification)
+	Category         string    // File category (scripts/files/reports)
+	DeviceTransferID string
+	DownloadToken    string
+	UploadPending    bool
+	mcpLinks         context.Context
+	sourceVersion    os.FileInfo
 	// 令牌与进行中的下载共同持有临时源文件，避免其他设备或过期清理提前删除它。
 	SharedSourceID string
+}
+
+func (t *TransferToken) expired(now time.Time) bool {
+	return !now.Before(t.ExpiresAt) || (t.mcpLinks != nil && t.mcpLinks.Err() != nil)
 }
 
 type sharedTempRef struct {
@@ -273,7 +281,7 @@ func cleanupExpiredTokens() {
 	now := time.Now()
 	transferTokensMu.Lock()
 	for token, info := range transferTokens {
-		if now.After(info.ExpiresAt) {
+		if info.expired(now) {
 			delete(transferTokens, token)
 			if info.SharedSourceID != "" {
 				expiredSharedIDs = append(expiredSharedIDs, info.SharedSourceID)
@@ -526,6 +534,7 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 // transferDownloadHandler handles GET /api/transfer/download/:token
 // This endpoint does NOT require authentication - the token IS the auth
 func transferDownloadHandler(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	clearTransferRequestDeadlines(c)
 	_, touchWriteDeadline := makeTransferDeadlineTouchers(c, transferIOIdleTimeout)
 	if touchWriteDeadline != nil {
@@ -549,7 +558,7 @@ func transferDownloadHandler(c *gin.Context) {
 	}
 
 	// Check expiration
-	if time.Now().After(tokenInfo.ExpiresAt) {
+	if tokenInfo.expired(time.Now()) {
 		delete(transferTokens, token)
 		transferTokensMu.Unlock()
 		if tokenInfo.SharedSourceID != "" {
@@ -566,6 +575,18 @@ func transferDownloadHandler(c *gin.Context) {
 		return
 	}
 	if tokenInfo.UploadPending {
+		if tokenInfo.mcpLinks != nil {
+			deviceFileTransfers.Lock()
+			_, active := deviceFileTransfers.byID[tokenInfo.DeviceTransferID]
+			deviceFileTransfers.Unlock()
+			if !active {
+				delete(transferTokens, token)
+				transferTokensMu.Unlock()
+				jsonErrorWithDetail(c, http.StatusGone, "error.request.failed", "Device upload did not complete")
+				return
+			}
+			c.Header("Retry-After", "1")
+		}
 		transferTokensMu.Unlock()
 		jsonError(c, http.StatusConflict, errDeviceFileTransferBusy.Error())
 		return
@@ -584,7 +605,7 @@ func transferDownloadHandler(c *gin.Context) {
 	}
 
 	// Open file
-	file, err := os.Open(tokenInfo.FilePath)
+	file, err := tokenInfo.openDownload()
 	if err != nil {
 		jsonError(c, http.StatusInternalServerError, "failed to open file")
 		return
@@ -597,11 +618,15 @@ func transferDownloadHandler(c *gin.Context) {
 		jsonError(c, http.StatusInternalServerError, "failed to stat file")
 		return
 	}
+	if version := tokenInfo.sourceVersion; version != nil && (!os.SameFile(version, info) || version.Size() != info.Size() || !version.ModTime().Equal(info.ModTime())) {
+		jsonErrorWithDetail(c, http.StatusGone, "error.token.expired", "File changed after the link was issued")
+		return
+	}
 
 	// Set headers
 	fileName := filepath.Base(tokenInfo.FilePath)
 	c.Header("Content-Type", "application/octet-stream")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": fileName}))
 	c.Header("Content-Length", fmt.Sprintf("%d", info.Size()))
 	c.Header("X-File-MD5", tokenInfo.MD5)
 
@@ -614,10 +639,9 @@ func transferDownloadHandler(c *gin.Context) {
 		targetPath:  tokenInfo.TargetPath,
 		minInterval: 200 * time.Millisecond,
 		touchWrite:  touchWriteDeadline,
-		onProgress: func(progress TransferProgress) {
-			// Broadcast progress to frontend via WebSocket
-			broadcastTransferProgress(progress)
-		},
+	}
+	if tokenInfo.mcpLinks == nil {
+		pw.onProgress = broadcastTransferProgress
 	}
 
 	debugLogf("📥 Download started: %s → device %s (%d bytes)",
@@ -638,7 +662,7 @@ func transferDownloadHandler(c *gin.Context) {
 	// Clean up temp files after successful download
 	// Shared temp file cleanup is managed by shared token ref-count.
 	// Non-shared temp files keep existing one-time cleanup behavior.
-	if tokenInfo.SharedSourceID == "" && isTempFilePath(tokenInfo.FilePath) {
+	if tokenInfo.mcpLinks == nil && tokenInfo.SharedSourceID == "" && isTempFilePath(tokenInfo.FilePath) {
 		go removeTempFileWithRetry(tokenInfo.FilePath)
 	}
 }
@@ -646,6 +670,7 @@ func transferDownloadHandler(c *gin.Context) {
 // transferUploadHandler handles PUT /api/transfer/upload/:token
 // This endpoint does NOT require authentication - the token IS the auth
 func transferUploadHandler(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	clearTransferRequestDeadlines(c)
 	touchReadDeadline, _ := makeTransferDeadlineTouchers(c, transferIOIdleTimeout)
 	if touchReadDeadline != nil {
@@ -669,7 +694,7 @@ func transferUploadHandler(c *gin.Context) {
 	}
 
 	// Check expiration
-	if time.Now().After(tokenInfo.ExpiresAt) {
+	if tokenInfo.expired(time.Now()) {
 		delete(transferTokens, token)
 		transferTokensMu.Unlock()
 		if tokenInfo.SharedSourceID != "" {
@@ -696,20 +721,25 @@ func transferUploadHandler(c *gin.Context) {
 	contentLength := c.Request.ContentLength
 	if tokenInfo.DeviceTransferID != "" {
 		deviceFileTransfers.Lock()
-		if transfer := deviceFileTransfers.byID[tokenInfo.DeviceTransferID]; transfer != nil {
+		transfer := deviceFileTransfers.byID[tokenInfo.DeviceTransferID]
+		if transfer != nil {
 			transfer.expiresAt = time.Time{}
 		}
 		deviceFileTransfers.Unlock()
+		if transfer == nil && tokenInfo.mcpLinks != nil {
+			jsonError(c, http.StatusGone, "token expired")
+			return
+		}
 		defer finishDeviceFileTransfer(tokenInfo.DeviceTransferID)
 	}
 	uploadComplete := false
-	if tokenInfo.SharedSourceID != "" && tokenInfo.OneTime {
+	if tokenInfo.OneTime && (tokenInfo.SharedSourceID != "" || tokenInfo.DownloadToken != "") {
 		// 上传令牌消费后由正在进行的接收继续持有源文件，不能被下载令牌过期清理抢先删除。
 		defer func() {
-			if !uploadComplete && tokenInfo.BrowserDownloadToken != "" {
+			if !uploadComplete && tokenInfo.DownloadToken != "" {
 				transferTokensMu.Lock()
-				download := transferTokens[tokenInfo.BrowserDownloadToken]
-				delete(transferTokens, tokenInfo.BrowserDownloadToken)
+				download := transferTokens[tokenInfo.DownloadToken]
+				delete(transferTokens, tokenInfo.DownloadToken)
 				transferTokensMu.Unlock()
 				if download != nil {
 					releaseSharedTempRef(download.SharedSourceID)
@@ -728,10 +758,9 @@ func transferUploadHandler(c *gin.Context) {
 		filePath:    tokenInfo.FilePath,
 		minInterval: 200 * time.Millisecond,
 		touchRead:   touchReadDeadline,
-		onProgress: func(progress TransferProgress) {
-			// Broadcast progress to frontend via WebSocket
-			broadcastTransferProgress(progress)
-		},
+	}
+	if tokenInfo.DeviceSN != "" {
+		pr.onProgress = broadcastTransferProgress
 	}
 
 	fileName := filepath.Base(tokenInfo.FilePath)
@@ -740,7 +769,7 @@ func transferUploadHandler(c *gin.Context) {
 
 	// 保留接口返回的摘要，随上传计算避免再次读取整个文件。
 	hashWriter := md5.New()
-	written, info, err := replaceUploadedFile(c.Request.Context(), tokenInfo.FilePath, io.TeeReader(pr, hashWriter), contentLength)
+	written, info, err := tokenInfo.receiveUpload(c.Request.Context(), io.TeeReader(pr, hashWriter), contentLength)
 	if err != nil {
 		log.Printf("❌ Upload failed: %s - %v", fileName, err)
 		if errors.Is(err, errUploadSizeMismatch) {
@@ -752,8 +781,24 @@ func transferUploadHandler(c *gin.Context) {
 	}
 
 	md5Hash := hex.EncodeToString(hashWriter.Sum(nil))
-	// 浏览器临时文件消费后即删除，不占用后续分发使用的摘要缓存。
-	if tokenInfo.BrowserDownloadToken == "" {
+	if tokenInfo.DownloadToken != "" {
+		transferTokensMu.Lock()
+		if download := transferTokens[tokenInfo.DownloadToken]; download != nil {
+			download.TotalBytes = written
+			download.MD5 = md5Hash
+			download.UploadPending = false
+			readyUntil := time.Now().Add(defaultTransferTokenTTL)
+			if download.mcpLinks != nil {
+				download.sourceVersion = info
+				// 已通知客户端的领取截止时间只延长，设备很快传完时也不能提前失效。
+				if download.ExpiresAt.After(readyUntil) {
+					readyUntil = download.ExpiresAt
+				}
+			}
+			download.ExpiresAt = readyUntil
+		}
+		transferTokensMu.Unlock()
+	} else if tokenInfo.mcpLinks == nil {
 		// 使用本次写入的元数据，避免再次 Stat 时读到另一笔上传刚替换的文件。
 		md5Cache.Lock()
 		md5Cache.trimLocked(tokenInfo.FilePath)
@@ -765,15 +810,6 @@ func transferUploadHandler(c *gin.Context) {
 			generation: md5Cache.generation,
 		}
 		md5Cache.Unlock()
-	} else {
-		transferTokensMu.Lock()
-		if download := transferTokens[tokenInfo.BrowserDownloadToken]; download != nil {
-			download.TotalBytes = written
-			download.MD5 = md5Hash
-			download.UploadPending = false
-			download.ExpiresAt = time.Now().Add(defaultTransferTokenTTL)
-		}
-		transferTokensMu.Unlock()
 	}
 	uploadComplete = true
 
@@ -1012,8 +1048,16 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 		}
 	}
 
-	// Validate and prepare save path
-	filePath, err := validatePath(req.Category, req.Path)
+	var upload *TransferToken
+	var err error
+	mcpInfo, forMCP := c.Request.Context().Value(mcpContextKey{}).(mcpRequestInfo)
+	if forMCP {
+		upload, err = prepareMCPFileTransfer(mcpInfo, "upload", req.Category, req.Path)
+	} else {
+		var filePath string
+		filePath, err = validatePath(req.Category, req.Path)
+		upload = &TransferToken{Type: "upload", Category: req.Category, FilePath: filePath, OneTime: true}
+	}
 	if err != nil {
 		jsonError(c, http.StatusBadRequest, err.Error())
 		return
@@ -1023,6 +1067,8 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 	requestID := uuid.NewString()
 	timeout := normalizeTransferTimeoutSeconds(req.Timeout)
 	expiresAt := time.Now().Add(transferTokenTTLForTimeout(timeout))
+	upload.DeviceSN, upload.TargetPath = req.DeviceSN, req.SourcePath
+	upload.DeviceTransferID, upload.ExpiresAt = requestID, expiresAt
 	if err := beginDeviceFileTransfer(req.DeviceSN, req.SourcePath, requestID, "upload", expiresAt); err != nil {
 		jsonError(c, http.StatusConflict, err.Error())
 		return
@@ -1035,7 +1081,7 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 	}()
 
 	// Create parent directory
-	parentDir := filepath.Dir(filePath)
+	parentDir := filepath.Dir(upload.FilePath)
 	if req.Temporary {
 		if err := os.MkdirAll(filepath.Dir(parentDir), 0755); err != nil {
 			jsonError(c, http.StatusInternalServerError, "failed to create directory")
@@ -1050,37 +1096,35 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 			}
 			return
 		}
-	} else {
+	} else if !forMCP {
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
 			jsonError(c, http.StatusInternalServerError, "failed to create directory")
 			return
 		}
 	}
 
-	browserDownloadToken, sharedSourceID := "", ""
+	var link fields
+	downloadToken := ""
 	transferTokensMu.Lock()
 	if req.Temporary {
-		sharedSourceID = retainDownloadTempSource(filePath, "", 0)
-		registerSharedTempRef(sharedSourceID, filePath, 0)
-		browserDownloadToken = uuid.NewString()
-		transferTokens[browserDownloadToken] = &TransferToken{
-			Type: "download", FilePath: filePath, TargetPath: req.Path, DeviceSN: req.DeviceSN,
-			ExpiresAt: expiresAt, OneTime: true, Category: req.Category,
-			SharedSourceID: sharedSourceID, UploadPending: true,
+		upload.SharedSourceID = retainDownloadTempSource(upload.FilePath, "", 0)
+		registerSharedTempRef(upload.SharedSourceID, upload.FilePath, 0)
+	}
+	if req.Temporary || forMCP {
+		downloadToken = uuid.NewString()
+		download := &TransferToken{
+			Type: "download", FilePath: upload.FilePath, TargetPath: req.Path, DeviceSN: req.DeviceSN,
+			ExpiresAt: expiresAt, OneTime: true, Category: req.Category, DeviceTransferID: requestID,
+			SharedSourceID: upload.SharedSourceID, UploadPending: true, mcpLinks: upload.mcpLinks,
+		}
+		transferTokens[downloadToken] = download
+		upload.DownloadToken = downloadToken
+		if forMCP {
+			link = download.mcpLink(mcpInfo.clientBaseURL, downloadToken)
+			link["state"] = "queued"
 		}
 	}
-	transferTokens[token] = &TransferToken{
-		Type:                 "upload",
-		FilePath:             filePath,
-		TargetPath:           req.SourcePath, // Store device source path for reference
-		DeviceSN:             req.DeviceSN,
-		ExpiresAt:            expiresAt,
-		OneTime:              true,
-		Category:             req.Category,
-		DeviceTransferID:     requestID,
-		SharedSourceID:       sharedSourceID,
-		BrowserDownloadToken: browserDownloadToken,
-	}
+	transferTokens[token] = upload
 	transferTokensMu.Unlock()
 
 	// Build upload URL path
@@ -1093,7 +1137,7 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 		// Cleanup token on failure
 		var abandoned []*TransferToken
 		transferTokensMu.Lock()
-		for _, key := range []string{token, browserDownloadToken} {
+		for _, key := range []string{token, downloadToken} {
 			if info := transferTokens[key]; info != nil {
 				abandoned = append(abandoned, info)
 				delete(transferTokens, key)
@@ -1109,13 +1153,17 @@ func pullFileFromDeviceHandler(c *gin.Context) {
 
 	debugLogf("📥 Pull file initiated: device %s:%s → %s", req.DeviceSN, req.SourcePath, req.Path)
 	transferDispatched = true
+	if forMCP {
+		c.JSON(http.StatusOK, link)
+		return
+	}
 
 	result := gin.H{
 		"success": true,
 		"token":   token,
 	}
-	if browserDownloadToken != "" {
-		result["downloadToken"] = browserDownloadToken
+	if downloadToken != "" {
+		result["downloadToken"] = downloadToken
 	}
 	c.JSON(http.StatusOK, result)
 }

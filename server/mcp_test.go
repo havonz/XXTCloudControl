@@ -168,7 +168,15 @@ func TestCloudMCPAuthenticatedSession(t *testing.T) {
 			t.Fatal("escaped managed root with", name)
 		}
 	}
+	link := call("tool_call", fields{"tool": "backend_file_upload_url", "args": fields{"root": "files", "path": "before-rotation.bin"}})
+	var issued struct{ Data struct{ URL string } }
+	if link.IsError || json.Unmarshal([]byte(link.Content[0].(*mcp.TextContent).Text), &issued) != nil || issued.Data.URL == "" {
+		t.Fatal("could not issue a file link before rotating credentials")
+	}
 	newToken := issue()
+	if w := requestTransferUpload(filepath.Base(issued.Data.URL), nil, 0); w.Code != http.StatusGone {
+		t.Fatal("rotating the MCP credential left an unused upload link active")
+	}
 	if _, err = session.ListTools(ctx, nil); err == nil {
 		t.Fatal("old session accepted rotated token")
 	}

@@ -22,7 +22,12 @@ type mcpOperation struct {
 	validator                   *jsonschema.Resolved
 }
 type mcpContextKey struct{}
-type mcpRequestInfo struct{ baseURL, language string }
+type mcpRequestInfo struct {
+	deviceBaseURL string
+	clientBaseURL string
+	language      string
+	fileLinks     context.Context
+}
 
 func object(props fields, required ...string) fields {
 	if props == nil {

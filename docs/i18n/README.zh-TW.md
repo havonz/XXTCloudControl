@@ -15,6 +15,8 @@
 
 登入後點選面板頂端的 **MCP**，複製連線位址並產生 Bearer 權杖。使用 Streamable HTTP 透過 HTTPS 連線，例如 `https://cloud.example.com/mcp`，並設定 `Authorization: Bearer <token>`。權杖可控制線上裝置及管理雲端檔案，明文只顯示一次。更換或撤銷後，舊權杖立即失效。
 
+傳輸本機檔案時，使用 `backend_file_upload_url` 或 `backend_file_download_url` 取得連結，再用 PUT 上傳原始檔案或用 GET 下載。連結在五分鐘內可用一次。使用 `backend_pull_file_from_device` 可從裝置取回檔案。若下載連結回傳 HTTP 409，請依 `Retry-After` 指示稍後重試。
+
 ## 下載與發布
 
 - 官方發布下載頁（GitHub Pages）：[https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)

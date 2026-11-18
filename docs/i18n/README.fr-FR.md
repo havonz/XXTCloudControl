@@ -15,6 +15,8 @@ L’implémentation du protocole côté appareil se trouve à l’adresse `/var/
 
 Après la connexion, ouvrez **MCP** en haut du panneau, copiez l’adresse et générez un jeton Bearer. Utilisez Streamable HTTP via HTTPS, par exemple `https://cloud.example.com/mcp`, avec l’en-tête `Authorization: Bearer <token>`. Ce jeton permet de contrôler les appareils et de gérer les fichiers du serveur. Il ne s’affiche qu’une fois. Son renouvellement ou sa révocation invalide immédiatement l’ancien jeton.
 
+Pour transférer un fichier local, appelez `backend_file_upload_url` ou `backend_file_download_url`. Envoyez le fichier brut avec PUT ou téléchargez-le avec GET à l’URL reçue. Chaque lien est utilisable une seule fois dans les cinq minutes. Pour récupérer un fichier de l’appareil, appelez `backend_pull_file_from_device`. Si GET renvoie HTTP 409, attendez le délai indiqué par `Retry-After` avant de réessayer.
+
 ## Versions publiées
 
 - Page officielle de téléchargement (GitHub Pages) : [https://xxtccc-releases.xxtouch.app/](https://xxtccc-releases.xxtouch.app/)
