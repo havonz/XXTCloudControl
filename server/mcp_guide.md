@@ -1,12 +1,13 @@
 # XXTCloudControl
 
-Connect using Streamable HTTP at the cloud server's /mcp endpoint. Use the Bearer token generated in the signed-in panel. The token grants device control and managed file access. Keep it out of scripts, screenshots and logs.
+Use Streamable HTTP at `/mcp` with the signed-in panel's Bearer token. It grants device and file access. Keep it out of scripts, screenshots, and logs.
 
-Call known IDs directly with `tool_call({"tool":"backend_list_devices"})`. Use `tool_info({"tools":["device_unlock","device_get_status"]})` for definitions, or `tool_list({})` to discover IDs.
+Call known IDs directly, e.g. `tool_call({tool:"backend_list_devices"})`. Use `tool_info({tools:["device_unlock","device_get_status"]})` for schemas and `tool_list({})` for unknown IDs.
 
-1. backend_list_devices returns the connected device count in data.total and the devices in data.devices. To unlock a device, use `tool_call({"tool":"device_unlock","args":{"udid":"DEVICE_ID"}})`. Use device_lock to lock it. Check system.is_locked in device_get_status after the screen transition to confirm the result. device_get_screenshot returns a PNG; set scale to 50 for a half-size image.
-2. Send device_input_sequence with steps such as [{"type":"tap","x":120,"y":250}]. Coordinates are physical screen pixels. A failed sequence may already have applied earlier steps. Inspect the screen before retrying.
-3. For accessibility, use device_ui_element_snapshot, then device_ui_element_query or device_ui_element_action on the selected device. Devices without the required capability still support screenshots and coordinate input.
-4. Call device_run_script_snippet with {"udid":"DEVICE_ID","code":"return 1"}. Sync mode returns JSON-compatible Lua values or an error. async=true returns after launch. A timeout does not stop the script. device_get_logs reads recent system log lines and device_collect_realtime_logs captures a bounded interval.
-5. Managed file paths are relative to scripts, files or reports. Use backend_file_write for text or base64, and backend_file_read with nextOffset for larger reads. Use backend_group_list and the group tools to manage memberships and script configurations.
-6. Call device_send_script_and_run with {"sourcePath":"Demo.xpp","deviceIds":["DEVICE_ID"],"selectedGroups":["GROUP_ID"]}. Use device_upload_script to distribute without starting. backend_push_file_to_devices takes root, sourcePath, targetPath and deviceIds. Files are sent over the existing cloud transfer channel. queued means submitted. Check live device state and logs for execution.
+- `backend_list_devices` gives connected count `data.total` and list `data.devices`. Lock/unlock by `udid` with `device_lock` / `device_unlock`. Verify `system.is_locked` via `device_get_status` after the transition.
+- `device_get_screenshot` returns PNG (`scale:50` halves size). `device_input_sequence` takes physical pixels, e.g. `steps:[{type:"tap",x:120,y:250}]`. After failure, inspect the screen before retrying.
+- For accessibility, call `device_ui_element_snapshot` then `device_ui_element_query` or `device_ui_element_action`. Fall back to screenshots and coordinates.
+- `device_run_script_snippet` takes `{udid:"DEVICE_ID",code:"return 1"}`. Sync returns JSON-compatible values or an error. Async returns at launch (`async:true`). An MCP timeout does not stop Lua. Read recent lines with `device_get_logs` or capture an interval with `device_collect_realtime_logs`.
+- In device Lua, `ok,reason,status,stdout,stderr = os.run("cat", 2, "hello\n")` sends stdin with a two-second command timeout. Omit the timeout or pass 0 for no limit.
+- Cloud file roots are `scripts`, `files`, `reports`. `backend_file_write` accepts text/base64. Continue `backend_file_read` at `nextOffset`. Use `backend_group_list` and group tools for membership and script configuration.
+- Find a script with `backend_list_scripts`. Pass its cloud-relative `sourcePath`, `deviceIds`, and optional `selectedGroups` to `device_send_script_and_run`. Use `device_upload_script` for transfer only. `backend_push_file_to_devices` sends `sourcePath` under cloud `root` to device `targetPath`. `queued` confirms submission. Check device status and logs for execution.
